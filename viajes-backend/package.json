@@ -1,0 +1,30 @@
+{
+  "name": "viajes-billetera-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Backend de plataforma de viajes - variante D: billetera y pagos",
+  "type": "module",
+  "engines": {
+    "node": ">=22 <23"
+  },
+  "scripts": {
+    "dev": "node --watch src/servidor.js",
+    "start": "node src/servidor.js",
+    "test": "node --test",
+    "lint": "node --check src/servidor.js && node --check src/composicion.js",
+    "migrate": "node src/infra/db/migrate.js",
+    "seed": "node src/infra/db/seed.js",
+    "setup": "npm run migrate && npm run seed"
+  },
+  "dependencies": {
+    "argon2": "^0.45.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^5.1.0",
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.3",
+    "pg": "^8.16.3",
+    "pino": "^9.9.0",
+    "zod": "^4.1.12"
+  }
+}
