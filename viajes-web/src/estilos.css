@@ -196,7 +196,9 @@ h1 { margin: 0; font-weight: 600; }
   gap: 28px;
 }
 .acceso .tarjeta { width: 100%; max-width: 380px; }
-.acceso__pie { margin: 4px 0 0; font-size: 14px; color: var(--texto-secundario); text-align: center; }
+.acceso__pie { margin: 4px 0 0; font-size: 14px; line-height: 1.5; color: var(--texto-secundario); text-align: center; }
+.acceso__pie a { display: inline-block; font-weight: 600; text-decoration: none; }
+.acceso__pie a:hover { text-decoration: underline; }
 
 /* Encabezado */
 .encabezado {

@@ -44,7 +44,8 @@ export default function Ingresar() {
         </div>
         <button type="submit" className="boton boton--principal" style={{ marginTop: 8 }}>Entrar</button>
         <p className="acceso__pie">
-          ¿No tenés cuenta? <Link to="/registro">Registrate como pasajero o chofer</Link>
+          ¿No tenés cuenta?<br />
+          <Link to="/registro">Registrate como pasajero o chofer</Link>
         </p>
       </form>
     </div>
