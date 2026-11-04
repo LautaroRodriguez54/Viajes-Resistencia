@@ -8,7 +8,8 @@ const etiquetasRol = {
 };
 
 // enlaces: [{ a: '/pasajero/pedir', texto: 'Pedir' }, ...]
-export default function Encabezado({ rol, enlaces = [], plano = false }) {
+// detalle: dato extra al lado del rol (la patente del chofer).
+export default function Encabezado({ rol, enlaces = [], plano = false, detalle }) {
   return (
     <header className={plano ? 'encabezado encabezado--plano' : 'encabezado'}>
       <Link to="/" className="marca">Viajes Resistencia</Link>
@@ -20,7 +21,7 @@ export default function Encabezado({ rol, enlaces = [], plano = false }) {
         </nav>
       )}
       <span className="encabezado__usuario">
-        {etiquetasRol[rol]} · <Link to="/ingresar">Salir</Link>
+        {etiquetasRol[rol]} · {detalle && <>{detalle} · </>}<Link to="/ingresar">Salir</Link>
       </span>
     </header>
   );

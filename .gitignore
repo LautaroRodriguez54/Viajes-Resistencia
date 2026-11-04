@@ -1,0 +1,8 @@
+# Ignorados en todo el repo, en cualquier rama.
+# Cada proyecto (viajes-backend, viajes-web) tiene además su propio .gitignore.
+node_modules/
+dist/
+coverage/
+.env
+.env.local
+npm-debug.log*

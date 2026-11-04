@@ -9,6 +9,7 @@
   --borde-input: #D6D1C7;
   --acento: #3346D3;
   --acento-hover: #1F2E9E;
+  --acento-fondo: #E8EBFB;
   --exito: #1F7A4D;
   --exito-fondo: #E3F2EA;
   --advertencia: #8A3F05;
@@ -298,15 +299,30 @@ h1 { margin: 0; font-weight: 600; }
 .chip--exito { color: var(--exito); background: var(--exito-fondo); }
 .chip--advertencia { color: var(--advertencia); background: var(--advertencia-fondo); }
 .chip--peligro { color: var(--peligro); background: var(--peligro-fondo); }
+.chip--acento { color: var(--acento); background: var(--acento-fondo); }
+.chip--neutro { color: var(--texto); background: var(--separador); }
 
 .aviso { margin: 0; font-size: 14px; border-radius: var(--radio-control); padding: 12px 14px; line-height: 1.45; }
 .aviso--advertencia { color: var(--advertencia); background: var(--advertencia-fondo); }
+.aviso--peligro { color: var(--peligro); background: var(--peligro-fondo); padding: 10px 14px; }
 
 .texto-exito { color: var(--exito); }
 .texto-advertencia { color: var(--advertencia); font-weight: 600; }
 
 .boton--peligro { color: var(--peligro); min-height: 46px; }
 .boton--peligro:hover { background: var(--peligro-fondo); }
+.boton--peligro-lleno, .boton--exito {
+  min-height: 40px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 10px;
+  color: #FFFFFF;
+}
+.boton--peligro-lleno { background: var(--peligro); }
+.boton--peligro-lleno:hover { background: #8F1C13; }
+.boton--exito { background: var(--exito); }
+.boton--exito:hover { background: #17603C; }
+.boton:disabled { opacity: 0.6; cursor: default; }
 
 /* Mi viaje */
 .mi-viaje { gap: 14px; }
@@ -370,6 +386,116 @@ h1 { margin: 0; font-weight: 600; }
 .lista__texto { display: flex; flex-direction: column; }
 .lista__detalle { font-size: 13px; color: var(--texto-secundario); }
 
+/* Operador y admin: columna más ancha, títulos de lista más grandes */
+.columna--ancha { max-width: 640px; }
+.lista h1, .admin__tarifa h2 { margin: 0 0 8px; font-size: 22px; font-weight: 600; }
+.admin__tarifa h2 { margin: 0; }
+.lista__cantidad { color: var(--texto-secundario); font-weight: 400; }
+.columna .admin__tarifa { padding: 20px 24px; }
+
+.lista li.operador__viaje { display: block; padding: 0; }
+.operador__fila {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.operador__fila .chip { align-self: center; }
+.operador__fila:focus-visible { outline: 2px solid var(--acento); outline-offset: 2px; border-radius: 8px; }
+.operador__cancelar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding: 10px;
+  border-radius: var(--radio-control);
+  background: #F7F6F2;
+}
+.operador__motivo { flex: 1 1 180px; width: auto; height: 40px; border-radius: 10px; padding: 0 10px; }
+
+/* Chofer: oferta tipo notificación y disponibilidad */
+.oferta {
+  position: absolute;
+  left: 50%;
+  top: 20px;
+  transform: translateX(-50%);
+  width: min(440px, calc(100% - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  background: var(--tarjeta);
+  box-shadow: 0 10px 30px rgba(32, 33, 36, 0.22);
+}
+.oferta__aviso { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--texto-secundario); }
+.oferta__icono {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  background: var(--acento);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.oferta__icono::after { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #FFFFFF; }
+.oferta__app { flex: 1; }
+.oferta__reloj { font-weight: 600; color: var(--acento); }
+.oferta__reloj--urgente { color: var(--peligro); }
+.oferta__titulo { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.oferta__titulo h1 { font-size: 19px; }
+.oferta__monto { font-size: 22px; font-weight: 600; }
+.oferta__recorrido { margin: 0; line-height: 1.45; }
+.oferta__recorrido .pedir__detalle { font-size: 14px; }
+.oferta__barra { height: 4px; border-radius: 999px; background: var(--separador); }
+.oferta__progreso { height: 4px; border-radius: 999px; background: var(--acento); transition: width 1s linear; }
+.oferta__progreso--urgente { background: var(--peligro); }
+.oferta__acciones { display: flex; gap: 10px; }
+.oferta__acciones .boton { min-height: 46px; }
+.oferta__acciones .boton--secundario { flex: 1; }
+.oferta__acciones .boton--principal { flex: 2; }
+
+.disponible {
+  position: absolute;
+  left: 20px;
+  bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 8px 8px 16px;
+  border-radius: 999px;
+  background: #FFFFFF;
+  box-shadow: 0 2px 8px rgba(32, 33, 36, 0.2);
+}
+.disponible__texto { display: flex; flex-direction: column; line-height: 1.2; }
+.disponible__estado { font-weight: 600; }
+.disponible__detalle { font-size: 12px; color: var(--texto-secundario); }
+
+.interruptor {
+  width: 52px;
+  height: 30px;
+  padding: 4px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--borde-input);
+  display: flex;
+  justify-content: flex-start;
+  cursor: pointer;
+}
+.interruptor[aria-checked="true"] { background: var(--exito); justify-content: flex-end; }
+.interruptor span { width: 22px; height: 22px; border-radius: 50%; background: #FFFFFF; }
+.interruptor:focus-visible { outline: 2px solid var(--acento); outline-offset: 2px; }
+
 /* Encabezado plano (pantallas sin mapa) */
 .encabezado--plano {
   background: transparent;
@@ -387,4 +513,6 @@ h1 { margin: 0; font-weight: 600; }
   .columna { padding: 0 16px 32px; }
   .encabezado--plano { padding: 16px; }
   .fila { grid-template-columns: 1fr; }
+  .oferta { top: 16px; }
+  .disponible { left: 16px; bottom: 16px; }
 }

@@ -3,6 +3,14 @@ import { Link, useNavigate } from 'react-router';
 
 // Pantalla 1 del diseño. Al conectar: POST /auth/login → guardar el token →
 // GET /auth/me → ir a la pantalla del rol.
+// Para ver cada pantalla, el rol sale del principio del email
+// (chofer@, operador@, admin@); cualquier otro entra como pasajero.
+const inicioPorRol = {
+  chofer: '/chofer',
+  operador: '/operador',
+  admin: '/admin',
+};
+
 export default function Ingresar() {
   const navegar = useNavigate();
   const [email, setEmail] = useState('');
@@ -10,7 +18,8 @@ export default function Ingresar() {
 
   function enviar(evento) {
     evento.preventDefault();
-    navegar('/pasajero/pedir');
+    const prefijo = email.split(/[@.]/)[0].toLowerCase();
+    navegar(inicioPorRol[prefijo] ?? '/pasajero/pedir');
   }
 
   return (
