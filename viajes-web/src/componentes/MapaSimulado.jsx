@@ -5,13 +5,18 @@ const ruta = 'M710 350 V410 H830 V170 H1070';
 const avenidas = 'M0 410 H1280 M830 0 V800 M710 290 L1050 -50 M560 410 L130 840';
 
 const caminoAlRetiro = 'M560 170 V290 H710 V350';
+const caminoAlRetiroOferta = 'M440 530 V410 H710 V350';
 
 // chofer: { etiqueta: 'AE 123 KD · 3 min' } dibuja el auto y el camino punteado
 // hasta el retiro, y deja la ruta del viaje atenuada (pantalla Mi viaje).
-export default function MapaSimulado({ conRuta = true, etiquetaDestino = 'Terminal de Ómnibus', chofer, children }) {
-  const descripcion = chofer
-    ? 'Mapa con el chofer acercándose al punto de retiro'
-    : conRuta ? `Mapa de Resistencia con la ruta hasta ${etiquetaDestino}` : 'Mapa de Resistencia';
+// oferta: vista previa del viaje ofrecido al chofer (pantalla Chofer): "Vos",
+// camino punteado hasta "Retiro", ruta y "Destino". Con conRuta={false} queda sólo "Vos".
+export default function MapaSimulado({ conRuta = true, etiquetaDestino = 'Terminal de Ómnibus', chofer, oferta = false, children }) {
+  const descripcion = oferta
+    ? (conRuta ? 'Vista previa del viaje ofrecido: tu posición, el punto de retiro y el destino' : 'Mapa de Resistencia con tu posición')
+    : chofer
+      ? 'Mapa con el chofer acercándose al punto de retiro'
+      : conRuta ? `Mapa de Resistencia con la ruta hasta ${etiquetaDestino}` : 'Mapa de Resistencia';
 
   return (
     <main className="mapa">
@@ -39,7 +44,7 @@ export default function MapaSimulado({ conRuta = true, etiquetaDestino = 'Termin
           <text x="1092" y="490">Parque 2 de Febrero</text>
         </g>
         <text x="960" y="748" fontFamily={fuente} fontSize="14" fontStyle="italic" fill="#2B6CB0">Río Negro</text>
-        {!chofer && (
+        {!chofer && !oferta && (
           <g fill="#202124">
             <rect x="190" y="164" width="20" height="12" rx="4" />
             <rect x="436" y="600" width="12" height="20" rx="4" />
@@ -56,6 +61,9 @@ export default function MapaSimulado({ conRuta = true, etiquetaDestino = 'Termin
               </>
             ) : (
               <>
+                {oferta && (
+                  <path d={caminoAlRetiroOferta} stroke="#202124" strokeWidth="5" strokeDasharray="1 11" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                )}
                 <path d={ruta} stroke="#1557B0" strokeWidth="11" fill="none" strokeLinejoin="round" strokeLinecap="round" />
                 <path d={ruta} stroke="#1A73E8" strokeWidth="7" fill="none" strokeLinejoin="round" strokeLinecap="round" />
               </>
@@ -65,7 +73,19 @@ export default function MapaSimulado({ conRuta = true, etiquetaDestino = 'Termin
               <path d="M0 0 C 0 0 -16 -18 -16 -30 A 16 16 0 0 1 16 -30 C 16 -18 0 0 0 0 Z" fill="#EA4335" stroke="#B31412" strokeWidth="1.5" />
               <circle cx="0" cy="-30" r="6" fill="#B31412" />
             </g>
-            {!chofer && (
+            {oferta && (
+              <>
+                <g transform="translate(724 318)">
+                  <rect width="64" height="26" rx="13" fill="#202124" />
+                  <text x="32" y="18" textAnchor="middle" fontFamily={fuente} fontSize="13" fontWeight="600" fill="#FFFFFF">Retiro</text>
+                </g>
+                <g transform="translate(1086 178)">
+                  <rect width="74" height="26" rx="13" fill="#EA4335" />
+                  <text x="37" y="18" textAnchor="middle" fontFamily={fuente} fontSize="13" fontWeight="600" fill="#FFFFFF">Destino</text>
+                </g>
+              </>
+            )}
+            {!chofer && !oferta && (
               <text x="1086" y="198" fontFamily={fuente} fontSize="13" fontWeight="600" fill="#202124">{etiquetaDestino}</text>
             )}
           </>
@@ -81,6 +101,16 @@ export default function MapaSimulado({ conRuta = true, etiquetaDestino = 'Termin
               <rect width="150" height="28" rx="14" fill="#202124" />
               <text x="75" y="19" textAnchor="middle" fontFamily={fuente} fontSize="13" fontWeight="600" fill="#FFFFFF">{chofer.etiqueta}</text>
             </g>
+          </>
+        )}
+        {oferta && (
+          <>
+            <g transform="translate(440 530)">
+              <circle r="26" fill="#1A73E8" opacity="0.18" />
+              <circle r="13" fill="#1A73E8" stroke="#FFFFFF" strokeWidth="3" />
+              <path d="M0 -6 L5 5 L0 2 L-5 5 Z" fill="#FFFFFF" />
+            </g>
+            <text x="474" y="560" fontFamily={fuente} fontSize="13" fontWeight="600" fill="#1557B0">Vos</text>
           </>
         )}
       </svg>
