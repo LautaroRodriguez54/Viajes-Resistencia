@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Operador</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F2F0EB}
+a{color:#3346D3}a:hover{color:#1F2E9E}
+</style>
+</helmet>
+<div style="font-family: Outfit, system-ui, sans-serif; font-size: 15px; color: #1C1B19; background: #F2F0EB; min-height: 720px; font-variant-numeric: tabular-nums">
+  <header style="max-width: 880px; margin: 0 auto; box-sizing: border-box; padding: 22px 24px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px">
+    <span style="display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 17px"><span style="width: 12px; height: 12px; border-radius: 50%; background: #3346D3"></span>Viajes Resistencia</span>
+    <span style="font-size: 14px; color: #67635C">Operador · <a href="Login.dc.html">Salir</a></span>
+  </header>
+
+  <main style="max-width: 640px; margin: 16px auto 0; padding: 0 24px 40px">
+    <section style="background: #FFFFFF; border: 1px solid #E4E0D8; border-radius: 20px; padding: 20px 24px">
+      <h1 style="margin: 0 0 8px; font-size: 22px; font-weight: 600">Viajes activos <span style="color: #67635C; font-weight: 400">· 4</span></h1>
+      <ul style="margin: 0; padding: 0; list-style: none">
+        <li style="padding: 14px 0; border-bottom: 1px solid #EEEBE5; display: flex; flex-direction: column; gap: 12px">
+          <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px">
+            <span style="display: flex; flex-direction: column"><span>Costanera → Centro</span><span style="font-size: 13px; color: #67635C">Buscando chofer hace 1 min 40 s</span></span>
+            <span style="font-size: 13px; font-weight: 600; color: #3346D3; background: #E8EBFB; padding: 4px 10px; border-radius: 999px">Pedido</span>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center; background: #F7F6F2; border-radius: 12px; padding: 10px">
+            <label for="motivo" style="font-size: 14px; font-weight: 500">Motivo</label>
+            <select id="motivo" style="flex: 1 1 180px; height: 40px; border: 1px solid #D6D1C7; border-radius: 10px; padding: 0 10px; font: inherit; background: #FFFFFF; color: #1C1B19">
+              <option>Sin choferes en la zona</option><option>Pedido del pasajero</option><option>Otro</option>
+            </select>
+            <button type="button" style="height: 40px; padding: 0 14px; border: 0; border-radius: 10px; background: #B42318; color: #FFFFFF; font: inherit; font-weight: 600; cursor: pointer">Cancelar viaje</button>
+          </div>
+        </li>
+        <li style="padding: 14px 0; border-bottom: 1px solid #EEEBE5; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px">
+          <span style="display: flex; flex-direction: column"><span>Plaza 25 de Mayo → Terminal</span><span style="font-size: 13px; color: #67635C">AE 123 KD · hace 3 min</span></span>
+          <span style="font-size: 13px; font-weight: 600; color: #1F7A4D; background: #E3F2EA; padding: 4px 10px; border-radius: 999px">En camino</span>
+        </li>
+        <li style="padding: 14px 0; border-bottom: 1px solid #EEEBE5; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px">
+          <span style="display: flex; flex-direction: column"><span>UTN → Av. Sarmiento</span><span style="font-size: 13px; color: #67635C">AC 552 PL · hace 11 min</span></span>
+          <span style="font-size: 13px; font-weight: 600; color: #1C1B19; background: #EEEBE5; padding: 4px 10px; border-radius: 999px">En viaje</span>
+        </li>
+        <li style="padding: 14px 0; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px">
+          <span style="display: flex; flex-direction: column"><span>Shopping → Villa Prosperidad</span><span style="font-size: 13px; color: #67635C">AF 090 RT · $ 92,00 sin pagar</span></span>
+          <span style="font-size: 13px; font-weight: 600; color: #8A3F05; background: #FBEBD6; padding: 4px 10px; border-radius: 999px">Pago pendiente</span>
+        </li>
+      </ul>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":960,"height":720}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

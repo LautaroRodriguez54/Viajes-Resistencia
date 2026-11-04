@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Admin</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F2F0EB}
+a{color:#3346D3}a:hover{color:#1F2E9E}
+</style>
+</helmet>
+<div style="font-family: Outfit, system-ui, sans-serif; font-size: 15px; color: #1C1B19; background: #F2F0EB; min-height: 780px; font-variant-numeric: tabular-nums">
+  <header style="max-width: 880px; margin: 0 auto; box-sizing: border-box; padding: 22px 24px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px">
+    <span style="display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 17px"><span style="width: 12px; height: 12px; border-radius: 50%; background: #3346D3"></span>Viajes Resistencia</span>
+    <span style="font-size: 14px; color: #67635C">Admin · <a href="Login.dc.html">Salir</a></span>
+  </header>
+
+  <main style="max-width: 640px; margin: 16px auto 0; padding: 0 24px 40px; display: flex; flex-direction: column; gap: 16px">
+    <section aria-labelledby="ch-t" style="background: #FFFFFF; border: 1px solid #E4E0D8; border-radius: 20px; padding: 20px 24px">
+      <h1 id="ch-t" style="margin: 0 0 8px; font-size: 22px; font-weight: 600">Choferes por habilitar</h1>
+      <ul style="margin: 0; padding: 0; list-style: none">
+        <li style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid #EEEBE5">
+          <span style="display: flex; flex-direction: column"><span>Toyota Etios · AG 410 JS</span><span style="font-size: 13px; color: #67635C">chofer.nuevo@demo.local</span></span>
+          <button type="button" style="height: 40px; padding: 0 16px; border: 0; border-radius: 10px; background: #1F7A4D; color: #FFFFFF; font: inherit; font-weight: 600; cursor: pointer">Habilitar</button>
+        </li>
+        <li style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; padding: 12px 0">
+          <span style="display: flex; flex-direction: column"><span>Renault Logan · AD 877 MN</span><span style="font-size: 13px; color: #67635C">otro.chofer@demo.local</span></span>
+          <button type="button" style="height: 40px; padding: 0 16px; border: 0; border-radius: 10px; background: #1F7A4D; color: #FFFFFF; font: inherit; font-weight: 600; cursor: pointer">Habilitar</button>
+        </li>
+      </ul>
+    </section>
+
+    <form aria-labelledby="tar-t" style="background: #FFFFFF; border: 1px solid #E4E0D8; border-radius: 20px; padding: 20px 24px; display: flex; flex-direction: column; gap: 14px">
+      <h2 id="tar-t" style="margin: 0; font-size: 22px; font-weight: 600">Tarifa</h2>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px">
+        <div style="display: flex; flex-direction: column; gap: 6px"><label for="t-base" style="font-size: 14px; font-weight: 500">Base ($)</label><input id="t-base" value="5,00" inputmode="decimal" style="height: 44px; border: 1px solid #D6D1C7; border-radius: 12px; padding: 0 12px; font: inherit; color: #1C1B19"></div>
+        <div style="display: flex; flex-direction: column; gap: 6px"><label for="t-km" style="font-size: 14px; font-weight: 500">Por km ($)</label><input id="t-km" value="2,50" inputmode="decimal" style="height: 44px; border: 1px solid #D6D1C7; border-radius: 12px; padding: 0 12px; font: inherit; color: #1C1B19"></div>
+        <div style="display: flex; flex-direction: column; gap: 6px"><label for="t-min" style="font-size: 14px; font-weight: 500">Por minuto ($)</label><input id="t-min" value="1,00" inputmode="decimal" style="height: 44px; border: 1px solid #D6D1C7; border-radius: 12px; padding: 0 12px; font: inherit; color: #1C1B19"></div>
+        <div style="display: flex; flex-direction: column; gap: 6px"><label for="t-max" style="font-size: 14px; font-weight: 500">Máximo ($)</label><input id="t-max" value="1.000,00" inputmode="decimal" style="height: 44px; border: 1px solid #D6D1C7; border-radius: 12px; padding: 0 12px; font: inherit; color: #1C1B19"></div>
+      </div>
+      <button type="button" style="height: 48px; border: 0; border-radius: 12px; background: #3346D3; color: #FFFFFF; font: inherit; font-weight: 600; cursor: pointer">Guardar tarifa nueva</button>
+    </form>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":960,"height":780}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

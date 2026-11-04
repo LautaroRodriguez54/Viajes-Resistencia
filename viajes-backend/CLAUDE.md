@@ -207,6 +207,10 @@ Prioridad: lo que pide el **control 3** (carrera con test concurrente + tarea pe
 - [ ] Test: la ubicación del chofer no se expone a quien no es su pasajero actual (ni la del pasajero a quien no es su chofer).
 - [ ] Historiales (pasajero y chofer) y panel del operador: salen de las proyecciones del tema 13.
 - [ ] Administración de tarifas, zonas y parámetros.
+- [ ] Campo `nombre` en `usuarios` (migración nueva) y pedirlo en `POST /auth/register`. Hoy sólo hay email, y la proyección `historial_viajes` (tema 13) y las pantallas muestran nombre de pasajero y chofer.
+- [ ] Usuario operador en el seed (el rol existe en el `CHECK` pero no hay ningún usuario) y endpoints del operador: `GET /operador/viajes?estado=activos`, cancelar con motivo, reintentar cobro de un `pago_pendiente`.
+- [ ] La oferta le llega al chofer por SSE con origen, destino, polilínea de la ruta, distancia/tiempo hasta el retiro y tarifa estimada (la web la previsualiza en el mapa).
+- [ ] Decidir si el radio de búsqueda (hoy fijo en 5 km) pasa a parámetros administrables o queda como constante.
 - [ ] Política de retención/agregación de `historial_ubicaciones_chofer` (con 500 choferes son ~21 M filas/día).
 
 ### Bloque 7 y 6.6 — Tarea pesada
@@ -229,9 +233,19 @@ Prioridad: lo que pide el **control 3** (carrera con test concurrente + tarea pe
 
 No suma nota para el enunciado. Hacerla sólo con lo obligatorio encaminado.
 
-- **Objetivo:** web estilo Uber. El pasajero ve un mapa centrado en Resistencia (aprox. `-27.451, -58.986`), elige origen y destino, ve precio y ruta, pide el viaje y sigue al chofer en vivo. Chofer, operador y admin tienen sus pantallas en la misma app.
-- **Stack:** React + Vite en JavaScript (puerto `5173`), `react-router`, cliente HTTP propio (`src/api/cliente.js`) que agrega el token y traduce `error.codigo` a mensajes. Mapa con Google Maps (`@vis.gl/react-google-maps`, Places, Routes desde el backend) o, sin facturación, Leaflet/MapLibre + OpenStreetMap + Nominatim + OSRM.
-- **Pantallas:** Login/Registro; Pasajero (pedir viaje, viaje en curso, historial, billetera); Chofer (panel disponible + ubicación cada 2 s con `watchPosition`, oferta entrante con cuenta regresiva, viaje asignado); Operador (viajes en curso, cancelar con motivo); Admin (habilitar choferes, tarifas).
+- **Objetivo:** web **básica** que sirva para explicar el backend en la defensa: cuanto menos tenga, mejor, pero funcional y prolija. Mapa centrado en Resistencia (aprox. `-27.451, -58.986`). Se descartó un primer diseño muy parecido a Uber (barra negra, paneles, estadísticas).
+- **Diseño acordado (3/11/2026):** lienzo con las 7 pantallas y, al lado de cada una, una nota con los endpoints HECHO / FALTA: https://claude.ai/artifact/V4dJiPEoog8HZrJ3F9zJ6W (privado de Agustín; compartir desde Share). **Guía para respetarlo al implementar: `docs/diseno-web/README.md`** (principios, colores y medidas, detalle de cada pantalla) junto con el código de cada pantalla en la misma carpeta.
+  - **Estilo:** fondo claro `#F2F0EB`, tarjetas blancas redondeadas, tipografía Outfit, un solo acento azul `#3346D3`. Verde, naranja y rojo sólo para estados (pagado, sin pagar/pago pendiente, cancelar). Una acción principal por pantalla.
+  - **Ingresar:** email + contraseña, link a registro (pasajero o chofer).
+  - **Pasajero · Pedir:** mapa Google a pantalla completa con la ruta; tarjeta flotante a la izquierda con Desde/Hasta (Places Autocomplete), distancia, tiempo, precio y "Pedir viaje"; saldo debajo.
+  - **Pasajero · Mi viaje:** mismo mapa con el auto del chofer en vivo (patente + minutos); tarjeta con estado, vehículo, progreso de 4 pasos (Pedido, Asignado, En camino, En viaje), precio estimado y "Cancelar viaje".
+  - **Pasajero · Billetera:** sin mapa. Saldo + "Cargar $ 100", aviso de viaje sin pagar ("no se cobró nada", el cobro nunca es parcial), "Mis viajes" (historial) y "Movimientos".
+  - **Chofer:** mapa con la vista previa del viaje ofrecido (su posición, camino punteado al retiro, ruta y destino). Arriba, notificación tipo push con monto, recorrido, distancia al retiro y del viaje, cuenta regresiva de 30 s, Aceptar/Rechazar y el aviso "Otro chofer lo aceptó primero" (la carrera de la aceptación). Interruptor "Disponible" abajo a la izquierda.
+  - **Operador:** lista de viajes activos con estado; cancelar con motivo obligatorio.
+  - **Admin:** choferes por habilitar + tarifa (base, por km, por minuto, máximo; guardar crea una fila nueva activa).
+  - Operador y admin **se quedan en la web** (decisión del grupo), aunque el enunciado no exija interfaz.
+- **Stack:** React + Vite en JavaScript (puerto `5173`), `react-router`, cliente HTTP propio (`src/api/cliente.js`) que agrega el token y traduce `error.codigo` a mensajes. Mapa con **Google Maps** (decidido): `@vis.gl/react-google-maps`, Places Autocomplete en el navegador y Routes API desde el backend.
+- **Pantallas en código:** Login/Registro; Pasajero (pedir viaje, mi viaje, billetera con historial); Chofer (disponible + ubicación cada 2 s con `watchPosition`, oferta con vista previa, viaje asignado); Operador; Admin.
 - **Cambios de backend que la web necesita** (casi todos ya están en "Lo que falta"): `http://localhost:5173` en `CORS_ORIGINS`; `POST /viajes/estimacion`; `mapearViaje` devolviendo `origen`/`destino` (`ST_Y`/`ST_X`); asignación automática; `GET /choferes/me/ofertas` + rechazar; SSE con ticket; evento `ubicacion_chofer` sólo por SSE (no en `eventos_viaje`); `GET /viajes`, `GET /choferes/me/viaje-actual`, `GET /billetera/me/movimientos`, `GET /operador/viajes?estado=activos`, `GET /admin/choferes`; carga demo; token de 15 min sin refresh (alargar `JWT_ACCESS_TOKEN_TTL` para la demo o implementar refresh).
 - **Mapas y seguridad:** dos claves de Google (navegador restringida por referrer a Maps JS y Places; servidor `GOOGLE_MAPS_SERVER_KEY` restringida a Routes, validada en `config/env.js`, nunca al cliente), ninguna commiteada. **La tarifa se calcula siempre en el servidor**: el cliente manda sólo coordenadas; Routes API detrás de un puerto `calculadorRutas` con caída a Haversine. La posición del chofer viene del navegador y puede falsificarse: validar rango, frecuencia y saltos imposibles (material para el ataque cruzado).
 
