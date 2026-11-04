@@ -1,0 +1,390 @@
+/* Tokens de docs/diseno-web/README.md */
+:root {
+  --fondo: #F2F0EB;
+  --tarjeta: #FFFFFF;
+  --borde-tarjeta: #E4E0D8;
+  --texto: #1C1B19;
+  --texto-secundario: #67635C;
+  --separador: #EEEBE5;
+  --borde-input: #D6D1C7;
+  --acento: #3346D3;
+  --acento-hover: #1F2E9E;
+  --exito: #1F7A4D;
+  --exito-fondo: #E3F2EA;
+  --advertencia: #8A3F05;
+  --advertencia-fondo: #FBEBD6;
+  --peligro: #B42318;
+  --peligro-fondo: #FCE9E7;
+  --sombra-mapa: 0 4px 18px rgba(32, 33, 36, 0.16);
+  --radio-tarjeta: 20px;
+  --radio-control: 12px;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #raiz { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--fondo);
+  color: var(--texto);
+  font-family: Outfit, system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--acento); }
+a:hover { color: var(--acento-hover); }
+
+h1 { margin: 0; font-weight: 600; }
+
+.montos { font-variant-numeric: tabular-nums; }
+
+/* Marca */
+.marca {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 17px;
+  color: var(--texto);
+  text-decoration: none;
+}
+.marca::before {
+  content: "";
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--acento);
+}
+.marca--grande { gap: 10px; font-size: 22px; }
+.marca--grande::before { width: 14px; height: 14px; }
+
+/* Tarjetas */
+.tarjeta {
+  background: var(--tarjeta);
+  border: 1px solid var(--borde-tarjeta);
+  border-radius: var(--radio-tarjeta);
+  padding: 28px;
+}
+.tarjeta--flotante {
+  border: 0;
+  box-shadow: var(--sombra-mapa);
+  padding: 22px;
+}
+
+/* Formularios */
+.formulario { display: flex; flex-direction: column; gap: 14px; }
+.formulario h1 { margin-bottom: 4px; font-size: 24px; }
+
+.campo { display: flex; flex-direction: column; gap: 6px; }
+.campo label, .etiqueta { font-size: 14px; font-weight: 500; }
+
+.input {
+  height: 46px;
+  width: 100%;
+  border: 1px solid var(--borde-input);
+  border-radius: var(--radio-control);
+  padding: 0 14px;
+  font: inherit;
+  color: var(--texto);
+  background: var(--tarjeta);
+}
+.input:focus, .input-con-icono:focus-within {
+  outline: 2px solid var(--acento);
+  outline-offset: -1px;
+  border-color: transparent;
+}
+
+.input-con-icono {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 46px;
+  border: 1px solid var(--borde-input);
+  border-radius: var(--radio-control);
+  padding: 0 14px;
+}
+.input-con-icono input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  font: inherit;
+  color: var(--texto);
+  background: transparent;
+}
+
+.ayuda { margin: 0; font-size: 13px; color: var(--texto-secundario); }
+
+/* Botones */
+.boton {
+  min-height: 44px;
+  border-radius: var(--radio-control);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+.boton--principal {
+  min-height: 50px;
+  border: 0;
+  background: var(--acento);
+  color: #FFFFFF;
+  font-size: 16px;
+}
+.boton--principal:hover { background: var(--acento-hover); color: #FFFFFF; }
+.boton--principal:disabled { opacity: 0.6; cursor: default; }
+.boton--grande { min-height: 52px; }
+.boton--secundario {
+  border: 1px solid var(--borde-input);
+  background: var(--tarjeta);
+  color: var(--texto);
+}
+
+/* Selector de rol (registro) */
+.selector {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  background: var(--fondo);
+  border-radius: var(--radio-control);
+}
+.grupo-rol { border: 0; margin: 0; padding: 0; min-width: 0; }
+.grupo-rol legend { padding: 0; margin-bottom: 6px; }
+.selector input { position: absolute; opacity: 0; pointer-events: none; }
+.selector label {
+  height: 40px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--texto-secundario);
+  cursor: pointer;
+}
+.selector input:checked + label {
+  background: var(--tarjeta);
+  color: var(--texto);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(32, 33, 36, 0.12);
+}
+.selector input:focus-visible + label { outline: 2px solid var(--acento); }
+
+.grupo-vehiculo {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--separador);
+}
+.fila { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+/* Pantalla de acceso (ingresar / registro) */
+.acceso {
+  min-height: 100%;
+  padding: 24px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+}
+.acceso .tarjeta { width: 100%; max-width: 380px; }
+.acceso__pie { margin: 4px 0 0; font-size: 14px; color: var(--texto-secundario); text-align: center; }
+
+/* Encabezado */
+.encabezado {
+  background: var(--tarjeta);
+  border-bottom: 1px solid var(--borde-tarjeta);
+  padding: 16px 24px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.encabezado nav { display: flex; gap: 20px; }
+.encabezado nav a {
+  color: var(--texto-secundario);
+  text-decoration: none;
+  padding-bottom: 2px;
+  border-bottom: 2px solid transparent;
+}
+.encabezado nav a:hover { color: var(--texto); }
+.encabezado nav a.active {
+  color: var(--texto);
+  font-weight: 600;
+  border-bottom-color: var(--acento);
+}
+.encabezado__usuario { font-size: 14px; color: var(--texto-secundario); }
+
+.con-encabezado { min-height: 100%; display: flex; flex-direction: column; }
+
+/* Mapa */
+.mapa {
+  flex: 1;
+  position: relative;
+  min-height: 560px;
+  overflow: hidden;
+  background: #F1F3F4;
+}
+.mapa > svg { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+
+.mapa__zoom {
+  position: absolute;
+  right: 20px;
+  bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  background: #FFFFFF;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(32, 33, 36, 0.2);
+  overflow: hidden;
+}
+.mapa__zoom button {
+  width: 44px;
+  height: 44px;
+  border: 0;
+  background: #FFFFFF;
+  font: inherit;
+  font-size: 22px;
+  color: #3C4043;
+  cursor: pointer;
+}
+.mapa__zoom button + button { border-top: 1px solid #E8EAED; }
+
+/* Pedir viaje */
+.pedir {
+  position: absolute;
+  left: 24px;
+  top: 24px;
+  width: min(380px, calc(100% - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.pedir h1 { margin-bottom: 2px; font-size: 22px; }
+.pedir__resumen {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding-top: 6px;
+}
+.pedir__detalle { color: var(--texto-secundario); }
+.pedir__precio { font-size: 28px; font-weight: 600; }
+.pedir__saldo { margin: 0; font-size: 14px; color: var(--texto-secundario); text-align: center; }
+
+.punto-origen {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 3px solid #202124;
+  flex: none;
+}
+
+/* Chips y avisos de estado */
+.chip {
+  align-self: flex-start;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+.chip--exito { color: var(--exito); background: var(--exito-fondo); }
+.chip--advertencia { color: var(--advertencia); background: var(--advertencia-fondo); }
+.chip--peligro { color: var(--peligro); background: var(--peligro-fondo); }
+
+.aviso { margin: 0; font-size: 14px; border-radius: var(--radio-control); padding: 12px 14px; line-height: 1.45; }
+.aviso--advertencia { color: var(--advertencia); background: var(--advertencia-fondo); }
+
+.texto-exito { color: var(--exito); }
+.texto-advertencia { color: var(--advertencia); font-weight: 600; }
+
+.boton--peligro { color: var(--peligro); min-height: 46px; }
+.boton--peligro:hover { background: var(--peligro-fondo); }
+
+/* Mi viaje */
+.mi-viaje { gap: 14px; }
+.mi-viaje__vehiculo { margin: 0; color: var(--texto-secundario); }
+.mi-viaje__vehiculo strong { color: var(--texto); font-weight: 600; }
+.mi-viaje__precio {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  border-top: 1px solid var(--separador);
+  padding-top: 14px;
+  font-size: 20px;
+  font-weight: 600;
+}
+.mi-viaje__precio .pedir__detalle { font-size: 15px; font-weight: 400; }
+
+.progreso {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  font-size: 13px;
+  color: var(--texto-secundario);
+}
+.progreso li { display: flex; flex-direction: column; gap: 6px; }
+.progreso li::before { content: ""; height: 4px; border-radius: 4px; background: var(--borde-tarjeta); }
+.progreso li.hecho, .progreso li.actual { color: var(--texto); }
+.progreso li.hecho::before, .progreso li.actual::before { background: var(--acento); }
+.progreso li.actual { font-weight: 600; }
+
+/* Pantallas sin mapa: columna centrada */
+.columna {
+  width: 100%;
+  max-width: 480px;
+  margin: 16px auto 0;
+  padding: 0 24px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.columna .tarjeta { padding: 24px; }
+
+.billetera__saldo { display: flex; flex-direction: column; gap: 14px; }
+.billetera__monto { font-size: 40px; font-weight: 600; line-height: 1; }
+
+.columna .lista { padding: 20px 24px; }
+.lista h2 { margin: 0 0 6px; font-size: 18px; font-weight: 600; }
+.lista ul { margin: 0; padding: 0; list-style: none; }
+.lista li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--separador);
+}
+.lista li:last-child { border-bottom: 0; }
+.lista--compacta li { padding: 10px 0; }
+.lista__texto { display: flex; flex-direction: column; }
+.lista__detalle { font-size: 13px; color: var(--texto-secundario); }
+
+/* Encabezado plano (pantallas sin mapa) */
+.encabezado--plano {
+  background: transparent;
+  border-bottom: 0;
+  width: 100%;
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 22px 24px;
+}
+
+@media (max-width: 600px) {
+  .encabezado { padding: 14px 16px; }
+  .encabezado nav { order: 3; width: 100%; }
+  .pedir { left: 16px; top: 16px; }
+  .columna { padding: 0 16px 32px; }
+  .encabezado--plano { padding: 16px; }
+  .fila { grid-template-columns: 1fr; }
+}
