@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Ingresar</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F2F0EB}
+a{color:#3346D3}a:hover{color:#1F2E9E}
+</style>
+</helmet>
+<div style="font-family: Outfit, system-ui, sans-serif; font-size: 15px; color: #1C1B19; background: #F2F0EB; min-height: 720px; box-sizing: border-box; padding: 24px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px">
+  <div style="display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 22px">
+    <span style="width: 14px; height: 14px; border-radius: 50%; background: #3346D3"></span>Viajes Resistencia
+  </div>
+  <form style="width: 100%; max-width: 380px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #E4E0D8; border-radius: 20px; padding: 28px; display: flex; flex-direction: column; gap: 14px">
+    <h1 style="margin: 0 0 4px; font-size: 24px; font-weight: 600">Ingresar</h1>
+    <label for="email" style="font-size: 14px; font-weight: 500">Email</label>
+    <input id="email" type="email" value="pasajero@demo.local" style="height: 46px; border: 1px solid #D6D1C7; border-radius: 12px; padding: 0 14px; font: inherit; color: #1C1B19">
+    <label for="clave" style="font-size: 14px; font-weight: 500">Contraseña</label>
+    <input id="clave" type="password" value="contraseña" style="height: 46px; border: 1px solid #D6D1C7; border-radius: 12px; padding: 0 14px; font: inherit; color: #1C1B19">
+    <a href="Main.dc.html" style="margin-top: 8px; height: 50px; border-radius: 12px; background: #3346D3; color: #FFFFFF; font-weight: 600; font-size: 16px; text-decoration: none; display: flex; align-items: center; justify-content: center">Entrar</a>
+    <p style="margin: 4px 0 0; font-size: 14px; color: #67635C; text-align: center">¿No tenés cuenta? <a href="Login.dc.html">Registrate como pasajero o chofer</a></p>
+  </form>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":960,"height":720}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

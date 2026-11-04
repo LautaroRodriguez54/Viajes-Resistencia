@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Mi viaje</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F2F0EB}
+a{color:#3346D3}a:hover{color:#1F2E9E}
+</style>
+</helmet>
+<div style="font-family: Outfit, system-ui, sans-serif; font-size: 15px; color: #1C1B19; background: #F2F0EB; min-height: 800px; display: flex; flex-direction: column; font-variant-numeric: tabular-nums">
+  <header style="background: #FFFFFF; border-bottom: 1px solid #E4E0D8; box-sizing: border-box; padding: 16px 24px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px">
+    <span style="display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 17px"><span style="width: 12px; height: 12px; border-radius: 50%; background: #3346D3"></span>Viajes Resistencia</span>
+    <nav aria-label="Pasajero" style="display: flex; gap: 20px; font-size: 15px">
+      <a href="Main.dc.html" style="color: #67635C; text-decoration: none">Pedir</a>
+      <a href="Viaje.dc.html" aria-current="page" style="color: #1C1B19; font-weight: 600; text-decoration: none; border-bottom: 2px solid #3346D3; padding-bottom: 2px">Mi viaje</a>
+      <a href="Billetera.dc.html" style="color: #67635C; text-decoration: none">Billetera</a>
+    </nav>
+    <span style="font-size: 14px; color: #67635C">Pasajero · <a href="Login.dc.html">Salir</a></span>
+  </header>
+
+  <main style="flex: 1; position: relative; min-height: 720px; overflow: hidden; background: #F1F3F4">
+    <svg viewBox="0 0 1280 800" preserveAspectRatio="xMidYMid slice" width="100%" height="100%" style="position: absolute; inset: 0; display: block" role="img" aria-label="Mapa con el chofer acercándose a la Plaza 25 de Mayo">
+      <rect width="1280" height="800" fill="#F1F3F4"></rect>
+      <rect x="566" y="296" width="138" height="108" rx="4" fill="#C8E6C9"></rect>
+      <rect x="1080" y="440" width="150" height="90" rx="6" fill="#C8E6C9"></rect>
+      <path d="M0 50 H1280 M0 170 H1280 M0 290 H1280 M0 530 H1280 M0 650 H1280 M0 770 H1280 M80 0 V800 M200 0 V800 M320 0 V800 M440 0 V800 M560 0 V800 M710 0 V800 M950 0 V800 M1070 0 V800 M1190 0 V800" stroke="#FFFFFF" stroke-width="9" fill="none"></path>
+      <path d="M0 410 H1280 M830 0 V800 M710 290 L1050 -50 M560 410 L130 840" stroke="#DADCE0" stroke-width="20" fill="none"></path>
+      <path d="M0 410 H1280 M830 0 V800 M710 290 L1050 -50 M560 410 L130 840" stroke="#FFFFFF" stroke-width="15" fill="none"></path>
+      <path d="M1290 300 L1110 140 L960 -20" stroke="#F2C94C" stroke-width="20" fill="none"></path>
+      <path d="M1290 300 L1110 140 L960 -20" stroke="#FDE293" stroke-width="15" fill="none"></path>
+      <path d="M700 820 C 780 720, 930 700, 1020 640 S 1190 560, 1300 590 L 1300 820 Z" fill="#AADAFF"></path>
+      <g font-family="Outfit, Arial, sans-serif" font-size="13" fill="#5F6368">
+        <text x="190" y="402">Av. 9 de Julio</text>
+        <text x="300" y="664" transform="rotate(-45 300 664)">Av. Alberdi</text>
+        <text x="880" y="114" transform="rotate(-45 880 114)">Av. Sarmiento</text>
+        <text x="822" y="270" transform="rotate(-90 822 270)">Av. Ávalos</text>
+      </g>
+      <text x="574" y="395" font-family="Outfit, Arial, sans-serif" font-size="12" font-weight="600" fill="#1E6B34">Plaza 25 de Mayo</text>
+      <text x="1092" y="490" font-family="Outfit, Arial, sans-serif" font-size="12" font-weight="600" fill="#1E6B34">Parque 2 de Febrero</text>
+      <text x="960" y="748" font-family="Outfit, Arial, sans-serif" font-size="14" font-style="italic" fill="#2B6CB0">Río Negro</text>
+      <path d="M710 350 V410 H830 V170 H1070" stroke="#1A73E8" stroke-width="7" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.45"></path>
+      <path d="M560 170 V290 H710 V350" stroke="#202124" stroke-width="5" stroke-dasharray="1 11" fill="none" stroke-linecap="round" stroke-linejoin="round"></path>
+      <circle cx="710" cy="350" r="9" fill="#FFFFFF" stroke="#202124" stroke-width="5"></circle>
+      <g transform="translate(1070 170)"><path d="M0 0 C 0 0 -16 -18 -16 -30 A 16 16 0 0 1 16 -30 C 16 -18 0 0 0 0 Z" fill="#EA4335" stroke="#B31412" stroke-width="1.5"></path><circle cx="0" cy="-30" r="6" fill="#B31412"></circle></g>
+      <g transform="translate(560 170)"><circle r="24" fill="#1A73E8" opacity="0.18"></circle><circle r="13" fill="#202124" stroke="#FFFFFF" stroke-width="3"></circle><path d="M0 -6 L5 5 L0 2 L-5 5 Z" fill="#FFFFFF"></path></g>
+      <g transform="translate(470 128)"><rect width="150" height="28" rx="14" fill="#202124"></rect><text x="75" y="19" text-anchor="middle" font-family="Outfit, Arial, sans-serif" font-size="13" font-weight="600" fill="#FFFFFF">AE 123 KD · 3 min</text></g>
+    </svg>
+
+    <section style="position: absolute; left: 24px; top: 24px; width: min(380px, calc(100% - 48px)); box-sizing: border-box; background: #FFFFFF; border-radius: 20px; padding: 22px; box-shadow: 0 4px 18px rgba(32,33,36,0.16); display: flex; flex-direction: column; gap: 14px">
+      <span style="align-self: flex-start; font-size: 13px; font-weight: 600; color: #1F7A4D; background: #E3F2EA; padding: 4px 10px; border-radius: 999px">Chofer en camino</span>
+      <h1 style="margin: 0; font-size: 22px; font-weight: 600">Llega en 3 minutos</h1>
+      <p style="margin: 0; color: #67635C">Fiat Cronos gris · <strong style="color: #1C1B19; font-weight: 600">AE 123 KD</strong></p>
+      <ol aria-label="Progreso" style="margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; font-size: 13px">
+        <li style="display: flex; flex-direction: column; gap: 6px"><span style="height: 4px; border-radius: 4px; background: #3346D3"></span>Pedido</li>
+        <li style="display: flex; flex-direction: column; gap: 6px"><span style="height: 4px; border-radius: 4px; background: #3346D3"></span>Asignado</li>
+        <li style="display: flex; flex-direction: column; gap: 6px; font-weight: 600"><span style="height: 4px; border-radius: 4px; background: #3346D3"></span>En camino</li>
+        <li style="display: flex; flex-direction: column; gap: 6px; color: #67635C"><span style="height: 4px; border-radius: 4px; background: #E4E0D8"></span>En viaje</li>
+      </ol>
+      <div style="display: flex; justify-content: space-between; align-items: baseline; border-top: 1px solid #EEEBE5; padding-top: 14px">
+        <span style="color: #67635C">Precio estimado</span>
+        <span style="font-size: 20px; font-weight: 600">$ 20,50</span>
+      </div>
+      <button type="button" style="height: 46px; border: 1px solid #D6D1C7; border-radius: 12px; background: #FFFFFF; color: #B42318; font: inherit; font-weight: 600; cursor: pointer">Cancelar viaje</button>
+    </section>
+
+    <div style="position: absolute; right: 20px; bottom: 20px; display: flex; flex-direction: column; background: #FFFFFF; border-radius: 10px; box-shadow: 0 2px 8px rgba(32,33,36,0.2); overflow: hidden">
+      <button type="button" aria-label="Acercar" style="width: 44px; height: 44px; border: 0; border-bottom: 1px solid #E8EAED; background: #FFFFFF; font: inherit; font-size: 22px; color: #3C4043; cursor: pointer">+</button>
+      <button type="button" aria-label="Alejar" style="width: 44px; height: 44px; border: 0; background: #FFFFFF; font: inherit; font-size: 22px; color: #3C4043; cursor: pointer">−</button>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
