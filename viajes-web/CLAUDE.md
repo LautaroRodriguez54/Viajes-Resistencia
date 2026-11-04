@@ -1,0 +1,28 @@
+# CLAUDE.md
+
+Interfaz web de la plataforma de viajes (React + Vite). Qué pide cada docente, cómo se fusionan las consignas y las reglas de Git están en el `CLAUDE.md` de la raíz; el backend, en `viajes-backend/CLAUDE.md`.
+
+Para Puljiz no suma nota; para el TP3 de Fernández es obligatoria (ver el choque "Frontend" en el `CLAUDE.md` de la raíz). Antes de sumar algo acá, que lo obligatorio del backend esté encaminado. Lo que el Word le pide a la interfaz está en `viajes-web/README.md`, sección "Lo que piden las consignas".
+
+- **Objetivo:** web **básica** que sirva para explicar el backend en la defensa y para recorrer los flujos críticos sin llamar a la API a mano: cuanto menos tenga, mejor, pero funcional, prolija y responsiva. Mapa centrado en Resistencia (aprox. `-27.451, -58.986`). Se descartó un primer diseño muy parecido a Uber (barra negra, paneles, estadísticas).
+- **Diseño acordado (3/11/2026):** lienzo con las 7 pantallas y, al lado de cada una, una nota con los endpoints HECHO / FALTA: https://claude.ai/artifact/V4dJiPEoog8HZrJ3F9zJ6W (privado de Agustín; compartir desde Share). **Guía para respetarlo al implementar: `viajes-backend/docs/diseno-web/README.md`** (principios, colores y medidas, detalle de cada pantalla) junto con el código de cada pantalla en la misma carpeta.
+  - **Estilo:** fondo claro `#F2F0EB`, tarjetas blancas redondeadas, tipografía Outfit, un solo acento azul `#3346D3`. Verde, naranja y rojo sólo para estados (pagado, sin pagar/pago pendiente, cancelar). Una acción principal por pantalla.
+  - **Ingresar:** email + contraseña, link a registro (pasajero o chofer).
+  - **Pasajero · Pedir:** mapa Google a pantalla completa con la ruta; tarjeta flotante a la izquierda con Desde/Hasta (Places Autocomplete), distancia, tiempo, precio y "Pedir viaje"; saldo debajo.
+  - **Pasajero · Mi viaje:** mismo mapa con el auto del chofer en vivo (patente + minutos); tarjeta con estado, vehículo, progreso de 4 pasos (Pedido, Asignado, En camino, En viaje), precio estimado y "Cancelar viaje".
+  - **Pasajero · Billetera:** sin mapa. Saldo + "Cargar $ 100", aviso de viaje sin pagar ("no se cobró nada", el cobro nunca es parcial), "Mis viajes" (historial) y "Movimientos".
+  - **Chofer:** mapa con la vista previa del viaje ofrecido (su posición, camino punteado al retiro, ruta y destino). Arriba, notificación tipo push con monto, recorrido, distancia al retiro y del viaje, cuenta regresiva de 30 s, Aceptar/Rechazar y el aviso "Otro chofer lo aceptó primero" (la carrera de la aceptación). Interruptor "Disponible" abajo a la izquierda.
+  - **Operador:** lista de viajes activos con estado; cancelar con motivo obligatorio.
+  - **Admin:** choferes por habilitar + tarifa (base, por km, por minuto, máximo; guardar crea una fila nueva activa).
+  - Operador y admin **se quedan en la web** (decisión del grupo).
+- **Stack:** React + Vite en JavaScript (puerto `5173`), `react-router`, cliente HTTP propio (`src/api/cliente.js`) que agrega el token y traduce `error.codigo` a mensajes. Mapa con **Google Maps** (decidido): `@vis.gl/react-google-maps`, Places Autocomplete en el navegador y Routes API desde el backend.
+- **Estado (en `main` desde el 4/11/2026, PR #2 pasajero y PR #3 chofer/operador/admin): las 7 pantallas del diseño, sólo visuales, sin conexión al backend.** No tienen endpoints ni llamadas HTTP (decisión del grupo: primero lo visual, para entender y explicar). Se corre con `cd viajes-web` → `npm install` → `npm run dev`. "Entrar" acepta cualquier email y contraseña.
+  - Hechas: `/ingresar` (1), `/registro` (campos según `POST /auth/register` + "Nombre", que falta en el backend), `/pasajero/pedir` (2), `/pasajero/viaje` (3), `/pasajero/billetera` (4), `/chofer` (5), `/operador` (6) y `/admin` (7). Para entrar a cada rol, el email tiene que empezar con `chofer`, `operador` o `admin` (cualquier otro entra como pasajero).
+  - Chofer: la cuenta regresiva de 30 s corre en el navegador; "Aceptar" muestra el aviso de la carrera y apagar y prender "Disponible" vuelve a traer la oferta. Operador: al tocar un viaje se despliega el motivo obligatorio y "Cancelar viaje". Admin: "Habilitar" saca al chofer de la lista y "Guardar tarifa nueva" no hace nada.
+  - Datos fijos en `src/datos/ejemplo.js`, con la forma de la respuesta de cada endpoint (anotado arriba de cada uno); al conectar, se reemplaza cada constante por la llamada. Cada página dice en un comentario qué endpoints usa.
+  - Tokens del diseño como variables CSS en `src/estilos.css`. Dinero en centavos, formateado sólo al mostrar (`src/formato.js`).
+  - El mapa es el dibujo del diseño (`componentes/MapaSimulado.jsx`, con modo `chofer` para Mi viaje); se reemplaza por Google Maps al conectar.
+  - Mi viaje deriva el chip, el título y el paso del progreso de `estado` (`solicitado`, `asignado`, `chofer_en_camino`, `en_curso`). Para eso `GET /viajes/:viajeId` tiene que devolver además vehículo, patente y minutos hasta el retiro.
+  - Siguiente paso: conectar al backend y cambiar `MapaSimulado` por Google Maps. Lo que el backend tiene que exponer para eso está en `viajes-backend/CLAUDE.md`, "Cambios de backend que la web necesita".
+- **Mapas y seguridad:** dos claves de Google (navegador restringida por referrer a Maps JS y Places; servidor `GOOGLE_MAPS_SERVER_KEY` restringida a Routes, nunca al cliente), ninguna commiteada. **La tarifa se calcula siempre en el servidor**: el cliente manda sólo coordenadas. El JWT nunca va en la URL (también lo pide RNF-19). La posición del chofer viene del navegador y puede falsificarse (lo valida el backend).
+- La terminal del usuario es Windows PowerShell 5.1: `cd viajes-web`, `npm install` y `npm run dev` en líneas separadas (no existe `&&`).
