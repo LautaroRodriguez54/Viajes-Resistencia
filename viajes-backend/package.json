@@ -11,7 +11,7 @@
     "dev": "node --watch src/servidor.js",
     "start": "node src/servidor.js",
     "test": "node --test",
-    "lint": "node --check src/servidor.js && node --check src/composicion.js",
+    "lint": "eslint .",
     "migrate": "node src/infra/db/migrate.js",
     "seed": "node src/infra/db/seed.js",
     "setup": "npm run migrate && npm run seed"
@@ -26,5 +26,11 @@
     "pg": "^8.16.3",
     "pino": "^9.9.0",
     "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.15.0",
+    "eslint-plugin-security": "^4.2.1",
+    "globals": "^17.14.0"
   }
 }
