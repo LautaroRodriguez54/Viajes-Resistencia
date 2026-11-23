@@ -81,8 +81,7 @@ jobs:
             --config p/nodejs \
             --config p/owasp-top-ten \
             --metrics=off \
-            --json \
-            --output /src/semgrep-report.json \
+            --json-output=/src/semgrep-report.json \
             --error \
             /src/viajes-backend/src /src/viajes-web/src
 
