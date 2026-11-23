@@ -1,0 +1,140 @@
+name: CI y SAST
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend-lint-y-tests:
+    name: Backend - Lint, tests y auditoría
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: viajes-backend
+    steps:
+      - name: Clonar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: viajes-backend/package-lock.json
+
+      - name: Instalar dependencias del backend
+        run: npm ci
+
+      - name: Ejecutar ESLint y reglas de seguridad
+        run: npm run lint
+
+      - name: Ejecutar tests del backend
+        run: npm test
+
+      - name: Auditar vulnerabilidades de dependencias
+        run: npm audit --audit-level=high
+
+  web-build-y-auditoria:
+    name: Web - Build y auditoría
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: viajes-web
+    steps:
+      - name: Clonar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: viajes-web/package-lock.json
+
+      - name: Instalar dependencias de la web
+        run: npm ci
+
+      - name: Compilar aplicación web
+        run: npm run build
+
+      - name: Auditar vulnerabilidades de dependencias
+        run: npm audit --audit-level=high
+
+  sast-semgrep:
+    name: SAST - Análisis estático con Semgrep
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clonar repositorio
+        uses: actions/checkout@v4
+
+      - name: Ejecutar escaneo SAST con Semgrep
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/src" semgrep/semgrep \
+            semgrep scan \
+            --config p/javascript \
+            --config p/nodejs \
+            --config p/owasp-top-ten \
+            --metrics=off \
+            --json-output=/src/semgrep-report.json \
+            --error \
+            /src/viajes-backend/src /src/viajes-web/src
+
+      - name: Subir reporte SAST como artefacto
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-report
+          path: semgrep-report.json
+          if-no-files-found: warn
+
+  e2e-playwright:
+    name: E2E - Playwright
+    runs-on: ubuntu-latest
+    needs: [backend-lint-y-tests, web-build-y-auditoria]
+    steps:
+      - name: Clonar repositorio
+        uses: actions/checkout@v4
+
+      - name: Verificar existencia de suite Playwright
+        id: verificar-e2e
+        run: |
+          if [ -f "e2e/package.json" ]; then
+            echo "habilitado=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "habilitado=false" >> "$GITHUB_OUTPUT"
+            echo "La suite E2E con Playwright se ejecutará automáticamente al integrar el PR de Playwright (e2e/package.json)."
+          fi
+
+      - name: Configurar Node.js 22
+        if: steps.verificar-e2e.outputs.habilitado == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+
+      - name: Instalar dependencias y navegadores de Playwright
+        if: steps.verificar-e2e.outputs.habilitado == 'true'
+        working-directory: e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Ejecutar pruebas End-to-End
+        if: steps.verificar-e2e.outputs.habilitado == 'true'
+        working-directory: e2e
+        run: npm test
+
+      - name: Subir reporte de Playwright
+        if: always() && steps.verificar-e2e.outputs.habilitado == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: e2e/playwright-report/
+          if-no-files-found: warn
