@@ -1,6 +1,6 @@
 import cors from 'cors';
 import express from 'express';
-import helmet from 'helmet';
+import { crearCabecerasSeguridad } from './cabecerasSeguridad.js';
 import { contextoPorPedido } from './contexto.js';
 import { manejadorDeErrores } from './errores.js';
 import { crearRutasAutenticacion } from './rutasAutenticacion.js';
@@ -13,7 +13,7 @@ import { crearRutasOfertas } from './rutasOfertas.js';
 export function crearApp({ config, logger, verificarDisponibilidad, autenticacion, billetera, viajes, ofertas, choferes, administracion }) {
   const app = express();
   app.disable('x-powered-by');
-  app.use(helmet());
+  app.use(crearCabecerasSeguridad());
   app.use(cors({ origin: config.CORS_ORIGINS }));
   app.use(express.json({ limit: '100kb', strict: true, verify: (req, _res, buffer) => { req.cuerpoCrudo = Buffer.from(buffer); } }));
   app.use(contextoPorPedido);
