@@ -2,29 +2,23 @@ import express from 'express';
 import { z } from 'zod';
 import { ErrorDeDominio } from '../../dominio/errores.js';
 import { Rol } from '../../dominio/usuarios/roles.js';
-import { requiereAutenticacion } from './autenticacion.js';
+import { requiereAutenticacion, requiereRol } from './autenticacion.js';
 
 const uuid = z.string().uuid();
 const cancelacionOperador = z.object({ motivo: z.string().trim().min(3).max(200) }).strict();
 
-function soloOperador(req) {
-  if (req.autenticacion.rol !== Rol.OPERADOR) {
-    throw new ErrorDeDominio('RECURSO_PROHIBIDO', 'Esta operación es exclusiva de operadores.');
-  }
-}
+const soloOperador = requiereRol(Rol.OPERADOR, 'Esta operación es exclusiva de operadores.');
 
 export function crearRutasOperador({ listarViajesActivos, cancelarViaje, reintentarCobro, tokens, idempotente }) {
   const router = express.Router();
-  router.get('/viajes', requiereAutenticacion(tokens), async (req, res) => {
-    soloOperador(req);
+  router.get('/viajes', requiereAutenticacion(tokens), soloOperador, async (req, res) => {
     const estado = req.query.estado ?? 'activos';
     if (estado !== 'activos') {
       throw new ErrorDeDominio('ENTRADA_INVALIDA', 'Sólo se admite el filtro estado=activos.');
     }
     res.status(200).json({ viajes: await listarViajesActivos() });
   });
-  router.post('/viajes/:viajeId/cancelar', requiereAutenticacion(tokens), idempotente('operador.cancelar_viaje'), async (req, res) => {
-    soloOperador(req);
+  router.post('/viajes/:viajeId/cancelar', requiereAutenticacion(tokens), soloOperador, idempotente('operador.cancelar_viaje'), async (req, res) => {
     if (!uuid.safeParse(req.params.viajeId).success) {
       throw new ErrorDeDominio('ENTRADA_INVALIDA', 'Identificador de viaje inválido.');
     }
@@ -39,8 +33,7 @@ export function crearRutasOperador({ listarViajesActivos, cancelarViaje, reinten
       motivo: cuerpo.data.motivo,
     }));
   });
-  router.post('/viajes/:viajeId/reintentar-cobro', requiereAutenticacion(tokens), idempotente('operador.reintentar_cobro'), async (req, res) => {
-    soloOperador(req);
+  router.post('/viajes/:viajeId/reintentar-cobro', requiereAutenticacion(tokens), soloOperador, idempotente('operador.reintentar_cobro'), async (req, res) => {
     if (!uuid.safeParse(req.params.viajeId).success) {
       throw new ErrorDeDominio('ENTRADA_INVALIDA', 'Identificador de viaje inválido.');
     }

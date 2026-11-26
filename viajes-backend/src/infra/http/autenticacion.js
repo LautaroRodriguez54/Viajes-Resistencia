@@ -13,3 +13,13 @@ export function requiereAutenticacion(tokens) {
   };
 }
 
+export function requiereRol(rolesPermitidos, mensaje = 'No tenés permisos para realizar esta operación.') {
+  const permitidos = Array.isArray(rolesPermitidos) ? rolesPermitidos : [rolesPermitidos];
+  return (req, _res, next) => {
+    if (!req.autenticacion || !permitidos.includes(req.autenticacion.rol)) {
+      return next(new ErrorDeDominio('RECURSO_PROHIBIDO', mensaje));
+    }
+    return next();
+  };
+}
+
