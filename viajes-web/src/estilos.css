@@ -109,6 +109,7 @@ h1 { margin: 0; font-weight: 600; }
 }
 .input-con-icono input, .input-con-icono select {
   flex: 1;
+  align-self: stretch; /* que se pueda tocar en todo el alto de la caja, no sólo sobre el texto */
   min-width: 0;
   border: 0;
   outline: none;
@@ -389,6 +390,8 @@ h1 { margin: 0; font-weight: 600; }
   border-bottom: 1px solid var(--separador);
 }
 .lista li:last-child { border-bottom: 0; }
+.lista li > :last-child { flex: none; white-space: nowrap; } /* el monto o el estado no se parten en dos renglones */
+.lista__texto { min-width: 0; }
 .lista--compacta li { padding: 10px 0; }
 .lista__texto { display: flex; flex-direction: column; }
 .lista__detalle { font-size: 13px; color: var(--texto-secundario); }
@@ -502,6 +505,9 @@ h1 { margin: 0; font-weight: 600; }
 .interruptor[aria-checked="true"] { background: var(--exito); justify-content: flex-end; }
 .interruptor span { width: 22px; height: 22px; border-radius: 50%; background: #FFFFFF; }
 .interruptor:focus-visible { outline: 2px solid var(--acento); outline-offset: 2px; }
+/* Se ve de 30 px de alto, pero se puede tocar en 44 px: el área táctil se agranda sin cambiar el dibujo. */
+.interruptor { position: relative; }
+.interruptor::after { content: ""; position: absolute; inset: -7px -4px; }
 
 /* Encabezado plano (pantallas sin mapa) */
 .encabezado--plano {
@@ -513,13 +519,74 @@ h1 { margin: 0; font-weight: 600; }
   padding: 22px 24px;
 }
 
+/* Celular (TP3 de Fernández: cliente web responsivo). Criterios:
+   - nada más ancho que la pantalla;
+   - todo lo que se toca mide al menos 44 px (el mínimo de Apple y de WCAG 2.5.5);
+   - inputs con letra de 16 px, porque con menos el iPhone hace zoom al enfocarlos;
+   - en las pantallas con mapa, la tarjeta pasa a ser una hoja inferior y el mapa se corre para que la ruta quede arriba, a la vista. */
 @media (max-width: 600px) {
-  .encabezado { padding: 14px 16px; }
-  .encabezado nav { order: 3; width: 100%; }
-  .pedir { left: 16px; top: 16px; }
-  .columna { padding: 0 16px 32px; }
-  .encabezado--plano { padding: 16px; }
+  .input, .input-con-icono input, .input-con-icono select { font-size: 16px; }
   .fila { grid-template-columns: 1fr; }
-  .oferta { top: 16px; }
-  .disponible { left: 16px; bottom: 16px; }
+  .acceso__pie a { padding: 12px 4px; margin: -12px -4px; }
+
+  /* Encabezado en dos renglones: marca + usuario (el email se corta con "…") y las pestañas a lo ancho. */
+  .encabezado, .encabezado--plano { padding: 4px 16px 0; gap: 0 12px; flex-wrap: wrap; }
+  .encabezado--plano { padding-bottom: 4px; }
+  .encabezado .marca { padding: 10px 0; flex: none; }
+  .encabezado__usuario {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+  }
+  .encabezado__usuario > span { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .encabezado__usuario .enlace { min-height: 44px; min-width: 44px; padding: 0 4px; }
+  .encabezado nav { order: 3; width: 100%; gap: 0; }
+  .encabezado nav a {
+    flex: 1;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding-bottom: 0;
+    border-bottom-width: 3px;
+  }
+
+  .columna { margin-top: 8px; padding: 0 16px 32px; }
+  .boton--peligro-lleno, .boton--exito { min-height: 44px; }
+  .operador__motivo { height: 44px; }
+
+  /* Pantallas con mapa */
+  .mapa { min-height: 520px; }
+  .mapa__zoom { display: none; } /* en el celular se hace zoom con los dedos */
+  .pedir {
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    width: 100%;
+    max-height: calc(100% - 64px);
+    overflow-y: auto;
+    border-radius: var(--radio-tarjeta) var(--radio-tarjeta) 0 0;
+    padding: 20px 16px calc(20px + env(safe-area-inset-bottom));
+  }
+  .oferta { top: 12px; width: calc(100% - 24px); }
+  .disponible { left: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); }
+}
+
+/* En vertical, el dibujo de 1280 × 800 llena el alto y sobra ancho: se corre para que se vea lo importante.
+   Pasajero: el centro va a la ruta (x de 710 a 1070). Chofer: va a "Vos" y al retiro (x de 440 a 710), y sube un poco
+   para que no queden debajo de la tarjeta. */
+@media (max-width: 600px) and (orientation: portrait) {
+  .mapa > svg {
+    inset: 0 auto 0 50%;
+    width: auto;
+    height: 100%;
+    aspect-ratio: 1280 / 800;
+    transform: translateX(-69%);
+  }
+  .mapa--chofer > svg { top: -14%; bottom: auto; height: 114%; transform: translateX(-45%); }
 }
