@@ -60,6 +60,7 @@ async function levantarApp(overrides = {}) {
 
     ofertas: {
       aceptarOferta: async () => ({}),
+      rechazarOferta: async () => ({}),
       tokens,
     },
 
@@ -198,6 +199,26 @@ test('un pasajero no puede aceptar una oferta', async () => {
   }, {
     ofertas: {
       aceptarOferta: async () => {
+        ejecutado = true;
+      },
+    },
+  });
+});
+
+test('un pasajero no puede rechazar una oferta', async () => {
+  let ejecutado = false;
+
+  await conApp(async (url) => {
+    const respuesta = await fetch(`${url}/ofertas/${ofertaId}/rechazar`, {
+      method: 'POST',
+      headers: autorizacion(Rol.PASAJERO, pasajeroId),
+    });
+
+    assert.equal(respuesta.status, 403);
+    assert.equal(ejecutado, false);
+  }, {
+    ofertas: {
+      rechazarOferta: async () => {
         ejecutado = true;
       },
     },

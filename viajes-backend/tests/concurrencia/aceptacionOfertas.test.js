@@ -244,3 +244,111 @@ test('ofrecerAlChoferCercano bajo ráfaga concurrente asigna choferes distintos 
     }
   });
 });
+
+test('carrera vencimiento vs aceptación simultánea mantiene exclusión mutua estricta sin deadlocks', async (t) => {
+  await conBaseDePrueba(t, async (pool) => {
+    const repoViajes = crearRepositorioViajesPostgres(pool);
+
+    for (let ronda = 0; ronda < 8; ronda += 1) {
+      await pool.query('UPDATE perfiles_chofer SET disponible = FALSE WHERE disponible = TRUE');
+      await pool.query("UPDATE ofertas_viaje SET estado = 'vencida' WHERE estado = 'pendiente'");
+
+      const pasajeroId = await crearPasajero(pool);
+      const chofer1 = await crearChofer(pool, true);
+      const chofer2 = await crearChofer(pool, true);
+      const viajeId = await crearViaje(pool, pasajeroId);
+      const oferta1 = await crearOferta(pool, viajeId, chofer1, '-5 milliseconds');
+
+      const [resAceptar, resVencer] = await Promise.allSettled([
+        repoViajes.aceptarOferta(oferta1, chofer1),
+        repoViajes.procesarOfertasVencidas(),
+      ]);
+
+      assert.equal(resVencer.status, 'fulfilled');
+
+      if (resAceptar.status === 'fulfilled') {
+        assert.equal(resAceptar.value.estado, 'asignado');
+        const viaje = await pool.query('SELECT estado, chofer_id FROM viajes WHERE id = $1', [viajeId]);
+        assert.equal(viaje.rows[0].estado, 'asignado');
+        assert.equal(viaje.rows[0].chofer_id, chofer1);
+        const ofertas = await pool.query('SELECT chofer_id, estado FROM ofertas_viaje WHERE viaje_id = $1', [viajeId]);
+        assert.equal(ofertas.rows.length, 1);
+        assert.equal(ofertas.rows[0].estado, 'aceptada');
+      } else {
+        assert.equal(resAceptar.reason?.codigo, 'OFERTA_NO_DISPONIBLE');
+        await repoViajes.procesarOfertasVencidas();
+        const viaje = await pool.query('SELECT estado, chofer_id FROM viajes WHERE id = $1', [viajeId]);
+        assert.equal(viaje.rows[0].estado, 'solicitado');
+        assert.equal(viaje.rows[0].chofer_id, null);
+
+        const ofertas = await pool.query('SELECT chofer_id, estado FROM ofertas_viaje WHERE viaje_id = $1', [viajeId]);
+        assert.equal(ofertas.rows.length, 2);
+        const deChofer1 = ofertas.rows.find((o) => o.chofer_id === chofer1);
+        const deChofer2 = ofertas.rows.find((o) => o.chofer_id === chofer2);
+        assert.equal(deChofer1?.estado, 'vencida');
+        assert.equal(deChofer2?.estado, 'pendiente');
+
+        const perfil1 = await pool.query('SELECT disponible FROM perfiles_chofer WHERE usuario_id = $1', [chofer1]);
+        assert.equal(perfil1.rows[0].disponible, true);
+      }
+    }
+  });
+});
+
+test('dos despachadores de vencimiento simultáneos sobre la misma oferta vencida generan una sola re-oferta', async (t) => {
+  await conBaseDePrueba(t, async (pool) => {
+    await pool.query('UPDATE perfiles_chofer SET disponible = FALSE WHERE disponible = TRUE');
+    await pool.query("UPDATE ofertas_viaje SET estado = 'vencida' WHERE estado = 'pendiente'");
+
+    const pasajeroId = await crearPasajero(pool);
+    const chofer1 = await crearChofer(pool, true);
+    const chofer2 = await crearChofer(pool, true);
+    const viajeId = await crearViaje(pool, pasajeroId);
+    await crearOferta(pool, viajeId, chofer1, '-2 seconds');
+    const repoViajes = crearRepositorioViajesPostgres(pool);
+
+    const [resA, resB] = await Promise.all([
+      repoViajes.procesarOfertasVencidas(),
+      repoViajes.procesarOfertasVencidas(),
+    ]);
+
+    assert.equal(resA.length + resB.length, 1);
+
+    const ofertas = await pool.query('SELECT chofer_id, estado FROM ofertas_viaje WHERE viaje_id = $1', [viajeId]);
+    assert.equal(ofertas.rows.length, 2);
+    assert.equal(ofertas.rows.find((o) => o.chofer_id === chofer1)?.estado, 'vencida');
+    assert.equal(ofertas.rows.find((o) => o.chofer_id === chofer2)?.estado, 'pendiente');
+
+    const eventosVencida = await pool.query(
+      "SELECT COUNT(*)::int AS cantidad FROM eventos_viaje WHERE viaje_id = $1 AND tipo = 'oferta_vencida'",
+      [viajeId],
+    );
+    assert.equal(eventosVencida.rows[0].cantidad, 1);
+  });
+});
+
+test('carrera aceptación vs rechazo simultáneo sobre la misma oferta: exactamente uno gana', async (t) => {
+  await conBaseDePrueba(t, async (pool) => {
+    const repoViajes = crearRepositorioViajesPostgres(pool);
+
+    for (let ronda = 0; ronda < 5; ronda += 1) {
+      await pool.query('UPDATE perfiles_chofer SET disponible = FALSE WHERE disponible = TRUE');
+      await pool.query("UPDATE ofertas_viaje SET estado = 'vencida' WHERE estado = 'pendiente'");
+
+      const pasajeroId = await crearPasajero(pool);
+      const chofer1 = await crearChofer(pool, true);
+      await crearChofer(pool, true);
+      const viajeId = await crearViaje(pool, pasajeroId);
+      const oferta1 = await crearOferta(pool, viajeId, chofer1);
+
+      const resultados = await Promise.allSettled([
+        repoViajes.aceptarOferta(oferta1, chofer1),
+        repoViajes.rechazarOferta(oferta1, chofer1),
+      ]);
+
+      assert.equal(resultados.filter((r) => r.status === 'fulfilled').length, 1);
+      const fallo = resultados.find((r) => r.status === 'rejected');
+      assert.equal(fallo?.reason?.codigo, 'OFERTA_NO_DISPONIBLE');
+    }
+  });
+});
