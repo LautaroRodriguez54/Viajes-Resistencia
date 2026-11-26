@@ -1,190 +1,231 @@
-# Guía de implementación del proyecto
+# Guía de implementación del proyecto (anexo)
 
-Este documento describe el estado actual del backend, módulo por módulo, y la responsabilidad de cada archivo. Es una guía de lectura: conviene recorrerla junto al código.
+Mapa del backend archivo por archivo, para estudiar la defensa con el código abierto al lado. Este documento cuenta **qué hace cada archivo**. El **porqué** de cada decisión está en otros lados:
+
+- `modelo.md`: reglas del dominio (estados, tarifa, billetera, idempotencia).
+- `adr/`: decisiones y alternativas descartadas (001 a 011).
+- `openapi.yaml`: el contrato de cada endpoint.
+
+Estado: `main` al 26/11/2026 (`8e48189`, con el #21 y el #22 ya fusionados).
 
 ## 1. Qué funciona hoy
 
-El backend ya permite ejecutar un flujo mínimo completo:
-
 ```text
-pasajero se registra e inicia sesión
-→ recibe una carga firmada en su billetera
-→ chofer se registra
-→ administrador habilita al chofer
-→ chofer se declara disponible y reporta ubicación
-→ pasajero solicita viaje
-→ se crea una oferta al chofer cercano
-→ chofer acepta la oferta
-→ chofer marca "en camino" y "en curso"
-→ finaliza: se debita saldo o queda pago_pendiente
+pasajero se registra            → el evento UsuarioRegistrado (outbox) le crea la billetera en su base
+recibe una carga firmada (HMAC) → la billetera acredita una sola vez por eventoExternoId
+chofer se registra              → el administrador lo habilita
+chofer se declara disponible y reporta ubicación
+pasajero solicita viaje         → se ofrece al chofer más cercano a ≤5 km (oferta de 30 s)
+chofer acepta o rechaza       → si nadie responde, el servidor vence la oferta y busca otro
+chofer marca "en camino" y "en curso"
+finaliza                        → pago_pendiente → la billetera cobra → finalizado, o queda pago_pendiente
+pasajero sin saldo              → carga y "reintentar cobro"
 ```
 
-El sistema usa Node.js, Express, PostgreSQL con PostGIS, ESM y SQL directo mediante `pg`.
+Los 5 endpoints que crean o cobran exigen `Idempotency-Key` (ADR 010).
 
 ## 2. Arquitectura y recorrido de una petición
 
 ```text
 HTTP / Express
-  → ruta y validación de entrada
-  → caso de uso (aplicación)
-  → puerto/repository inyectado
-  → adaptador PostgreSQL o externo
-  → respuesta HTTP / middleware de error
+  → contexto (requestId), seguridad, límite de tasa
+  → autenticación Bearer → idempotencia (si el endpoint la usa)
+  → ruta: rol + validación Zod .strict()
+  → caso de uso (aplicacion/) o repositorio (ofertas, aceptación y estados todavía van directo)
+  → puerto → adaptador Postgres o en memoria
+  → respuesta / manejador de errores ({ error: { codigo, requestId } })
 ```
 
-El dominio no importa Express, PostgreSQL ni librerías de infraestructura. `src/composicion.js` es el único lugar que une los adaptadores concretos con los casos de uso y rutas.
+- El dominio no importa Express, `pg` ni librerías de infraestructura.
+- `src/composicion.js` es el único lugar que conecta adaptadores, casos de uso, rutas y procesos de fondo.
+
+### Tres bases, una por módulo (ADR 008 y 009)
+
+| Base | Rol | Tablas | La usa |
+|---|---|---|---|
+| `viajes` | `viajes_app` | `usuarios`, `perfiles_chofer`, `viajes`, `ofertas_viaje`, `eventos_viaje`, `ubicaciones_actuales_chofer`, `historial_ubicaciones_chofer`, `parametros_tarifa`, `claves_idempotencia`, `outbox_viajes` | Viajes, usuarios, choferes, idempotencia |
+| `billetera` | `billetera_app` | `billeteras`, `movimientos_billetera`, `eventos_webhook_pago`, `eventos_consumidos`, `outbox_billetera` | Billetera |
+| `lectura` | `lectura_app` | `saldos`, `eventos_aplicados` | Proyector de saldos y `GET /billetera/me` |
+
+Ninguna base consulta a otra. Se comunican por:
+- el puerto `billetera.cobrar` (síncrono, dentro del proceso);
+- los outbox, que entrega `despachadorOutbox.js`.
 
 ## 3. Arranque y archivos raíz
 
 | Archivo | Responsabilidad |
 |---|---|
-| `package.json` | Declara Node 22, dependencias y comandos `dev`, `start`, `test`, `migrate`, `seed` y `setup`. |
-| `package-lock.json` | Fija las versiones reales instaladas para reproducibilidad. |
-| `.env.example` | Lista toda configuración necesaria sin secretos reales. La base se publica en el puerto local 5433. |
-| `docker-compose.yml` | Levanta PostgreSQL con PostGIS y volumen persistente. |
-| `README.md` | Explica instalación, arranque, roles y acceso del administrador de desarrollo. |
-| `src/servidor.js` | Arranca Express y realiza apagado ordenado ante `SIGTERM`/`SIGINT`. |
-| `src/composicion.js` | Crea pool PostgreSQL, repositorios, hash Argon2, JWT, casos de uso y rutas. |
-| `src/config/env.js` | Lee y valida variables de entorno con Zod; evita que el proceso arranque con configuración incompleta. |
+| `package.json` | Node 22, dependencias y comandos: `dev`, `start`, `test`, `lint`, `migrate`, `seed`, `setup`, `setup:test`, `cargar-saldo`, `demo:propiedad-datos`, `proyecciones:reconstruir`. |
+| `.env.example` | Toda la configuración sin secretos reales: una URL por base, `ADMIN_DATABASE_URL` para las migraciones, TTL de idempotencia, de ofertas y de ubicación, y límites de tasa. |
+| `docker-compose.yml` | PostgreSQL 16 + PostGIS (puerto local 5433). Swagger UI aparte con `--profile docs` (puerto 8080). |
+| `src/servidor.js` | Arranca Express y los procesos de fondo; apagado ordenado ante `SIGTERM`/`SIGINT` (detiene los procesos antes de cerrar los pools). |
+| `src/composicion.js` | Un pool por base, repositorios, casos de uso, rutas, despachadores del outbox y vencimiento de ofertas. |
+| `src/config/env.js` | Valida las variables con Zod: el proceso no arranca con configuración incompleta. |
 
 ## 4. Dominio
 
 | Archivo | Qué representa |
 |---|---|
-| `src/dominio/errores.js` | `ErrorDeDominio`: error con un código estable que la capa HTTP traduce a una respuesta segura. |
+| `src/dominio/errores.js` | `ErrorDeDominio`: un código estable que la capa HTTP traduce a status. |
 | `src/dominio/usuarios/roles.js` | Los cuatro roles: pasajero, chofer, operador y administrador. |
-| `src/dominio/billetera/dinero.js` | Rechaza importes no enteros o negativos. El dinero se expresa en centavos, nunca con punto flotante. |
-| `src/dominio/billetera/billetera.js` | Calcula saldo sumando cargas y restando consumos. No existe un saldo mutable. |
-| `src/dominio/viajes/estadosViaje.js` | Estados permitidos del viaje, incluido `pago_pendiente`. |
-| `src/dominio/viajes/tarifa.js` | Calcula distancia Haversine y estimación de precio desde parámetros de tarifa. |
-| `src/dominio/puertos/*.js` | Contratos conceptuales para repositorios y verificación de webhook. Hoy sirven como documentación de las dependencias del dominio; se pueden convertir a interfaces más estrictas al crecer el proyecto. |
+| `src/dominio/billetera/dinero.js` | `validarCentavos`: sólo enteros seguros y ≥ 0. Nunca punto flotante. |
+| `src/dominio/billetera/billetera.js` | `calcularSaldo` (suma de movimientos, no hay saldo guardado) y `decidirCobro` (nunca parcial; importe 0 sin movimiento). |
+| `src/dominio/viajes/estadosViaje.js` | Estados del viaje, incluidos `pago_pendiente` y `sin_choferes_disponibles`. |
+| `src/dominio/viajes/tarifa.js` | Distancia Haversine y estimación desde los parámetros de tarifa. |
+| `src/dominio/puertos/*.js` | Contratos: `repositorioBilletera` (cargar, saldo, cobrar), `unidadDeTrabajoCobro`, `repositorioUsuarios`, `verificadorWebhook`. |
 
 ## 5. Autenticación y usuarios
 
-### Flujo
-
-1. `POST /auth/register` recibe email, contraseña, rol y, si corresponde, vehículo.
+1. `POST /auth/register` recibe email, contraseña, rol y, si es chofer, el vehículo.
 2. La contraseña se hashea con Argon2id.
-3. Se inserta usuario; un pasajero recibe billetera y un chofer recibe perfil inicialmente no habilitado.
-4. `POST /auth/login` verifica el hash y emite un JWT.
-5. El middleware Bearer valida ese JWT en rutas protegidas.
+3. En una transacción se inserta el usuario y, según el rol:
+   - un chofer recibe su perfil, sin habilitar;
+   - un pasajero genera el evento `UsuarioRegistrado` en `outbox_viajes`, y la billetera se crea al consumirlo (ADR 008).
+4. `POST /auth/login` verifica el hash y emite un JWT HS256.
+5. El middleware Bearer valida el JWT en las rutas protegidas.
 
 | Archivo | Responsabilidad |
 |---|---|
-| `src/infra/autenticacion/contrasenasArgon2.js` | Adaptador para hashear/verificar contraseñas con Argon2id y costos configurables. |
-| `src/infra/autenticacion/tokensJwt.js` | Emite y valida JWT con `sub` (id de usuario) y rol. |
-| `src/aplicacion/autenticacion/registrarUsuario.js` | Caso de uso que limita el registro público a pasajero/chofer y crea el token inicial. |
-| `src/aplicacion/autenticacion/iniciarSesion.js` | Caso de uso de login y transformación a usuario público, sin exponer hash. |
-| `src/infra/db/repositorioUsuariosPostgres.js` | Inserta y consulta usuarios con SQL parametrizado; crea billetera o perfil de chofer dentro de una transacción. |
-| `src/infra/http/autenticacion.js` | Middleware `requiereAutenticacion`: extrae `Authorization: Bearer ...` y deja identidad en `req.autenticacion`. |
-| `src/infra/http/rutasAutenticacion.js` | Endpoints `/auth/register`, `/auth/login` y `/auth/me`, con validación Zod estricta. |
+| `src/infra/autenticacion/contrasenasArgon2.js` | Hashear y verificar con Argon2id, con costos configurables. |
+| `src/infra/autenticacion/tokensJwt.js` | Emite y valida el JWT (`sub` = id de usuario, rol). |
+| `src/aplicacion/autenticacion/registrarUsuario.js` | Limita el registro público a pasajero o chofer y devuelve el token inicial. |
+| `src/aplicacion/autenticacion/iniciarSesion.js` | Login; nunca expone el hash. |
+| `src/infra/db/repositorioUsuariosPostgres.js` | SQL de usuarios; perfil del chofer y evento `UsuarioRegistrado` en la misma transacción. |
+| `src/infra/http/autenticacion.js` | `requiereAutenticacion`: deja `req.autenticacion = { usuarioId, rol }`. |
+| `src/infra/http/rutasAutenticacion.js` | `/auth/register`, `/auth/login` y `/auth/me`. |
 
-## 6. Billetera y webhook de carga
+## 6. Billetera (base propia)
 
-### Garantías actuales
-
-- El cliente/proveedor firma el cuerpo exacto con HMAC-SHA256.
-- Una firma inválida se rechaza antes de crear movimientos.
-- `eventoExternoId` es único: un reintento no acredita dos veces.
-- Un movimiento es inmutable en PostgreSQL: no se actualiza ni borra.
-- El saldo se consulta como suma de movimientos.
+Garantías:
+- El webhook trae el cuerpo firmado con HMAC-SHA256. Si la firma no coincide, se rechaza antes de tocar nada.
+- `eventoExternoId` es único: un webhook repetido acredita una sola vez.
+- Los movimientos son inmutables (trigger). El saldo es la suma de los movimientos.
+- `cobrar` bloquea la billetera (`FOR UPDATE`), decide con `decidirCobro` y es idempotente por `viajeId` (`ux_un_consumo_por_viaje`).
+- Cada carga y cada cobro dejan un evento en `outbox_billetera` para la proyección.
 
 | Archivo | Responsabilidad |
 |---|---|
-| `src/infra/externos/verificadorWebhookHmac.js` | Calcula y compara HMAC de manera segura con `timingSafeEqual`. |
-| `src/aplicacion/billetera/procesarCargaWebhook.js` | Verifica firma y delega la carga al repositorio. |
-| `src/infra/db/repositorioBilleterasPostgres.js` | Deduplica el evento, bloquea la billetera, inserta la carga y calcula saldo. |
-| `src/infra/http/rutasBilletera.js` | `POST /billetera/webhooks/cargas` y `GET /billetera/me`. |
+| `src/infra/externos/verificadorWebhookHmac.js` | Calcula el HMAC y compara con `timingSafeEqual`. |
+| `src/infra/externos/cargaDemoWebhook.js` | La contraparte: firma una carga para el script de demo. |
+| `src/aplicacion/billetera/procesarCargaWebhook.js` | Verifica la firma y delega la carga. |
+| `src/infra/db/repositorioBilleterasPostgres.js` | Carga con dedupe, `cobrar`, creación por evento (con dedupe en `eventos_consumidos`). Usa su propio pool. |
+| `src/infra/db/proyectorSaldosPostgres.js` | Aplica los eventos a `saldos` en `lectura`, con dedupe en `eventos_aplicados`. |
+| `src/infra/http/rutasBilletera.js` | `POST /billetera/webhooks/cargas` y `GET /billetera/me` (lee la proyección). |
+| `scripts/cargarSaldo.js` | `npm run cargar-saldo`: carga de demo por el webhook real. |
+| `scripts/reconstruirProyecciones.js` | `npm run proyecciones:reconstruir`: vacía `lectura` y la rearma desde el outbox. |
+| `scripts/demoPropiedadDatos.js` | `npm run demo:propiedad-datos`: Viajes recibe `permission denied` sobre `billetera`. |
 
-El body parser en `src/infra/http/app.js` conserva `req.cuerpoCrudo`; esto es imprescindible porque volver a serializar JSON puede cambiar los bytes y romper una firma válida.
+El body parser de `src/infra/http/app.js` guarda `req.cuerpoCrudo`: volver a serializar el JSON puede cambiar los bytes y romper una firma válida.
 
 ## 7. Viajes, ubicación y ofertas
 
-### Solicitud
+**Solicitud.** `POST /viajes` exige un pasajero, valida las coordenadas, toma los parámetros de tarifa activos y crea el viaje en `solicitado` con su estimación.
 
-`POST /viajes` exige pasajero autenticado, valida coordenadas, obtiene parámetros activos y crea el viaje en estado `solicitado`. La tarifa actual es una estimación de desarrollo basada en tarifa base, kilómetros redondeados, minutos estimados y velocidad promedio.
+**Chofer y PostGIS.** Con `PUT /choferes/me/disponibilidad` y `PUT /choferes/me/ubicacion`, la posición actual va a `ubicaciones_actuales_chofer` (índice GiST) y el historial a otra tabla. Con `UBICACION_TTL_SEGUNDOS`, un chofer que no reporta hace rato deja de ser candidato.
 
-### Chofer y PostGIS
+**Oferta.** `POST /viajes/:viajeId/ofertas` busca con `ST_DWithin` el chofer habilitado, disponible y sin viaje activo más cercano a ≤5 km, con `FOR UPDATE OF p SKIP LOCKED`. Después de bloquearlo **revalida** que siga elegible con una sentencia nueva: en READ COMMITTED, la primera vio una foto anterior al bloqueo. Por último crea una oferta de 30 s (configurable con `OFERTA_TTL_SEGUNDOS`).
 
-El chofer habilitado puede usar:
+**Aceptación.** `POST /ofertas/:ofertaId/aceptar` bloquea el viaje, sus ofertas (por id) y el perfil del chofer, en ese orden. Asigna el viaje y deja al chofer no disponible. Los índices `ux_una_oferta_aceptada_por_viaje` y `ux_chofer_un_viaje_activo` frenan cualquier doble asignación.
 
-- `PUT /choferes/me/disponibilidad`
-- `PUT /choferes/me/ubicacion`
+**Rechazo y vencimiento.**
+- `POST /ofertas/:ofertaId/rechazar` marca la oferta `rechazada` y ofrece el viaje al siguiente candidato.
+- `despachadorVencimientoOfertas.js` corre cada `OFERTA_VERIFICACION_MS` y marca `vencida` cada oferta que pasó su `vence_at`, también con el orden viaje → ofertas → chofer.
+- Si no queda ningún candidato, el viaje pasa a `sin_choferes_disponibles`.
 
-La posición actual va a `ubicaciones_actuales_chofer` con índice GiST. El historial va a otra tabla para que posteriormente pueda aplicarse una política de retención.
-
-### Oferta y aceptación
-
-`POST /viajes/:viajeId/ofertas` busca el chofer habilitado/disponible más cercano en un radio temporal de 5 km, con `ST_DWithin` de PostGIS, y crea una oferta de 30 segundos.
-
-`POST /ofertas/:ofertaId/aceptar` bloquea, dentro de una transacción, la oferta, el viaje y el perfil del chofer. Luego confirma la asignación y deja al chofer no disponible. El índice parcial de PostgreSQL impide dos viajes activos para un chofer.
+**Lecturas del chofer.** `GET /choferes/me/ofertas` y `GET /choferes/me/viaje-actual`, para la web, que consulta cada 2 s (ADR 011).
 
 | Archivo | Responsabilidad |
 |---|---|
-| `src/aplicacion/viajes/solicitarViaje.js` | Caso de uso de solicitud: obtiene tarifa y persiste viaje. |
-| `src/infra/db/repositorioViajesPostgres.js` | SQL de viaje, búsqueda geográfica, oferta, aceptación transaccional, cambios de estado y cobro final. |
-| `src/infra/db/repositorioChoferesPostgres.js` | Disponibilidad, habilitación y actualización atómica de posiciones. |
-| `src/infra/http/rutasViajes.js` | Solicitar, consultar viaje propio y generar oferta. |
-| `src/infra/http/rutasOfertas.js` | Aceptar oferta como chofer. |
-| `src/infra/http/rutasChoferes.js` | Disponibilidad, ubicación, transición de estado y finalización. |
-| `src/infra/http/rutasAdministracion.js` | Habilita/deshabilita choferes con rol administrador. |
+| `src/aplicacion/viajes/solicitarViaje.js` | Caso de uso de la solicitud: tarifa y viaje. |
+| `src/infra/db/repositorioViajesPostgres.js` | SQL de viajes, búsqueda geográfica, ofertas, aceptación, rechazo y vencimiento, estados, lecturas del chofer, y la parte de cobro de viajes (`crearCobroViajesPostgres`). |
+| `src/infra/db/repositorioChoferesPostgres.js` | Disponibilidad, habilitación y ubicación. |
+| `src/infra/http/rutasViajes.js` | Solicitar, consultar el viaje propio, ofrecer y reintentar el cobro. |
+| `src/infra/http/rutasOfertas.js` | Aceptar y rechazar. |
+| `src/infra/http/rutasChoferes.js` | Disponibilidad, ubicación, lecturas, estado y finalización. |
+| `src/infra/http/rutasAdministracion.js` | Habilitar o deshabilitar choferes. |
 
-## 8. Finalización y cobro
-
-El chofer avanza mediante:
+## 8. Finalización y cobro (dos pasos, ADR 008)
 
 ```text
-asignado → chofer_en_camino → en_curso → finalizado | pago_pendiente
+asignado → chofer_en_camino → en_curso → pago_pendiente → finalizado
+                                              ↑ (sin saldo, sin billetera o falla: se queda acá)
 ```
 
-En el caso de uso `finalizarViajeYCobrar` (`src/aplicacion/viajes/`), dentro de una unidad de trabajo con una sola transacción, se bloquean el viaje y la billetera, en ese orden. Se calcula el saldo desde los movimientos ya existentes. Si alcanza, se inserta exactamente un consumo asociado al viaje y se finaliza. Si no alcanza, no se inserta débito y el viaje queda en `pago_pendiente`. Esto evita cobrar parcialmente.
-
-La tarifa final hoy reutiliza la estimación. Falta incorporar recorrido/tiempo real para recalcularla con datos efectivos.
-
-## 9. Persistencia y migraciones
+1. `finalizarViajeYCobrar` pasa el viaje de `en_curso` a `pago_pendiente` y registra `cobro_solicitado`. Desde ese momento la deuda queda asentada.
+2. `cobrarViajePendiente`:
+   - bloquea el viaje en la base `viajes`;
+   - con el viaje bloqueado, llama a `billetera.cobrar` en la otra base;
+   - si se cobró, registra `cobro_confirmado` y deja el viaje `finalizado`; si no, registra `cobro_pendiente` con el motivo.
+3. `reintentarCobro` (`POST /viajes/:viajeId/reintentar-cobro`, sólo el pasajero dueño) repite el paso 2 en modo estricto: si el saldo no alcanza, responde `SALDO_INSUFICIENTE`.
 
 | Archivo | Responsabilidad |
 |---|---|
-| `src/infra/db/postgres.js` | Crea pool `pg` y verifica conexión. |
-| `src/infra/db/migrate.js` | Ejecuta los SQL de `migraciones/` ordenados. |
-| `src/infra/db/seed.js` | Carga tarifa de desarrollo y administrador `admin@demo.local`. |
-| `001_inicial.sql` | Usuarios, choferes, viajes, PostGIS, ofertas, eventos, billetera, webhook e idempotencia. Incluye índices y trigger de inmutabilidad. |
-| `002-parametros-tarifa-y-viajes.sql` | Agrega velocidad promedio a parámetros de tarifa. |
+| `src/aplicacion/viajes/finalizarViajeYCobrar.js` | Paso 1 + paso 2. |
+| `src/aplicacion/viajes/cobrarViajePendiente.js` | Paso 2, compartido. |
+| `src/aplicacion/viajes/reintentarCobro.js` | Reintento del pasajero. |
+| `src/infra/db/unidadDeTrabajoCobroPostgres.js` | `BEGIN` / `COMMIT` / `ROLLBACK` sobre la base `viajes`. |
+| `src/infra/memoria/*.js` | Gemelos en memoria: candados (hacen de `FOR UPDATE`), billetera, viajes, unidad de trabajo e idempotencia. |
+
+La carrera de la variante D, dos viajes contra un saldo que alcanza para uno, se resuelve en la base `billetera` con el `FOR UPDATE` de la billetera. La prueban un test con Postgres y otro en memoria.
+
+## 9. Persistencia, migraciones y procesos de fondo
+
+| Archivo | Responsabilidad |
+|---|---|
+| `src/infra/db/postgres.js` | Crea los pools y verifica la conexión (`/ready` chequea las tres bases). |
+| `src/infra/db/migrate.js` | Crea los roles y las bases si faltan, aplica las migraciones de cada base con el superusuario y le da al rol de cada módulo sólo permisos de lectura y escritura de filas (DML). `--pruebas` prepara las bases `_test`. |
+| `src/infra/db/seed.js` | Tarifa de desarrollo y administrador `admin@demo.local`. |
+| `migraciones/001_inicial.sql` | Esquema inicial, índices únicos parciales, `claves_idempotencia`. |
+| `migraciones/002-parametros-tarifa-y-viajes.sql` | Velocidad promedio en la tarifa. |
+| `migraciones/003-ofertas-unicidad-pendiente.sql` | `ux_oferta_pendiente_viaje_chofer`: una sola oferta pendiente por chofer y viaje. |
+| `migraciones/004-billetera-fuera-de-viajes.sql` | Borra las tablas de billetera de `viajes` y crea `outbox_viajes`. |
+| `migraciones-billetera/001-billetera.sql` | Base `billetera`. |
+| `migraciones-lectura/001-lectura.sql` | Base `lectura`. |
+| `src/infra/db/despachadorOutbox.js` | Toma eventos con `FOR UPDATE SKIP LOCKED`, los entrega y los marca. |
+| `src/infra/db/despachadorVencimientoOfertas.js` | Vence ofertas y vuelve a ofrecer. |
+| `src/infra/db/repositorioIdempotenciaPostgres.js` | `reservar`, `completar` y `liberar` sobre `claves_idempotencia`. |
 
 ## 10. HTTP transversal
 
 | Archivo | Responsabilidad |
 |---|---|
-| `src/infra/http/app.js` | Crea Express, Helmet, CORS, JSON, contexto, health/ready y monta todas las rutas. |
-| `src/infra/http/contexto.js` | Usa `AsyncLocalStorage` para asociar `x-request-id` a logs/errores. |
-| `src/infra/http/errores.js` | Un único traductor de errores a JSON seguro y códigos HTTP. No devuelve stack traces. |
+| `src/infra/http/app.js` | Express, JSON (con el cuerpo crudo), contexto, seguridad, `/health` y `/ready`, y las rutas. |
+| `src/infra/http/contexto.js` | `AsyncLocalStorage` con el `requestId`; loguea cada pedido. |
+| `src/infra/http/cabecerasSeguridad.js` | Helmet con CSP estricta. |
+| `src/infra/http/limitadorTasa.js` | 429 con `RateLimit-*` en login, webhook y ubicación. |
+| `src/infra/http/idempotencia.js` | Middleware `Idempotency-Key` (ADR 010). |
+| `src/infra/http/errores.js` | `STATUS_POR_CODIGO`: código → status. Sin stack traces; 4xx con `warn`, 5xx con `error`. |
 
-## 11. Tests actuales
+## 11. Tests
 
-| Archivo | Prueba |
+`npm test` corre todo. Con `DATABASE_URL` apuntando a `viajes_test` corren también los que usan base (antes, `npm run setup:test`). Son 214.
+
+| Carpeta | Qué prueba |
 |---|---|
-| `tests/dominio/billetera.test.js` | Saldo derivado e importes sin punto flotante. |
-| `tests/dominio/roles.test.js` | Roles válidos. |
-| `tests/dominio/tarifa.test.js` | Tarifa de distancia cero. |
-| `tests/infra/tokensJwt.test.js` | JWT válido y rechazo con otra clave. |
-| `tests/infra/verificadorWebhookHmac.test.js` | Firma HMAC válida y cuerpo alterado inválido. |
+| `tests/dominio` | Saldo derivado, por qué no float, `decidirCobro`, roles, tarifa. |
+| `tests/aplicacion` | Cobro sin Postgres: orden de bloqueo, caída entre bases, carrera de la variante D, dobles simultáneos. |
+| `tests/infra` | JWT, HMAC, carga de demo, idempotencia (middleware), cabeceras, SQL de ofertas con un pool simulado. |
+| `tests/integracion` | Con Postgres real: repositorios, idempotencia HTTP (10 pedidos simultáneos → 1 viaje), outbox, proyección, propiedad de datos, vencimiento y rechazo. |
+| `tests/concurrencia` | 50 aceptaciones simultáneas (gana una), SKIP LOCKED en ráfaga, carreras de vencimiento y rechazo. |
+| `tests/seguridad` | Autenticación, autorización por rol y recurso, validación, prototype pollution, inyección SQL, CORS, rate limiting. |
 
-## 12. Pendiente antes de la entrega final
+## 12. Pendiente
 
-1. Idempotencia HTTP completa para crear viajes, aceptar ofertas y finalizar/cobrar.
-2. Test de al menos 50 aceptaciones simultáneas y test de dos finalizaciones contra un saldo para un solo cobro.
-3. Vencimiento automático de ofertas y nueva búsqueda de candidato.
-4. Cancelación concurrente contra aceptación.
-5. SSE y recuperación de estado al reconectar.
-6. Tarifa final desde recorrido y duración efectiva.
-7. Roles operador, autorización por recurso para chofer y panel de viajes en curso.
-8. Rate limiting, logs JSON completos, pruebas de seguridad e informe de mediciones con 500 choferes.
+Está en `viajes-backend/CLAUDE.md`, sección "Lo que falta", que se mantiene al día. Lo más grande:
+- cancelaciones y operador;
+- SSE;
+- tarifa final real;
+- simulador de 500 choferes y mediciones;
+- ataque cruzado;
+- Dockerfile, trazabilidad y validación contra el OpenAPI (TP1 de Fernández).
 
 ## 13. Orden recomendado para estudiar
 
-1. `src/composicion.js` y `src/infra/http/app.js`.
-2. Autenticación: ruta → caso de uso → repositorio.
-3. Webhook de billetera y su transacción.
-4. `repositorioViajesPostgres.js`, especialmente `aceptarOferta`; el cobro, en `aplicacion/viajes/finalizarViajeYCobrar.js` y `unidadDeTrabajoCobroPostgres.js`.
-5. Las migraciones SQL e índices parciales.
-6. ADR 004, 005, 006 y 007 antes de explicar concurrencia, carga y geolocalización.
+1. `src/composicion.js` y `src/infra/http/app.js`: cómo se arma todo.
+2. Autenticación: ruta → caso de uso → repositorio → outbox `UsuarioRegistrado`.
+3. Webhook de la billetera y `cobrar` (`repositorioBilleterasPostgres.js`).
+4. El cobro en `aplicacion/viajes/` y su test en memoria (`tests/aplicacion/cobroDeViajes.test.js`).
+5. `repositorioViajesPostgres.js`: `ofrecerAlChoferCercano` y `aceptarOferta`.
+6. `idempotencia.js` y el ADR 010.
+7. Las migraciones y los índices únicos parciales.
+8. Los ADR 004, 007, 008, 009 y 011 antes de explicar concurrencia, geolocalización, bases separadas y la web.
