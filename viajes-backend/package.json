@@ -14,7 +14,8 @@
     "lint": "eslint .",
     "migrate": "node src/infra/db/migrate.js",
     "seed": "node src/infra/db/seed.js",
-    "setup": "npm run migrate && npm run seed"
+    "setup": "npm run migrate && npm run seed",
+    "cargar-saldo": "node scripts/cargarSaldo.js"
   },
   "dependencies": {
     "argon2": "^0.45.1",
