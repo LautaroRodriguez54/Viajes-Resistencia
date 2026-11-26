@@ -749,3 +749,23 @@ test('buscarViajeActualDelChofer devuelve el viaje activo y null al finalizar', 
     assert.equal(await repositorio.buscarViajeActualDelChofer(choferId), null);
   });
 });
+
+test('buscarPorIdDelPasajero informa tieneOfertaVigente según ofertas pendientes no vencidas', async (t) => {
+  await conBaseDePrueba(t, async (pool) => {
+    const { pasajeroId } = await crearPasajero(pool);
+    const choferId = await crearChofer(pool);
+    const viajeId = await crearViaje(pool, pasajeroId);
+    const repositorio = crearRepositorioViajesPostgres(pool);
+
+    assert.equal((await repositorio.buscarPorIdDelPasajero(viajeId, pasajeroId)).tieneOfertaVigente, false);
+
+    const ofertaId = await crearOferta(pool, viajeId, choferId);
+    assert.equal((await repositorio.buscarPorIdDelPasajero(viajeId, pasajeroId)).tieneOfertaVigente, true);
+
+    await pool.query("UPDATE ofertas_viaje SET vence_at = now() - interval '1 second' WHERE id = $1", [ofertaId]);
+    assert.equal((await repositorio.buscarPorIdDelPasajero(viajeId, pasajeroId)).tieneOfertaVigente, false);
+
+    await pool.query("UPDATE ofertas_viaje SET estado = 'rechazada', vence_at = now() + interval '1 minute' WHERE id = $1", [ofertaId]);
+    assert.equal((await repositorio.buscarPorIdDelPasajero(viajeId, pasajeroId)).tieneOfertaVigente, false);
+  });
+});

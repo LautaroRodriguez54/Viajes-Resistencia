@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Viajes Resistencia · API del backend
-  version: 0.7.0
+  version: 0.8.0
   summary: Viajes a demanda con billetera y pagos (grupo 4, variante D).
   description: |
     Contrato HTTP del backend. Es la **fuente de verdad** de la API: `docs/api.md` sólo lo resume.
@@ -1141,7 +1141,7 @@ components:
     Viaje:
       type: object
       additionalProperties: false
-      required: [id, estado, pasajeroId, choferId, estimacionCentavos, tarifaFinalCentavos, solicitadoAt]
+      required: [id, estado, pasajeroId, choferId, estimacionCentavos, tarifaFinalCentavos, solicitadoAt, tieneOfertaVigente]
       properties:
         id: { type: string, format: uuid }
         estado: { $ref: '#/components/schemas/EstadoViaje' }
@@ -1150,6 +1150,7 @@ components:
         estimacionCentavos: { type: integer, minimum: 0 }
         tarifaFinalCentavos: { type: [integer, 'null'], minimum: 0 }
         solicitadoAt: { type: string, format: date-time }
+        tieneOfertaVigente: { type: boolean, description: Indica si existe una oferta pendiente no vencida para el viaje. }
     ViajeConEstimacion:
       description: Lo mismo que `Viaje` más el detalle de la estimación (sólo al crearlo).
       type: object
