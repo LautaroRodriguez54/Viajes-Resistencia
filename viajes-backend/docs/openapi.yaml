@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Viajes Resistencia · API del backend
-  version: 0.4.0
+  version: 0.5.0
   summary: Viajes a demanda con billetera y pagos (grupo 4, variante D).
   description: |
     Contrato HTTP del backend. Es la **fuente de verdad** de la API: `docs/api.md` sólo lo resume.
@@ -25,7 +25,7 @@ info:
     | `eventos_viaje` | auditoría del ciclo de vida (M6) |
 
     ## Pendiente (no implementado todavía)
-    Estimación sin crear el viaje, cancelaciones (pasajero, chofer, operador), rechazo de oferta, endpoints del operador, historiales, movimientos de billetera y tiempo real por SSE. Se agregan acá cuando existan.
+    Estimación sin crear el viaje, cancelaciones (pasajero, chofer, operador), endpoints del operador, historiales, movimientos de billetera y tiempo real por SSE. Se agregan acá cuando existan.
   contact:
     name: Grupo 4 · Escobar Lucas, Valussi Agustín, Rodríguez Lautaro
 servers:
@@ -180,8 +180,12 @@ paths:
         '422':
           description: |
             - `CLAVE_IDEMPOTENCIA_REUTILIZADA`: la misma clave con otro pedido.
-            - `TARIFA_NO_CONFIGURADA`: no hay parámetros de tarifa activos (`npm run setup` los carga).
             - `VIAJE_SUPERA_MAXIMO`: la estimación supera `maximo_viaje_centavos` de la tarifa activa.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '503':
+          description: '`TARIFA_NO_CONFIGURADA`: no hay parámetros de tarifa activos (`npm run setup` los carga).'
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -216,7 +220,7 @@ paths:
       tags: [Viajes, Ofertas]
       summary: Ofrecer el viaje al chofer más cercano (pasajero)
       description: |
-        Elige el chofer habilitado y disponible más cercano a ≤ 5 km del origen, sin viaje activo ni otra oferta pendiente, y le crea una oferta que vence a los 30 s. Los pedidos simultáneos se reparten choferes con `FOR UPDATE SKIP LOCKED`.
+        Elige el chofer habilitado y disponible más cercano a ≤ 5 km del origen, sin viaje activo ni otra oferta pendiente vigente (y sin haber rechazado este viaje), y le crea una oferta que vence según `OFERTA_TTL_SEGUNDOS` (30 s por defecto). Si `UBICACION_TTL_SEGUNDOS` está configurado, exige una ubicación reportada dentro de esa ventana. Los pedidos simultáneos se reparten choferes con `FOR UPDATE SKIP LOCKED`.
       operationId: ofrecerViaje
       parameters:
         - $ref: '#/components/parameters/ViajeId'
@@ -322,6 +326,44 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
               example: { error: { codigo: OFERTA_NO_DISPONIBLE, requestId: 6f1c2d4e-8a0b-4c3d-9e2f-1a2b3c4d5e6f } }
+        '422': { $ref: '#/components/responses/ClaveReutilizada' }
+  /ofertas/{ofertaId}/rechazar:
+    post:
+      tags: [Ofertas]
+      summary: Rechazar una oferta (chofer)
+      description: |
+        Marca la oferta como `rechazada`, excluye al chofer de futuras ofertas para ese mismo viaje e intenta re-ofrecer al siguiente chofer cercano elegible. Si no quedan candidatos y tampoco otras ofertas vigentes, el viaje pasa a `sin_choferes_disponibles`.
+      operationId: rechazarOferta
+      parameters:
+        - name: ofertaId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Oferta rechazada; informa si el viaje fue re-ofrecido o pasó a `sin_choferes_disponibles`.
+          headers: { Idempotency-Replayed: { $ref: '#/components/headers/IdempotencyReplayed' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OfertaRechazada' }
+        '400': { $ref: '#/components/responses/EntradaOClaveInvalida' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403':
+          description: '`RECURSO_PROHIBIDO`: no es chofer o la oferta es de otro chofer.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: '`OFERTA_NO_ENCONTRADA`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: '`OFERTA_NO_DISPONIBLE` (vencida, ya respondida o el viaje ya no está `solicitado`) o `PEDIDO_EN_CURSO`.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '422': { $ref: '#/components/responses/ClaveReutilizada' }
 
   /choferes/me/ofertas:
@@ -886,6 +928,16 @@ components:
         ofertaId: { type: string, format: uuid }
         choferId: { type: string, format: uuid }
         venceAt: { type: string, format: date-time }
+    OfertaRechazada:
+      type: object
+      additionalProperties: false
+      required: [viajeId, ofertaId, estado, viajeEstado, reofrecida]
+      properties:
+        viajeId: { type: string, format: uuid }
+        ofertaId: { type: string, format: uuid }
+        estado: { type: string, const: rechazada }
+        viajeEstado: { type: string, enum: [solicitado, sin_choferes_disponibles] }
+        reofrecida: { type: boolean }
     OfertaPendiente:
       type: object
       additionalProperties: false
