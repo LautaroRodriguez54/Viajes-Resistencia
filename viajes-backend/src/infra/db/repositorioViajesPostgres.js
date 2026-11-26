@@ -127,11 +127,8 @@ export function crearRepositorioViajesPostgres(pool) {
         const actual = viaje.rows[0];
         if (!actual || actual.chofer_id !== choferId) throw new ErrorDeDominio('RECURSO_NO_ENCONTRADO', 'El viaje no pertenece al chofer.');
         if (actual.estado !== 'en_curso') throw new ErrorDeDominio('TRANSICION_INVALIDA', 'Sólo un viaje en curso puede finalizar.');
-        const billetera = await client.query('SELECT id FROM billeteras WHERE pasajero_id = $1 FOR UPDATE', [actual.pasajero_id]);
-        const saldo = await client.query(`SELECT COALESCE(SUM(CASE WHEN tipo = 'carga' THEN importe_centavos ELSE -importe_centavos END), 0) AS centavos FROM movimientos_billetera WHERE billetera_id = $1`, [billetera.rows[0].id]);
         const importe = actual.estimacion_centavos;
-        const suficiente = Number(saldo.rows[0].centavos) >= importe;
-        if (suficiente) await client.query("INSERT INTO movimientos_billetera (billetera_id, viaje_id, tipo, importe_centavos) VALUES ($1, $2, 'consumo', $3)", [billetera.rows[0].id, viajeId, importe]);
+        const suficiente = await debitarSiAlcanza(client, actual.pasajero_id, viajeId, importe);
         const estado = suficiente ? 'finalizado' : 'pago_pendiente';
         await client.query('UPDATE viajes SET estado = $2, tarifa_final_centavos = $3, finalizado_at = now(), version = version + 1 WHERE id = $1', [viajeId, estado, importe]);
         await client.query('INSERT INTO eventos_viaje (viaje_id, tipo, datos) VALUES ($1, $2, $3::jsonb)', [viajeId, suficiente ? 'cobro_confirmado' : 'cobro_pendiente', JSON.stringify({ importeCentavos: importe })]);
@@ -139,6 +136,37 @@ export function crearRepositorioViajesPostgres(pool) {
         return { viajeId, estado, importeCentavos: importe };
       } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
     },
+    // Salida de pago_pendiente: el pasajero, después de cargar saldo, pide cobrar la deuda del viaje.
+    async reintentarCobro(viajeId, pasajeroId) {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        // Mismo orden de bloqueo que finalizarYCobrar (viaje → billetera) para no generar interbloqueos.
+        const viaje = await client.query('SELECT estado, tarifa_final_centavos FROM viajes WHERE id = $1 AND pasajero_id = $2 FOR UPDATE', [viajeId, pasajeroId]);
+        const actual = viaje.rows[0];
+        if (!actual) throw new ErrorDeDominio('RECURSO_NO_ENCONTRADO', 'El viaje no existe o no pertenece al pasajero.');
+        if (actual.estado !== 'pago_pendiente') throw new ErrorDeDominio('TRANSICION_INVALIDA', 'Sólo un viaje con pago pendiente puede reintentar el cobro.');
+        const importe = actual.tarifa_final_centavos;
+        if (!await debitarSiAlcanza(client, pasajeroId, viajeId, importe)) throw new ErrorDeDominio('SALDO_INSUFICIENTE', 'El saldo no alcanza para pagar el viaje.');
+        await client.query("UPDATE viajes SET estado = 'finalizado', version = version + 1 WHERE id = $1", [viajeId]);
+        await client.query("INSERT INTO eventos_viaje (viaje_id, tipo, datos) VALUES ($1, 'cobro_confirmado', $2::jsonb)", [viajeId, JSON.stringify({ importeCentavos: importe, reintento: true })]);
+        await client.query('COMMIT');
+        return { viajeId, estado: 'finalizado', importeCentavos: importe };
+      } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
+    },
   };
+}
+
+// Bloquea la billetera del pasajero (FOR UPDATE) y, si el saldo alcanza, inserta el consumo del viaje.
+// Con el bloqueo, dos cobros del mismo pasajero se serializan: el segundo ve el consumo del primero.
+// Un importe 0 no genera movimiento (el CHECK exige importe > 0) y el cobro se considera hecho.
+async function debitarSiAlcanza(client, pasajeroId, viajeId, importe) {
+  const billetera = await client.query('SELECT id FROM billeteras WHERE pasajero_id = $1 FOR UPDATE', [pasajeroId]);
+  if (!billetera.rows[0]) throw new ErrorDeDominio('BILLETERA_NO_ENCONTRADA', 'El pasajero no tiene billetera.');
+  if (importe === 0) return true;
+  const saldo = await client.query(`SELECT COALESCE(SUM(CASE WHEN tipo = 'carga' THEN importe_centavos ELSE -importe_centavos END), 0) AS centavos FROM movimientos_billetera WHERE billetera_id = $1`, [billetera.rows[0].id]);
+  if (Number(saldo.rows[0].centavos) < importe) return false;
+  await client.query("INSERT INTO movimientos_billetera (billetera_id, viaje_id, tipo, importe_centavos) VALUES ($1, $2, 'consumo', $3)", [billetera.rows[0].id, viajeId, importe]);
+  return true;
 }
 

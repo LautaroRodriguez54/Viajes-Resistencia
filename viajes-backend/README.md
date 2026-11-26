@@ -32,6 +32,22 @@ El registro público admite pasajeros y choferes mediante `POST /auth/register`.
 
 Administrador de desarrollo: `admin@demo.local` / `AdminDemo123!`.
 
+## Cargar saldo para la demo
+
+En producción el saldo lo acredita el proveedor de pagos con un webhook firmado (`POST /billetera/webhooks/cargas`, HMAC-SHA256 con `WEBHOOK_HMAC_SECRET`). Para desarrollo y demos, el script simula a ese proveedor: firma el cuerpo con el secreto del `.env` y llama al mismo webhook. No agrega ningún endpoint, así que no amplía lo que se puede atacar, y el secreto nunca sale del servidor ni llega al front.
+
+Con el servidor levantado (`npm run dev`):
+
+```bash
+npm run cargar-saldo -- pasajero@demo.local 150000
+npm run cargar-saldo -- <pasajeroId> 50000 --url http://localhost:3000
+```
+
+- El destino es el email de un pasajero registrado (el script busca su id en la base) o directamente su id (uuid).
+- El importe va en **centavos enteros**: `150000` son $1500.
+- Cada ejecución genera un `eventoExternoId` nuevo (`demo-<uuid>`), así que dos ejecuciones acreditan dos veces. El webhook sigue descartando un mismo evento repetido.
+- Se niega a correr con `NODE_ENV=production`.
+
 ## Roles previstos
 
 | Rol | Alcance inicial |

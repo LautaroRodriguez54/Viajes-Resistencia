@@ -19,6 +19,37 @@ test('los importes de dinero no aceptan punto flotante', () => {
   );
 });
 
+// Por qué el dinero va en centavos enteros: en binario 0.1 y 0.2 no se representan
+// exactamente, así que la suma en punto flotante acumula error. Con enteros es exacta.
+test('por qué no float: 0.1 + 0.2 no da 0.3, pero 10 + 20 centavos da 30', () => {
+  assert.notEqual(0.1 + 0.2, 0.3);
+  assert.equal(0.1 + 0.2, 0.30000000000000004);
+  assert.equal(10 + 20, 30);
+
+  // Diez cargas de $0,10 en float no suman $1; en centavos sí.
+  let enPesos = 0;
+  let enCentavos = 0;
+  for (let i = 0; i < 10; i += 1) {
+    enPesos += 0.1;
+    enCentavos += 10;
+  }
+  assert.notEqual(enPesos, 1);
+  assert.equal(enCentavos, 100);
+
+  const saldo = calcularSaldo(
+    Array.from({ length: 10 }, () => ({ tipo: TipoMovimientoBilletera.CARGA, importeCentavos: 10 })),
+  );
+  assert.equal(saldo, 100);
+});
+
+test('validarCentavos rechaza importes con decimales, negativos y fuera del rango seguro', () => {
+  for (const valor of [0.3, 12.5, -1, Number.MAX_SAFE_INTEGER + 1, Number.NaN, '100']) {
+    assert.throws(() => validarCentavos(valor), (error) => error.codigo === 'IMPORTE_INVALIDO');
+  }
+  assert.equal(validarCentavos(0), 0);
+  assert.equal(validarCentavos(150), 150);
+});
+
 // Nuevos tests
 
 test('una billetera sin movimientos tiene saldo cero', () => {

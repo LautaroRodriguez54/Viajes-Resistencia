@@ -53,6 +53,7 @@ function crearDependenciasPrueba(sobreescribir = {}) {
     solicitarViaje: async () => ({ id: crypto.randomUUID() }),
     buscarViajePropio: async () => null,
     ofrecerAlChoferCercano: async () => ({ ofertaId: crypto.randomUUID() }),
+    reintentarCobro: async () => ({ estado: 'finalizado', importeCentavos: 1000 }),
     tokens,
     ...sobreescribir.viajes,
   };
