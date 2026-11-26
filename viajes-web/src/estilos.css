@@ -348,6 +348,10 @@ h1 { margin: 0; font-weight: 600; }
   gap: 12px;
 }
 .pedir h1 { margin-bottom: 2px; font-size: 22px; }
+/* Título y estado de conexión ("Conectado") en la misma línea. */
+.pedir__cabecera { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.pedir__cabecera .chip { align-self: center; flex: none; }
+.input-con-icono input::placeholder { color: var(--texto-secundario); }
 .pedir__resumen {
   display: flex;
   justify-content: space-between;

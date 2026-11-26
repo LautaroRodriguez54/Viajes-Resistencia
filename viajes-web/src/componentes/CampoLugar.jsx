@@ -25,7 +25,7 @@ function aOpcion(f) {
   return { clave: `${p.osm_type}${p.osm_id}`, principal, secundario, lugar: { nombre: principal, latitud, longitud } };
 }
 
-export default function CampoLugar({ id, etiqueta, valor, alElegir, icono, testId }) {
+export default function CampoLugar({ id, etiqueta, valor, alElegir, icono, testId, placeholder }) {
   const [texto, setTexto] = useState(valor?.nombre ?? '');
   const [opciones, setOpciones] = useState(frecuentes);
   const [abierto, setAbierto] = useState(false);
@@ -81,7 +81,7 @@ export default function CampoLugar({ id, etiqueta, valor, alElegir, icono, testI
       <div className="input-con-icono">
         {icono}
         <input
-          id={id} type="text" autoComplete="off" spellCheck={false} data-testid={testId}
+          id={id} type="text" autoComplete="off" spellCheck={false} data-testid={testId} placeholder={placeholder}
           role="combobox" aria-expanded={abierto} aria-controls={idLista} aria-autocomplete="list"
           aria-activedescendant={abierto && activa >= 0 ? `${idLista}-${activa}` : undefined}
           value={texto}

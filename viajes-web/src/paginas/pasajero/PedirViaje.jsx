@@ -17,17 +17,31 @@ import { formatearPesos } from '../../formato.js';
 // asignación automática; hasta entonces la web hace los dos pasos.
 const porId = (id) => lugares.find((l) => l.id === id);
 
+// Estado de la conexión del pasajero, como el "Disponible" del chofer. Sale de la consulta del saldo
+// (cada 10 s). Cualquier respuesta del servidor, aunque sea un 4xx (por ejemplo, la billetera de un
+// pasajero recién registrado todavía no se creó), prueba que hay conexión. Sin respuesta (status 0)
+// o con el servidor fallando (5xx), no.
+function estadoConexion(billetera, errorSaldo) {
+  if (errorSaldo && (errorSaldo.status === 0 || errorSaldo.status >= 500)) return { texto: 'Sin conexión', clase: 'chip--peligro' };
+  if (billetera || errorSaldo) return { texto: 'Conectado', clase: 'chip--exito' };
+  return { texto: 'Conectando…', clase: 'chip--neutro' };
+}
+
 export default function PedirViaje() {
   const navegar = useNavigate();
-  const [origen, setOrigen] = useState(() => porId('plaza'));
-  const [destino, setDestino] = useState(() => porId('terminal'));
+  // Arranca vacío: el pasajero ve el mapa sin ningún viaje marcado hasta que elige los dos puntos.
+  // Al volver después de un viaje también empieza vacío (no queda el recorrido anterior).
+  const [origen, setOrigen] = useState(null);
+  const [destino, setDestino] = useState(null);
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState(null);
   const claveViaje = usarClaveIdempotente();
   const claveOferta = usarClaveIdempotente();
-  const { dato: billetera } = usarConsultaPeriodica(api.saldo, 10000);
+  const { dato: billetera, error: errorSaldo } = usarConsultaPeriodica(api.saldo, 10000);
+  const conexion = estadoConexion(billetera, errorSaldo);
 
-  const mismoLugar = origen.latitud === destino.latitud && origen.longitud === destino.longitud;
+  const completo = Boolean(origen && destino);
+  const mismoLugar = completo && origen.latitud === destino.latitud && origen.longitud === destino.longitud;
 
   function elegir(setter) {
     return (lugar) => {
@@ -37,7 +51,7 @@ export default function PedirViaje() {
       setError(null);
     };
   }
-  const elegirDeLista = (setter) => (e) => elegir(setter)(porId(e.target.value));
+  const elegirDeLista = (setter) => (e) => elegir(setter)(porId(e.target.value) ?? null);
 
   async function pedirViaje() {
     setEnviando(true);
@@ -67,24 +81,31 @@ export default function PedirViaje() {
   }
 
   return (
-    <Mapa etiquetaDestino={destino.nombre} origen={origen} destino={destino}>
+    <Mapa etiquetaDestino={destino?.nombre} origen={origen} destino={destino} conRuta={completo}>
       <section className="tarjeta tarjeta--flotante pedir montos" aria-labelledby="titulo-pedir">
-        <h1 id="titulo-pedir">Pedir un viaje</h1>
+        <div className="pedir__cabecera">
+          <h1 id="titulo-pedir">Pedir un viaje</h1>
+          <span className={`chip ${conexion.clase}`} role="status" data-testid="pedir-conexion">{conexion.texto}</span>
+        </div>
 
         {usarMapaReal ? (
           <>
             <CampoLugar
               id="desde" etiqueta="Desde" valor={origen} alElegir={elegir(setOrigen)} testId="pedir-desde"
-              icono={<span className="punto-origen" aria-hidden="true" />}
+              placeholder="¿Dónde te buscamos?" icono={<span className="punto-origen" aria-hidden="true" />}
             />
-            <CampoLugar id="hasta" etiqueta="Hasta" valor={destino} alElegir={elegir(setDestino)} testId="pedir-hasta" icono={<PinDestino />} />
+            <CampoLugar
+              id="hasta" etiqueta="Hasta" valor={destino} alElegir={elegir(setDestino)} testId="pedir-hasta"
+              placeholder="¿A dónde vas?" icono={<PinDestino />}
+            />
           </>
         ) : (
           <>
             <label htmlFor="desde" className="etiqueta">Desde</label>
             <div className="input-con-icono">
               <span className="punto-origen" aria-hidden="true" />
-              <select id="desde" value={origen.id} onChange={elegirDeLista(setOrigen)} data-testid="pedir-desde">
+              <select id="desde" value={origen?.id ?? ''} onChange={elegirDeLista(setOrigen)} data-testid="pedir-desde">
+                <option value="" disabled>¿Dónde te buscamos?</option>
                 {lugares.map((l) => <option key={l.id} value={l.id}>{l.nombre}</option>)}
               </select>
             </div>
@@ -92,7 +113,8 @@ export default function PedirViaje() {
             <label htmlFor="hasta" className="etiqueta">Hasta</label>
             <div className="input-con-icono">
               <PinDestino />
-              <select id="hasta" value={destino.id} onChange={elegirDeLista(setDestino)} data-testid="pedir-hasta">
+              <select id="hasta" value={destino?.id ?? ''} onChange={elegirDeLista(setDestino)} data-testid="pedir-hasta">
+                <option value="" disabled>¿A dónde vas?</option>
                 {lugares.map((l) => <option key={l.id} value={l.id}>{l.nombre}</option>)}
               </select>
             </div>
@@ -100,7 +122,9 @@ export default function PedirViaje() {
         )}
 
         <div className="pedir__resumen">
-          <span className="pedir__detalle">El precio lo calcula el servidor al pedir.</span>
+          <span className="pedir__detalle">
+            {completo ? 'El precio lo calcula el servidor al pedir.' : 'Elegí dónde te buscamos y a dónde vas.'}
+          </span>
         </div>
 
         {mismoLugar && <p role="alert" className="aviso aviso--advertencia">Elegí un destino distinto del origen.</p>}
@@ -108,7 +132,7 @@ export default function PedirViaje() {
 
         <button
           type="button" className="boton boton--principal boton--grande"
-          disabled={mismoLugar || enviando} onClick={pedirViaje} data-testid="pedir-enviar"
+          disabled={!completo || mismoLugar || enviando} onClick={pedirViaje} data-testid="pedir-enviar"
         >
           {enviando ? 'Pidiendo…' : 'Pedir viaje'}
         </button>

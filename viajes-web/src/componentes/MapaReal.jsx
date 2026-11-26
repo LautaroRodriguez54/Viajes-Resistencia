@@ -33,15 +33,21 @@ const estilos = {
 };
 
 // Encuadra los puntos dejando libre lo que tapa la tarjeta. Con un solo punto, lo centra.
+// Sin puntos centra Resistencia; con uno, ese punto. En los dos casos lo deja en el medio de la parte
+// visible (arriba de la hoja inferior en el celular, a la derecha de la tarjeta en la computadora), no en
+// el medio del mapa, que puede quedar debajo de la tarjeta.
 function encuadrar(m, latlngs, tarjeta) {
-  if (latlngs.length === 1) m.setView(latlngs[0], 15);
-  if (latlngs.length < 2) return;
   const alto = m.getSize().y;
   const celular = globalThis.matchMedia?.('(max-width: 600px)').matches;
   let margen;
   if (tarjeta === 'arriba') margen = { arriba: celular ? 280 : 320, abajo: 90, izquierda: 50, derecha: 50 };
   else if (celular) margen = { arriba: 50, abajo: Math.round(alto * 0.55), izquierda: 40, derecha: 40 };
   else margen = { arriba: 60, abajo: 60, izquierda: 440, derecha: 80 };
+  if (latlngs.length < 2) {
+    m.setView(latlngs[0] ?? aLatLng(centroResistencia), latlngs.length ? 15 : 14, { animate: false });
+    m.panBy([(margen.derecha - margen.izquierda) / 2, (margen.abajo - margen.arriba) / 2], { animate: false });
+    return;
+  }
   m.fitBounds(L.latLngBounds(latlngs), {
     paddingTopLeft: [margen.izquierda, margen.arriba],
     paddingBottomRight: [margen.derecha, margen.abajo],
