@@ -60,16 +60,20 @@ paths:
   /ready:
     get:
       tags: [Salud]
-      summary: El servidor puede atender (la base responde)
+      summary: El servidor puede atender (las tres bases responden y tienen sus migraciones aplicadas)
       operationId: disponibilidad
       security: []
       responses:
         '200':
-          description: La base responde.
+          description: Las tres bases responden y tienen todas las migraciones aplicadas en `schema_migrations`.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Ok' }
-        '500': { $ref: '#/components/responses/ErrorInterno' }
+        '503':
+          description: '`SERVICIO_NO_DISPONIBLE`: alguna base no responde o faltan migraciones.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /auth/register:
     post:

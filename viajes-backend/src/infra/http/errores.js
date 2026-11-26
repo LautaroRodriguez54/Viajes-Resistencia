@@ -28,6 +28,7 @@ const STATUS_POR_CODIGO = new Map([
   ['VIAJE_SUPERA_MAXIMO', 422],
   ['LIMITE_DE_PETICIONES_EXCEDIDO', 429],
   ['TARIFA_NO_CONFIGURADA', 503],
+  ['SERVICIO_NO_DISPONIBLE', 503],
 ]);
 
 function clasificarError(error) {

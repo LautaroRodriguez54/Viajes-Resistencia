@@ -1,22 +1,21 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import { leerConfiguracion } from '../../config/env.js';
+import { DIRECTORIOS_MIGRACIONES, listarArchivosMigracion } from './migraciones.js';
 
 // Prepara las tres bases (tema 12, ADR 008). Se puede correr las veces que haga falta:
 //   1. crea el rol de cada módulo (si no existe) y su base;
 //   2. saca el permiso de conexión al resto (REVOKE CONNECT ... FROM PUBLIC): cada rol entra sólo a su base;
-//   3. aplica las migraciones de esa base con el superusuario (extensiones, tablas, triggers);
+//   3. aplica las migraciones pendientes y las registra en `schema_migrations`;
 //   4. le da al rol del módulo sólo lectura y escritura de filas (sin crear ni borrar tablas).
 // Con `--pruebas` prepara viajes_test, billetera_test y lectura_test, a las que los tests entran
 // con el superusuario (no se crean roles).
-const raiz = path.dirname(fileURLToPath(import.meta.url));
 const MODULOS = [
-  { url: (c) => c.DATABASE_URL, base: 'viajes', directorio: path.join(raiz, 'migraciones'), permisos: 'SELECT, INSERT, UPDATE, DELETE' },
-  { url: (c) => c.BILLETERA_DATABASE_URL, base: 'billetera', directorio: path.join(raiz, 'migraciones-billetera'), permisos: 'SELECT, INSERT, UPDATE, DELETE' },
+  { url: (c) => c.DATABASE_URL, base: 'viajes', directorio: DIRECTORIOS_MIGRACIONES.viajes, permisos: 'SELECT, INSERT, UPDATE, DELETE' },
+  { url: (c) => c.BILLETERA_DATABASE_URL, base: 'billetera', directorio: DIRECTORIOS_MIGRACIONES.billetera, permisos: 'SELECT, INSERT, UPDATE, DELETE' },
   // TRUNCATE: lo usa `npm run proyecciones:reconstruir`.
-  { url: (c) => c.LECTURA_DATABASE_URL, base: 'lectura', directorio: path.join(raiz, 'migraciones-lectura'), permisos: 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE' },
+  { url: (c) => c.LECTURA_DATABASE_URL, base: 'lectura', directorio: DIRECTORIOS_MIGRACIONES.lectura, permisos: 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE' },
 ];
 
 // Los nombres de rol y de base van dentro del SQL (CREATE ROLE no admite parámetros), así que sólo
@@ -56,9 +55,23 @@ async function prepararBase(admin, base) {
 }
 
 async function aplicarMigraciones(client, directorio) {
-  const archivos = (await readdir(directorio)).filter((archivo) => archivo.endsWith('.sql')).sort();
-  for (const archivo of archivos) await client.query(await readFile(path.join(directorio, archivo), 'utf8'));
-  return archivos.length;
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      nombre TEXT PRIMARY KEY,
+      aplicada_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+  const { rows } = await client.query('SELECT nombre FROM schema_migrations');
+  const aplicadas = new Set(rows.map((fila) => fila.nombre));
+  const archivos = await listarArchivosMigracion(directorio);
+  let nuevas = 0;
+  for (const archivo of archivos) {
+    if (aplicadas.has(archivo)) continue;
+    await client.query(await readFile(path.join(directorio, archivo), 'utf8'));
+    await client.query('INSERT INTO schema_migrations (nombre) VALUES ($1) ON CONFLICT (nombre) DO NOTHING', [archivo]);
+    nuevas += 1;
+  }
+  return { total: archivos.length, nuevas };
 }
 
 async function darPermisos(client, base, usuario, permisos) {
@@ -84,10 +97,10 @@ for (const modulo of MODULOS) {
     return rol;
   });
 
-  const cantidad = await conCliente(conBase(config.ADMIN_DATABASE_URL, base), async (client) => {
-    const aplicadas = await aplicarMigraciones(client, modulo.directorio);
+  const resultado = await conCliente(conBase(config.ADMIN_DATABASE_URL, base), async (client) => {
+    const estado = await aplicarMigraciones(client, modulo.directorio);
     if (!esSuperusuario) await darPermisos(client, base, usuario, modulo.permisos);
-    return aplicadas;
+    return estado;
   });
-  console.log(`Base ${base}: ${cantidad} migraciones aplicadas${pruebas || esSuperusuario ? '' : `, permisos para ${usuario}`}.`);
+  console.log(`Base ${base}: ${resultado.total} migraciones (${resultado.nuevas} nuevas)${pruebas || esSuperusuario ? '' : `, permisos para ${usuario}`}.`);
 }
