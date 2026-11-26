@@ -41,8 +41,8 @@ npm run dev                      # http://localhost:5173
 | `/ingresar` | 1 · Ingresar | `POST /auth/login` |
 | `/registro` | Registro pasajero / chofer | `POST /auth/register` (entra directo) |
 | `/pasajero/pedir` | 2 · Pedir viaje | `POST /viajes`, `POST /viajes/:id/ofertas`, `GET /billetera/me` |
-| `/pasajero/viaje` | 3 · Mi viaje | `GET /viajes/:id` cada 2 s; "Buscar chofer de nuevo" |
-| `/pasajero/billetera` | 4 · Billetera | `GET /billetera/me` cada 5 s, `POST /viajes/:id/reintentar-cobro` |
+| `/pasajero/viaje` | 3 · Mi viaje | `GET /viajes/:id` cada 2 s (el id llega desde Pedir; si se entra por el menú, sale de `GET /viajes?limite=1`); "Buscar chofer de nuevo" |
+| `/pasajero/billetera` | 4 · Billetera | `GET /billetera/me`, `GET /viajes` ("Mis viajes" y la deuda) y `GET /billetera/me/movimientos` cada 5 s; `POST /viajes/:id/reintentar-cobro` |
 | `/chofer` | 5 · Chofer | `PUT /choferes/me/disponibilidad`, `PUT /choferes/me/ubicacion`, `GET /choferes/me/ofertas`, `GET /choferes/me/viaje-actual`, `POST /ofertas/:id/aceptar`, `POST /choferes/viajes/:id/estado`, `POST /choferes/viajes/:id/finalizar` |
 | `/operador` | 6 · Operador | **Datos de ejemplo** (faltan los endpoints del operador) |
 | `/admin` | 7 · Admin | **Datos de ejemplo** (falta listar choferes y administrar tarifas) |
@@ -58,10 +58,8 @@ Cómo está armado:
 **Falta en el backend** (la web lo resuelve así mientras tanto):
 - Estimación antes de pedir: el precio aparece al pedir.
 - Lugares con Places: hay una lista fija de lugares de Resistencia en `src/datos/lugares.js`, todos a menos de 5 km de la plaza.
-- `GET /viajes` (historial): la web recuerda el último viaje de la pestaña.
 - Patente y vehículo en el viaje: no se muestran.
 - Cancelar con motivo y rechazar la oferta: "Rechazar" sólo oculta la oferta en esa pestaña.
-- Movimientos de la billetera.
 - Vencimiento de la ubicación: un chofer que cierra la pestaña sin apagar "Disponible" sigue recibiendo ofertas.
 - Google Maps: el mapa sigue siendo el dibujo del diseño (`MapaSimulado.jsx`).
 

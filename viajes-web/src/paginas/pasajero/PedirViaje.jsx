@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router';
 import MapaSimulado from '../../componentes/MapaSimulado.jsx';
 import PinDestino from '../../componentes/PinDestino.jsx';
 import { api } from '../../api/cliente.js';
-import { guardarViajeActual } from '../../datos/viajeActual.js';
 import { lugares } from '../../datos/lugares.js';
 import { conClave, usarClaveIdempotente, usarConsultaPeriodica } from '../../ganchos.js';
 import { formatearPesos } from '../../formato.js';
@@ -47,15 +46,14 @@ export default function PedirViaje() {
       setEnviando(false);
       return;
     }
-    guardarViajeActual({ id: viaje.id, origen: origen.nombre, destino: destino.nombre });
-
     let busqueda = 'ofrecido';
     try {
       await conClave(claveOferta, (clave) => api.buscarChofer(viaje.id, clave));
     } catch (e) {
       busqueda = e.codigo === 'SIN_CHOFERES_CERCANOS' ? 'sin_choferes' : e.message;
     }
-    navegar('/pasajero/viaje', { state: { busqueda } });
+    // El id va en la navegación y no se espera al historial, que puede ir unos cientos de ms atrasado.
+    navegar('/pasajero/viaje', { state: { viajeId: viaje.id, origen: origen.nombre, destino: destino.nombre, busqueda } });
   }
 
   return (

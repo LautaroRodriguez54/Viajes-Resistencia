@@ -10,6 +10,17 @@ export function formatearImporte(centavos) {
   return `${pesos.toLocaleString('es-AR')},${resto}`;
 }
 
+// "Hoy 16:40", "Ayer 21:15" o "24/11 09:05", como en el diseño de la billetera.
+export function formatearFecha(iso, ahora = new Date()) {
+  const fecha = new Date(iso);
+  const hora = fecha.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false });
+  const dia = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const dias = Math.round((dia(ahora) - dia(fecha)) / 86_400_000);
+  if (dias === 0) return `Hoy ${hora}`;
+  if (dias === 1) return `Ayer ${hora}`;
+  return `${fecha.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })} ${hora}`;
+}
+
 export function formatearDistancia(metros) {
   if (metros < 1000) return `${metros} m`;
   return `${(metros / 1000).toLocaleString('es-AR', { maximumFractionDigits: 1 })} km`;
