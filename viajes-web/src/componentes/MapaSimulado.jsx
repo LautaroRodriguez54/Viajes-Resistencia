@@ -19,7 +19,7 @@ export default function MapaSimulado({ conRuta = true, etiquetaDestino = 'Termin
       : conRuta ? `Mapa de Resistencia con la ruta hasta ${etiquetaDestino}` : 'Mapa de Resistencia';
 
   return (
-    <main className="mapa">
+    <main className={oferta ? 'mapa mapa--chofer' : 'mapa'}>
       <svg viewBox="0 0 1280 800" preserveAspectRatio="xMidYMid slice" role="img" aria-label={descripcion}>
         <rect width="1280" height="800" fill="#F1F3F4" />
         <rect x="566" y="296" width="138" height="108" rx="4" fill="#C8E6C9" />
