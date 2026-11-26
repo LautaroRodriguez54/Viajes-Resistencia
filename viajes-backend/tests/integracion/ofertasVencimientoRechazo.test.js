@@ -8,6 +8,7 @@ import { crearRepositorioIdempotenciaPostgres } from '../../src/infra/db/reposit
 import { crearServicioJwt } from '../../src/infra/autenticacion/tokensJwt.js';
 import { crearApp } from '../../src/infra/http/app.js';
 import { Rol } from '../../src/dominio/usuarios/roles.js';
+import { crearCasosDeUsoViajesPostgres } from '../ayudas/casosDeUsoViajesPostgres.js';
 
 const loggerMudo = { info() {}, warn() {}, error() {} };
 
@@ -43,6 +44,7 @@ async function conApp(pool, fn) {
   };
   const tokens = crearServicioJwt(config);
   const viajes = crearRepositorioViajesPostgres(pool);
+  const { avanzarEstado } = crearCasosDeUsoViajesPostgres(pool);
   const noUsado = async () => { throw new Error('no usado en este test'); };
   const app = crearApp({
     config,
@@ -61,7 +63,7 @@ async function conApp(pool, fn) {
     choferes: {
       cambiarDisponibilidad: noUsado,
       registrarUbicacion: noUsado,
-      avanzarEstado: viajes.avanzarEstado,
+      avanzarEstado,
       finalizarYCobrar: noUsado,
       buscarOfertaPendiente: viajes.buscarOfertaPendienteDelChofer,
       buscarViajeActual: viajes.buscarViajeActualDelChofer,

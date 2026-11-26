@@ -8,6 +8,7 @@ import { crearRepositorioIdempotenciaPostgres } from '../../src/infra/db/reposit
 import { crearServicioJwt } from '../../src/infra/autenticacion/tokensJwt.js';
 import { crearApp } from '../../src/infra/http/app.js';
 import { Rol } from '../../src/dominio/usuarios/roles.js';
+import { crearCasosDeUsoViajesPostgres } from '../ayudas/casosDeUsoViajesPostgres.js';
 
 const loggerMudo = { info() {}, warn() {}, error() {} };
 
@@ -65,6 +66,7 @@ async function crearViaje(pool, pasajeroId, { choferId = null, estado = 'solicit
 test('carrera cancelación pasajero vs aceptación simultánea mantiene invariantes sin deadlocks', async (t) => {
   await conBaseDePrueba(t, async (pool) => {
     const repo = crearRepositorioViajesPostgres(pool);
+    const { cancelarViaje } = crearCasosDeUsoViajesPostgres(pool);
 
     for (let ronda = 0; ronda < 8; ronda += 1) {
       const pasajeroId = await crearUsuario(pool, 'pasajero');
@@ -77,7 +79,7 @@ test('carrera cancelación pasajero vs aceptación simultánea mantiene invarian
       const ofertaId = ofertaRows[0].id;
 
       const [resCancelar, resAceptar] = await Promise.allSettled([
-        repo.cancelarViaje({ viajeId, actorId: pasajeroId, rol: Rol.PASAJERO, motivo: 'Cambio de planes' }),
+        cancelarViaje({ viajeId, actorId: pasajeroId, rol: Rol.PASAJERO, motivo: 'Cambio de planes' }),
         repo.aceptarOferta(ofertaId, choferId),
       ]);
 
@@ -105,7 +107,7 @@ test('carrera cancelación pasajero vs aceptación simultánea mantiene invarian
 
 test('carrera cancelación pasajero vs avanzarEstado en_curso: exactamente uno gana', async (t) => {
   await conBaseDePrueba(t, async (pool) => {
-    const repo = crearRepositorioViajesPostgres(pool);
+    const { avanzarEstado, cancelarViaje } = crearCasosDeUsoViajesPostgres(pool);
 
     for (let ronda = 0; ronda < 6; ronda += 1) {
       const pasajeroId = await crearUsuario(pool, 'pasajero');
@@ -113,8 +115,8 @@ test('carrera cancelación pasajero vs avanzarEstado en_curso: exactamente uno g
       const viajeId = await crearViaje(pool, pasajeroId, { choferId, estado: 'chofer_en_camino' });
 
       const resultados = await Promise.allSettled([
-        repo.cancelarViaje({ viajeId, actorId: pasajeroId, rol: Rol.PASAJERO }),
-        repo.avanzarEstado(viajeId, choferId, 'en_curso'),
+        cancelarViaje({ viajeId, actorId: pasajeroId, rol: Rol.PASAJERO }),
+        avanzarEstado({ viajeId, choferId, nuevoEstado: 'en_curso' }),
       ]);
 
       assert.equal(resultados.filter((r) => r.status === 'fulfilled').length, 1);
@@ -139,15 +141,16 @@ test('endpoints HTTP de cancelación de pasajero y chofer respetan idempotencia,
     };
     const tokens = crearServicioJwt(config);
     const viajes = crearRepositorioViajesPostgres(pool);
+    const { cancelarViaje } = crearCasosDeUsoViajesPostgres(pool);
     const choferes = crearRepositorioChoferesPostgres(pool);
     const noUsado = async () => { throw new Error('no usado'); };
     const app = crearApp({
       config, logger: loggerMudo, verificarDisponibilidad: async () => true,
       autenticacion: { registrarUsuario: noUsado, iniciarSesion: noUsado, buscarUsuarioPorId: noUsado, tokens },
       billetera: { procesarCargaWebhook: noUsado, consultarSaldoPorPasajero: noUsado, tokens },
-      viajes: { solicitarViaje: noUsado, buscarViajePropio: viajes.buscarPorIdDelPasajero, ofrecerAlChoferCercano: noUsado, reintentarCobro: noUsado, cancelarViaje: viajes.cancelarViaje, tokens },
+      viajes: { solicitarViaje: noUsado, buscarViajePropio: viajes.buscarPorIdDelPasajero, ofrecerAlChoferCercano: noUsado, reintentarCobro: noUsado, cancelarViaje, tokens },
       ofertas: { aceptarOferta: noUsado, rechazarOferta: noUsado, tokens },
-      choferes: { cambiarDisponibilidad: choferes.cambiarDisponibilidad, registrarUbicacion: noUsado, avanzarEstado: noUsado, finalizarYCobrar: noUsado, cancelarViaje: viajes.cancelarViaje, buscarOfertaPendiente: noUsado, buscarViajeActual: noUsado, tokens },
+      choferes: { cambiarDisponibilidad: choferes.cambiarDisponibilidad, registrarUbicacion: noUsado, avanzarEstado: noUsado, finalizarYCobrar: noUsado, cancelarViaje, buscarOfertaPendiente: noUsado, buscarViajeActual: noUsado, tokens },
       administracion: { establecerHabilitacion: noUsado, tokens },
       idempotencia: crearRepositorioIdempotenciaPostgres(pool),
     });

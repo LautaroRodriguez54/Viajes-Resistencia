@@ -9,6 +9,7 @@ import { crearUnidadDeTrabajoCobroPostgres } from '../../src/infra/db/unidadDeTr
 import { crearFinalizarViajeYCobrar } from '../../src/aplicacion/viajes/finalizarViajeYCobrar.js';
 import { crearReintentarCobro } from '../../src/aplicacion/viajes/reintentarCobro.js';
 import { crearRepositorioBilleterasPostgres } from '../../src/infra/db/repositorioBilleterasPostgres.js';
+import { crearCasosDeUsoViajesPostgres } from '../ayudas/casosDeUsoViajesPostgres.js';
 import { urlsDePrueba } from '../ayudas/basesDePrueba.js';
 
 // La billetera vive en billetera_test (ADR 008): este pool lo abre conBaseDePrueba y lo usan los
@@ -344,26 +345,26 @@ test('avanzarEstado permite transiciones válidas y rechaza transiciones inváli
       estado: 'asignado',
     });
 
-    const repositorio = crearRepositorioViajesPostgres(pool);
+    const { avanzarEstado } = crearCasosDeUsoViajesPostgres(pool);
 
-    const primera = await repositorio.avanzarEstado(
+    const primera = await avanzarEstado({
       viajeId,
       choferId,
-      'chofer_en_camino',
-    );
+      nuevoEstado: 'chofer_en_camino',
+    });
 
     assert.equal(primera.estado, 'chofer_en_camino');
 
-    const segunda = await repositorio.avanzarEstado(
+    const segunda = await avanzarEstado({
       viajeId,
       choferId,
-      'en_curso',
-    );
+      nuevoEstado: 'en_curso',
+    });
 
     assert.equal(segunda.estado, 'en_curso');
 
     await assert.rejects(
-      repositorio.avanzarEstado(viajeId, choferId, 'asignado'),
+      avanzarEstado({ viajeId, choferId, nuevoEstado: 'asignado' }),
     );
 
     const viaje = await pool.query(

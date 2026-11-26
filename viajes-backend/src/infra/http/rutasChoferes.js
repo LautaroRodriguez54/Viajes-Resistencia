@@ -45,7 +45,7 @@ export function crearRutasChoferes({
   router.post('/viajes/:viajeId/estado', requiereAutenticacion(tokens), soloChofer, async (req, res) => {
     const id = validar(uuid, req.params.viajeId);
     const { estado } = validar(cambioEstado, req.body);
-    res.status(200).json(await avanzarEstado(id, req.autenticacion.usuarioId, estado));
+    res.status(200).json(await avanzarEstado({ viajeId: id, choferId: req.autenticacion.usuarioId, nuevoEstado: estado }));
   });
   router.post('/viajes/:viajeId/finalizar', requiereAutenticacion(tokens), soloChofer, idempotente('choferes.finalizar'), async (req, res) => {
     const id = validar(uuid, req.params.viajeId);

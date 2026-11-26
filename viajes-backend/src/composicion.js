@@ -7,6 +7,7 @@ import { crearRepositorioViajesPostgres } from './infra/db/repositorioViajesPost
 import { crearRepositorioChoferesPostgres } from './infra/db/repositorioChoferesPostgres.js';
 import { crearRepositorioIdempotenciaPostgres } from './infra/db/repositorioIdempotenciaPostgres.js';
 import { crearUnidadDeTrabajoCobroPostgres } from './infra/db/unidadDeTrabajoCobroPostgres.js';
+import { crearUnidadDeTrabajoViajesPostgres } from './infra/db/unidadDeTrabajoViajesPostgres.js';
 import { crearDespachadorOutbox } from './infra/db/despachadorOutbox.js';
 import { crearDespachadorVencimientoOfertas } from './infra/db/despachadorVencimientoOfertas.js';
 import { crearProyectorSaldosPostgres } from './infra/db/proyectorSaldosPostgres.js';
@@ -21,6 +22,8 @@ import { crearSolicitarViaje } from './aplicacion/viajes/solicitarViaje.js';
 import { crearFinalizarViajeYCobrar } from './aplicacion/viajes/finalizarViajeYCobrar.js';
 import { crearReintentarCobro } from './aplicacion/viajes/reintentarCobro.js';
 import { crearReintentarCobroOperador } from './aplicacion/viajes/reintentarCobroOperador.js';
+import { crearAvanzarEstadoViaje } from './aplicacion/viajes/avanzarEstadoViaje.js';
+import { crearCancelarViaje } from './aplicacion/viajes/cancelarViaje.js';
 import { crearVerificadorWebhookHmac } from './infra/externos/verificadorWebhookHmac.js';
 
 export function componerAplicacion() {
@@ -61,11 +64,17 @@ export function componerAplicacion() {
   const dependenciasCobro = { unidadDeTrabajo: crearUnidadDeTrabajoCobroPostgres(pool), billetera: billeteras, logger };
   const finalizarYCobrar = crearFinalizarViajeYCobrar(dependenciasCobro);
   const reintentarCobro = crearReintentarCobro(dependenciasCobro);
-  const viajesHttp = { solicitarViaje: crearSolicitarViaje({ viajes }), buscarViajePropio: viajes.buscarPorIdDelPasajero, ofrecerAlChoferCercano: viajes.ofrecerAlChoferCercano, reintentarCobro, cancelarViaje: viajes.cancelarViaje, listarHistorial: proyectorHistorial.listarPorPasajero, tokens };
+  const unidadDeTrabajoViajes = crearUnidadDeTrabajoViajesPostgres(pool, {
+    ofertaTtlSegundos: config.OFERTA_TTL_SEGUNDOS,
+    ubicacionTtlSegundos: config.UBICACION_TTL_SEGUNDOS,
+  });
+  const avanzarEstado = crearAvanzarEstadoViaje({ unidadDeTrabajo: unidadDeTrabajoViajes });
+  const cancelarViaje = crearCancelarViaje({ unidadDeTrabajo: unidadDeTrabajoViajes });
+  const viajesHttp = { solicitarViaje: crearSolicitarViaje({ viajes }), buscarViajePropio: viajes.buscarPorIdDelPasajero, ofrecerAlChoferCercano: viajes.ofrecerAlChoferCercano, reintentarCobro, cancelarViaje, listarHistorial: proyectorHistorial.listarPorPasajero, tokens };
   const ofertasHttp = { aceptarOferta: viajes.aceptarOferta, rechazarOferta: viajes.rechazarOferta, tokens };
-  const choferesHttp = { cambiarDisponibilidad: choferes.cambiarDisponibilidad, registrarUbicacion: choferes.registrarUbicacion, avanzarEstado: viajes.avanzarEstado, finalizarYCobrar, cancelarViaje: viajes.cancelarViaje, buscarOfertaPendiente: viajes.buscarOfertaPendienteDelChofer, buscarViajeActual: viajes.buscarViajeActualDelChofer, tokens };
+  const choferesHttp = { cambiarDisponibilidad: choferes.cambiarDisponibilidad, registrarUbicacion: choferes.registrarUbicacion, avanzarEstado, finalizarYCobrar, cancelarViaje, buscarOfertaPendiente: viajes.buscarOfertaPendienteDelChofer, buscarViajeActual: viajes.buscarViajeActualDelChofer, tokens };
   const administracion = { establecerHabilitacion: choferes.establecerHabilitacion, tokens };
-  const operadorHttp = { listarViajesActivos: viajes.listarViajesActivos, cancelarViaje: viajes.cancelarViaje, reintentarCobro: crearReintentarCobroOperador(dependenciasCobro), tokens };
+  const operadorHttp = { listarViajesActivos: viajes.listarViajesActivos, cancelarViaje, reintentarCobro: crearReintentarCobroOperador(dependenciasCobro), tokens };
   const app = crearApp({ config, logger, verificarDisponibilidad: () => Promise.all([pool, poolBilletera, poolLectura].map(verificarPostgres)), autenticacion, billetera, viajes: viajesHttp, ofertas: ofertasHttp, choferes: choferesHttp, administracion, operador: operadorHttp, idempotencia: crearRepositorioIdempotenciaPostgres(pool) });
   // Outbox de Viajes: cada UsuarioRegistrado de un pasajero crea su billetera, y cada ViajeCambiado
   // (lo deja el trigger de la migración 006) actualiza el historial en la base `lectura`.
