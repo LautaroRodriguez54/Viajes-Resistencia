@@ -16,7 +16,7 @@ Node 22 (ESM, `"type": "module"`), Express 5, PostgreSQL 16 + PostGIS (Docker, p
 cp .env.example .env
 npm install
 docker compose up -d
-npm run setup     # migrate + seed (tarifa de desarrollo y admin)
+npm run setup     # bases y roles (viajes, billetera, lectura), migraciones y seed (ADR 008)
 npm test          # node --test (hoy sólo unitarios, no requieren DB)
 npm run dev       # node --watch src/servidor.js
 ```
@@ -45,9 +45,9 @@ src/
 ```
 
 - El dominio no importa Express, `pg` ni librerías de infraestructura.
-- El cobro (finalizar y reintentar) ya es un caso de uso sobre puertos: la unidad de trabajo `unidadDeTrabajoCobro` (Postgres: un `client` y un `BEGIN`/`COMMIT`; memoria: candados + cambios aplicados al confirmar) da los puertos de viajes y de billetera. Adaptadores en memoria en `src/infra/memoria/`, tests en `tests/aplicacion/`.
+- El cobro (finalizar y reintentar) es un caso de uso sobre puertos, en dos pasos (ADR 008): la unidad de trabajo `unidadDeTrabajoCobro` cubre la base `viajes` (Postgres: un `client` y un `BEGIN`/`COMMIT`; memoria: candados + cambios aplicados al confirmar) y `billetera.cobrar` cobra en su propia base con el viaje bloqueado. Adaptadores en memoria en `src/infra/memoria/`, tests en `tests/aplicacion/`.
 - Ofertas, aceptación y cambios de estado todavía van directo de la ruta al repositorio sin caso de uso ni puerto intermedio. Eso **no cumple** el bloque 2 (ver "Lo que falta").
-- Hay una sola base (`viajes`) compartida por todos los módulos. Los temas 12 y 13 la van a separar (ver abajo).
+- Tres bases en el mismo contenedor, una por módulo y con su propio rol (ADR 008): `viajes`, `billetera` y `lectura` (proyecciones, ADR 009). Se comunican por outbox (`outbox_viajes`, `outbox_billetera`) y un despachador dentro del backend (`despachadorOutbox.js`).
 
 ## Convenciones
 
@@ -78,7 +78,7 @@ Hilo conductor: **"La billetera es un servicio dueño de sus datos (12); como ya
 ### Tema 12 · Base de datos por servicio y propiedad de datos
 - **Pregunta guía:** ¿por qué un servicio no debería consultar directamente las tablas internas de otro?
 - **El problema hoy, en nuestro código:**
-  - El cobro ya pasa por el puerto `billetera.cobrar` (rama 6), pero dentro de la misma transacción y la misma base que Viajes (`unidadDeTrabajoCobroPostgres`): la separación real es la rama 7.
+  - **Hecho (rama 7, ADR 008):** la billetera está en la base `billetera` con el rol `billetera_app`; Viajes recibe `permission denied` (`npm run demo:propiedad-datos`). La billetera se crea por el evento `UsuarioRegistrado`. La migración `004` borró las tablas de billetera de `viajes`.
   - `repositorioUsuariosPostgres.js` crea la fila de `billeteras` dentro del registro de usuario.
   - FKs cruzadas: `billeteras.pasajero_id → usuarios`, `movimientos_billetera.viaje_id → viajes`.
 - **Diseño propuesto:** monolito modular con **dos bases en el mismo contenedor Postgres**: `viajes` (usuarios, choferes, viajes, ofertas, ubicaciones, tarifas) y `billetera` (billeteras, movimientos, webhooks). Cada módulo tiene su propio pool y su propio usuario de base, sin permisos sobre la otra. Viajes cobra sólo a través del puerto `servicioBilletera.cobrar({ viajeId, pasajeroId, importeCentavos })`, con adaptador real y adaptador en memoria (sirve también para el bloque 2). La billetera se crea al primer uso o por el evento `UsuarioRegistrado`, no desde el repositorio de usuarios.
@@ -165,7 +165,7 @@ Prioridad: lo que pide el **control 3** de Puljiz (carrera con test concurrente 
 - [ ] ADR 004 completo: qué se bloquea, en qué orden, por qué no hay doble asignación ni interbloqueo.
 
 ### Variante D — Billetera
-- [ ] Separación en base propia (tema 12) y proyección de saldos (tema 13).
+- [x] Separación en base propia (tema 12, ADR 008) y proyección de saldos (tema 13, ADR 009).
 - [ ] Test de la carrera: dos viajes del mismo pasajero cobran a la vez contra un saldo que alcanza para uno.
 - [ ] Test que muestre por qué no se usa float para dinero.
 - [ ] Salida de `pago_pendiente`: reintento de cobro o saldo de deuda tras una carga.
@@ -245,5 +245,5 @@ Casi todos ya están en "Lo que falta". El diseño de la web está en `viajes-we
 ## Notas
 
 - Para levantar el backend en Windows primero hay que abrir Docker Desktop (`%LOCALAPPDATA%\Programs\DockerDesktop\Docker Desktop.exe`); si no, `docker compose` falla con "failed to connect to the docker API".
-- Los scripts de `docker-entrypoint-initdb.d` (necesarios para crear las bases `billetera` y `lectura`) sólo corren con el volumen vacío: después de agregarlos hace falta `docker compose down -v` una vez.
+- Las bases `billetera` y `lectura` y los roles los crea `npm run setup` (`migrate.js` con `ADMIN_DATABASE_URL`), no un script de `docker-entrypoint-initdb.d`: no hace falta `docker compose down -v`. Para los tests de integración: `npm run setup:test`.
 - Git, ramas, finales de línea y PowerShell: ver el `CLAUDE.md` de la raíz.

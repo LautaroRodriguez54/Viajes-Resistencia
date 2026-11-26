@@ -20,6 +20,8 @@
 
 ## Persistencia propuesta
 
+Hay tres bases en el mismo contenedor, cada una con su rol (ADR 008): `viajes` (todo lo que no es billetera, más `outbox_viajes`), `billetera` (billeteras, movimientos, webhooks, `eventos_consumidos`, `outbox_billetera`) y `lectura` (proyecciones, ADR 009). No hay claves foráneas ni consultas entre bases.
+
 - `viajes`, `ofertas_viaje` y `eventos_viaje` representan el ciclo del viaje y permiten reconstruir eventos SSE.
 - `billeteras` identifica y bloquea la billetera del pasajero, sin guardar un saldo.
 - `movimientos_billetera` es un libro inmutable: los débitos y créditos son importes positivos en centavos y el tipo determina el signo.
@@ -35,7 +37,7 @@
   - nunca se pierde una actualización entre dos procesos;
   - el saldo se puede recalcular desde cero.
 
-  El costo es sumar en cada lectura. Lo va a resolver la proyección de saldos del tema 13, que sirve sólo para mostrar: **el cobro siempre decide sobre la suma de movimientos, con la billetera bloqueada**.
+  El costo es sumar en cada lectura. Lo resuelve la proyección de saldos del tema 13 (ADR 009, base `lectura`): `GET /billetera/me` lee de ahí, pero sirve sólo para mostrar: **el cobro siempre decide sobre la suma de movimientos, con la billetera bloqueada**.
 - **Movimientos inmutables.** Un trigger impide `UPDATE` y `DELETE` en `movimientos_billetera`. Una corrección (reintegro, ajuste) se registra como un movimiento nuevo, nunca editando el anterior.
 - **El saldo nunca queda negativo.** Sólo se inserta un `consumo` con la billetera bloqueada y después de verificar que el saldo alcanza; si no alcanza, el viaje queda en `pago_pendiente` (ver abajo).
 - **Cargas.** Las acredita el proveedor de pagos con el webhook firmado `POST /billetera/webhooks/cargas`:
@@ -69,19 +71,27 @@ Ver el ADR 010. Hay tres niveles:
 
 ## Cobro y `pago_pendiente`
 
-El cobro se hace en una sola transacción al finalizar: el caso de uso `src/aplicacion/viajes/finalizarViajeYCobrar.js` corre dentro de la unidad de trabajo `unidadDeTrabajoCobroPostgres` (un `client`, un `BEGIN`/`COMMIT`) y usa dos puertos: viajes (`bloquearParaCobro`, `registrarFinalizacion`) y billetera (`cobrar`). El reintento (`reintentarCobro.js`) usa la misma unidad de trabajo. La regla "nunca parcial, importe 0 sin consumo" está en el dominio (`decidirCobro`, `src/dominio/billetera/billetera.js`). Primero se bloquea el viaje y después la billetera del pasajero (`SELECT ... FOR UPDATE`). Ese orden se mantiene siempre para que no haya interbloqueos. Con la billetera bloqueada, dos cobros del mismo pasajero se hacen de a uno: el segundo ya ve el consumo del primero y no puede gastar un saldo que ya no existe.
+Viajes y billetera están en bases distintas (ADR 008), así que el cobro va en dos pasos. El caso de uso es `src/aplicacion/viajes/finalizarViajeYCobrar.js`, y la parte común con el reintento está en `cobrarViajePendiente.js`:
 
-| Desde | Hacia | Cuándo | Movimiento | Evento |
+1. En `viajes`: el viaje pasa de `en_curso` a `pago_pendiente` con la tarifa final, y se registra el evento `cobro_solicitado` (COMMIT).
+2. En `viajes`, en otra transacción: se bloquea el viaje (`FOR UPDATE`) y, **con el viaje bloqueado**, `billetera.cobrar` cobra en su propia transacción de la base `billetera` (bloquea la billetera con `FOR UPDATE`, suma el saldo y, si alcanza, inserta el consumo y su evento en el outbox). Después se registra el resultado en el viaje (COMMIT).
+
+El orden de bloqueo sigue siendo viaje → billetera. Con la billetera bloqueada, dos cobros del mismo pasajero se hacen de a uno: el segundo ya ve el consumo del primero y no puede gastar un saldo que ya no existe. La regla "nunca parcial, importe 0 sin consumo" está en el dominio (`decidirCobro`, `src/dominio/billetera/billetera.js`). `cobrar` es idempotente por `viajeId`: si el viaje ya tiene su consumo, devuelve "cobrado" sin debitar otra vez.
+
+| Desde | Hacia | Cuándo | Movimiento | Eventos |
 |---|---|---|---|---|
-| `en_curso` | `finalizado` | El saldo alcanza para la tarifa | `consumo` por la tarifa | `cobro_confirmado` |
-| `en_curso` | `finalizado` | La tarifa es 0 | Ninguno (el `CHECK` exige importe > 0) | `cobro_confirmado` con importe 0 |
-| `en_curso` | `pago_pendiente` | El saldo no alcanza | Ninguno: el cobro nunca es parcial | `cobro_pendiente` |
-| `pago_pendiente` | `finalizado` | El pasajero carga saldo y llama a `POST /viajes/:viajeId/reintentar-cobro` | `consumo` por `tarifa_final_centavos` | `cobro_confirmado` con `reintento: true` |
+| `en_curso` | `finalizado` | El saldo alcanza para la tarifa | `consumo` por la tarifa | `cobro_solicitado`, `cobro_confirmado` |
+| `en_curso` | `finalizado` | La tarifa es 0 | Ninguno (el `CHECK` exige importe > 0) | `cobro_solicitado`, `cobro_confirmado` con importe 0 |
+| `en_curso` | `pago_pendiente` | El saldo no alcanza | Ninguno: el cobro nunca es parcial | `cobro_solicitado`, `cobro_pendiente` con `motivo: SALDO_INSUFICIENTE` |
+| `en_curso` | `pago_pendiente` | La billetera falla o todavía no existe | Ninguno | `cobro_solicitado`, `cobro_pendiente` con el código del error como `motivo` |
+| `pago_pendiente` | `finalizado` | El pasajero carga saldo y llama a `POST /viajes/:viajeId/reintentar-cobro` | `consumo` por `tarifa_final_centavos` (salvo que ya existiera) | `cobro_confirmado` con `reintento: true` |
 
-- Si el saldo todavía no alcanza, el reintento responde `409 SALDO_INSUFICIENTE` y el viaje sigue en `pago_pendiente`.
+- El chofer siempre recibe 200 al finalizar (`finalizado` o `pago_pendiente`). Los errores de la billetera quedan en `eventos_viaje`, no en su respuesta.
+- Si el saldo todavía no alcanza, el reintento responde `409 SALDO_INSUFICIENTE`. Sin billetera, responde `404 BILLETERA_NO_ENCONTRADA`. En los dos casos el viaje sigue en `pago_pendiente`.
 - Sólo el pasajero dueño del viaje puede reintentar. Si el viaje es de otro pasajero, la respuesta es `404`.
-- Si llegan dos reintentos a la vez, el primero cobra. El segundo encuentra el viaje ya `finalizado` y responde `TRANSICION_INVALIDA`. Además, `ux_un_consumo_por_viaje` impide en la base un segundo consumo del mismo viaje.
-- Un pasajero sin billetera no puede finalizar: la respuesta es `404 BILLETERA_NO_ENCONTRADA` y el viaje sigue `en_curso`. El registro crea la billetera en la misma transacción, así que en la práctica no pasa. Es una defensa para que el error no sea un 500.
+- Si llegan dos reintentos a la vez, el segundo espera el bloqueo del viaje, lo encuentra `finalizado` y responde `TRANSICION_INVALIDA`.
+- Si la billetera cobró y el COMMIT de `viajes` no llegó (una caída entre las dos bases), el viaje sigue en `pago_pendiente` y el reintento lo cierra sin debitar dos veces.
+- La billetera se crea por el evento `UsuarioRegistrado` (outbox de Viajes), unos cientos de milisegundos después del registro. Un viaje que se finaliza antes queda en `pago_pendiente` con motivo `BILLETERA_NO_ENCONTRADA`.
 
 ## Decisiones pendientes
 

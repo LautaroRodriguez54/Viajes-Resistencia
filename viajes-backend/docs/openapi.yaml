@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Viajes Resistencia · API del backend
-  version: 0.3.0
+  version: 0.4.0
   summary: Viajes a demanda con billetera y pagos (grupo 4, variante D).
   description: |
     Contrato HTTP del backend. Es la **fuente de verdad** de la API: `docs/api.md` sólo lo resume.
@@ -509,10 +509,11 @@ paths:
       tags: [Choferes, Billetera]
       summary: Finalizar el viaje y cobrarlo (chofer)
       description: |
-        En una sola transacción (bloquea el viaje y después la billetera del pasajero):
+        En dos pasos (la billetera tiene su propia base, ADR 008): el viaje pasa a `pago_pendiente` con la tarifa final y, con el viaje bloqueado, la billetera cobra:
         - si el saldo alcanza, debita la tarifa y el viaje queda `finalizado`;
-        - si no alcanza, **no debita nada** y queda `pago_pendiente` (el pasajero lo salda con `/viajes/{viajeId}/reintentar-cobro`).
-        Las dos salidas responden 200. Un viaje con tarifa 0 finaliza sin movimiento.
+        - si no alcanza, **no debita nada** y queda `pago_pendiente` (el pasajero lo salda con `/viajes/{viajeId}/reintentar-cobro`);
+        - si la billetera falla o todavía no existe, también queda `pago_pendiente` (el motivo se registra en los eventos del viaje).
+        Todas las salidas responden 200. Un viaje con tarifa 0 finaliza sin movimiento.
       operationId: finalizarViaje
       parameters:
         - $ref: '#/components/parameters/ViajeId'
@@ -533,7 +534,7 @@ paths:
         '401': { $ref: '#/components/responses/NoAutenticado' }
         '403': { $ref: '#/components/responses/Prohibido' }
         '404':
-          description: '`RECURSO_NO_ENCONTRADO` (no es de este chofer) o `BILLETERA_NO_ENCONTRADA`.'
+          description: '`RECURSO_NO_ENCONTRADO` (no es de este chofer).'
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -548,7 +549,9 @@ paths:
     get:
       tags: [Billetera]
       summary: Saldo de la billetera propia (pasajero)
-      description: El saldo no se guarda; es la suma de cargas menos consumos.
+      description: |
+        El saldo no se guarda en el modelo de escritura: es la suma de cargas menos consumos. Este endpoint lee la proyección de saldos (CQRS, ADR 009), que se actualiza por eventos unos cientos de milisegundos después de cada movimiento. El cobro nunca decide con este valor.
+        Recién registrado, el pasajero puede recibir `404 BILLETERA_NO_ENCONTRADA` durante ese mismo lapso.
       operationId: consultarSaldo
       responses:
         '200':
