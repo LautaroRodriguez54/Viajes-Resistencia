@@ -34,10 +34,15 @@ function construirCsp({
 
 const CSP_PRODUCCION = construirCsp();
 const CSP_META_PRODUCCION = construirCsp({ incluirFrameAncestors: false });
+// El backend alternativo sólo se admite en localhost durante desarrollo.
+const apiDesarrollo = process.env.VITE_API_URL;
+const origenApiLocal = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(apiDesarrollo ?? '')
+  ? [apiDesarrollo]
+  : [];
 const CSP_DESARROLLO = construirCsp({
   // En desarrollo Vite/React Fast Refresh requiere script inline y WebSocket HMR.
   incluirUnsafeInlineScript: true,
-  origenesConexionExtra: ['ws://localhost:5173'],
+  origenesConexionExtra: ['ws://localhost:5173', ...origenApiLocal],
 });
 
 /**
