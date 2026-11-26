@@ -16,7 +16,7 @@ Node 22 (ESM, `"type": "module"`), Express 5, PostgreSQL 16 + PostGIS (Docker, p
 cp .env.example .env
 npm install
 docker compose up -d
-npm run setup     # migrate + seed (tarifa de desarrollo y admin)
+npm run setup     # bases y roles (viajes, billetera, lectura), migraciones y seed (ADR 008)
 npm test          # node --test (hoy sólo unitarios, no requieren DB)
 npm run dev       # node --watch src/servidor.js
 ```
@@ -33,7 +33,7 @@ Hexagonal liviana:
 ```text
 src/
   dominio/      reglas puras: roles, estados de viaje, tarifa (Haversine), dinero, billetera, errores, puertos
-  aplicacion/   casos de uso (registrarUsuario, iniciarSesion, procesarCargaWebhook, solicitarViaje)
+  aplicacion/   casos de uso (registrarUsuario, iniciarSesion, procesarCargaWebhook, solicitarViaje, finalizarViajeYCobrar, reintentarCobro)
   infra/
     http/       Express: rutas*, middleware Bearer, contexto (requestId con AsyncLocalStorage), errores
     db/         pool, migraciones SQL, seed, repositorios Postgres
@@ -45,8 +45,9 @@ src/
 ```
 
 - El dominio no importa Express, `pg` ni librerías de infraestructura.
-- Varias operaciones (ofertas, aceptación, cambios de estado, cobro) van directo de la ruta al repositorio sin caso de uso ni puerto intermedio. Esto **no cumple** el bloque 2 (ver "Lo que falta").
-- Hay una sola base (`viajes`) compartida por todos los módulos. Los temas 12 y 13 la van a separar (ver abajo).
+- El cobro (finalizar y reintentar) es un caso de uso sobre puertos, en dos pasos (ADR 008): la unidad de trabajo `unidadDeTrabajoCobro` cubre la base `viajes` (Postgres: un `client` y un `BEGIN`/`COMMIT`; memoria: candados + cambios aplicados al confirmar) y `billetera.cobrar` cobra en su propia base con el viaje bloqueado. Adaptadores en memoria en `src/infra/memoria/`, tests en `tests/aplicacion/`.
+- Ofertas, aceptación y cambios de estado todavía van directo de la ruta al repositorio sin caso de uso ni puerto intermedio. Eso **no cumple** el bloque 2 (ver "Lo que falta").
+- Tres bases en el mismo contenedor, una por módulo y con su propio rol (ADR 008): `viajes`, `billetera` y `lectura` (proyecciones, ADR 009). Se comunican por outbox (`outbox_viajes`, `outbox_billetera`) y un despachador dentro del backend (`despachadorOutbox.js`).
 
 ## Convenciones
 
@@ -77,7 +78,7 @@ Hilo conductor: **"La billetera es un servicio dueño de sus datos (12); como ya
 ### Tema 12 · Base de datos por servicio y propiedad de datos
 - **Pregunta guía:** ¿por qué un servicio no debería consultar directamente las tablas internas de otro?
 - **El problema hoy, en nuestro código:**
-  - `repositorioViajesPostgres.js` (`finalizarYCobrar`) bloquea `billeteras`, suma `movimientos_billetera` e inserta el consumo: Viajes escribe en tablas de Billetera.
+  - **Hecho (rama 7, ADR 008):** la billetera está en la base `billetera` con el rol `billetera_app`; Viajes recibe `permission denied` (`npm run demo:propiedad-datos`). La billetera se crea por el evento `UsuarioRegistrado`. La migración `004` borró las tablas de billetera de `viajes`.
   - `repositorioUsuariosPostgres.js` crea la fila de `billeteras` dentro del registro de usuario.
   - FKs cruzadas: `billeteras.pasajero_id → usuarios`, `movimientos_billetera.viaje_id → viajes`.
 - **Diseño propuesto:** monolito modular con **dos bases en el mismo contenedor Postgres**: `viajes` (usuarios, choferes, viajes, ofertas, ubicaciones, tarifas) y `billetera` (billeteras, movimientos, webhooks). Cada módulo tiene su propio pool y su propio usuario de base, sin permisos sobre la otra. Viajes cobra sólo a través del puerto `servicioBilletera.cobrar({ viajeId, pasajeroId, importeCentavos })`, con adaptador real y adaptador en memoria (sirve también para el bloque 2). La billetera se crea al primer uso o por el evento `UsuarioRegistrado`, no desde el repositorio de usuarios.
@@ -136,8 +137,8 @@ Prioridad: lo que pide el **control 3** de Puljiz (carrera con test concurrente 
 - [ ] Probar la secuencia de clon limpio en otra máquina.
 
 ### Bloque 2 — Arquitectura hexagonal
-- [ ] Puertos para viajes, choferes/ofertas y billetera, cada uno con **adaptador real y adaptador en memoria** (`src/infra/memoria/`). Hoy no existe ninguno en memoria.
-- [ ] Sacar la lógica de cobro, aceptación y cambios de estado de los repositorios y pasarla a casos de uso que dependan de puertos.
+- [~] Puertos para viajes, choferes/ofertas y billetera, cada uno con **adaptador real y adaptador en memoria** (`src/infra/memoria/`). Hecho: billetera, la parte de cobro de viajes y la unidad de trabajo del cobro (rama 6), e idempotencia. Falta: ofertas, aceptación y estados (Lucas).
+- [~] Sacar la lógica de cobro, aceptación y cambios de estado de los repositorios y pasarla a casos de uso que dependan de puertos. Hecho: el cobro (`finalizarViajeYCobrar`, `reintentarCobro`). Falta: aceptación y cambios de estado.
 
 ### Bloque 3 — Configuración y ciclo de vida
 - [ ] `/ready` tiene que verificar también que las migraciones estén aplicadas.
@@ -154,7 +155,7 @@ Prioridad: lo que pide el **control 3** de Puljiz (carrera con test concurrente 
 - [ ] `npm audit` sin altas ni críticas, o justificadas en el README.
 
 ### Bloque 6 y problema central (6.3) — Concurrencia e idempotencia
-- [ ] Idempotencia HTTP (tema 3) con test.
+- [x] Idempotencia HTTP (tema 3) con test (ADR 010, `tests/integracion/idempotenciaHttp.test.js`).
 - [ ] Test: 50 aceptaciones simultáneas sobre el mismo viaje, exactamente una gana y las demás reciben un rechazo claro.
 - [ ] Cancelaciones (pasajero, chofer, operador con motivo) y test de cancelación simultánea a la aceptación, con los dos resultados posibles documentados.
 - [ ] Test: un chofer con viaje activo no puede aceptar otro.
@@ -164,7 +165,7 @@ Prioridad: lo que pide el **control 3** de Puljiz (carrera con test concurrente 
 - [ ] ADR 004 completo: qué se bloquea, en qué orden, por qué no hay doble asignación ni interbloqueo.
 
 ### Variante D — Billetera
-- [ ] Separación en base propia (tema 12) y proyección de saldos (tema 13).
+- [x] Separación en base propia (tema 12, ADR 008) y proyección de saldos (tema 13, ADR 009).
 - [ ] Test de la carrera: dos viajes del mismo pasajero cobran a la vez contra un saldo que alcanza para uno.
 - [ ] Test que muestre por qué no se usa float para dinero.
 - [ ] Salida de `pago_pendiente`: reintento de cobro o saldo de deuda tras una carga.
@@ -196,7 +197,7 @@ Prioridad: lo que pide el **control 3** de Puljiz (carrera con test concurrente 
 - [ ] ADR: completar "Participantes" y fecha en todos, cerrar 004 y 005, escribir 008–010.
 - [ ] `docs/mediciones.md`: hipótesis con número antes de medir, entorno, comando exacto, tabla ingenua vs final, conclusión.
 - [ ] `docs/ataque.md`: bitácora (número, hipótesis, petición exacta, esperado, obtenido, veredicto, severidad, impacto) y respuesta del defensor (causa raíz, commit, test que falla antes y pasa después).
-- [ ] `docs/api.md`: actualizar la tabla (la aceptación de oferta figura como TODO pero ya está), prefijo/versión de API y eventos SSE.
+- [x] `docs/api.md` como índice del OpenAPI (rama `docs/api-openapi`). Quedan prefijo/versión de API y eventos SSE.
 - [ ] `docs/modelo.md`: diagrama, transiciones de `pago_pendiente`, reglas de tarifa y radio, retención de ubicaciones, separación de bases.
 - [ ] Git: commits de los tres a lo largo del cuatrimestre, PR con revisión real de otro integrante, tag `entrega-final`.
 
@@ -205,7 +206,7 @@ Prioridad: lo que pide el **control 3** de Puljiz (carrera con test concurrente 
 Además de lo de Puljiz. Códigos RF/RNF del Word. El alcance exacto de cada entrega lo fija el Acta de Alcance: esto es el máximo posible, no todo es obligatorio para TP1.
 
 ### TP1 · Contrato ejecutable
-- [ ] **OpenAPI** versionado (`docs/openapi.yaml`) con parámetros, esquemas, validaciones, ejemplos, respuestas de éxito y error (`{ error: { codigo, requestId } }`) y esquema de seguridad Bearer; visualización local (p. ej. Swagger UI en `GET /docs`, deshabilitada en producción). Los esquemas Zod y el contrato no pueden divergir.
+- [~] **OpenAPI** versionado (hecho: `docs/openapi.yaml` 0.2.0 + Swagger UI en el compose con `--profile docs`; falta validar las respuestas en los tests) (`docs/openapi.yaml`) con parámetros, esquemas, validaciones, ejemplos, respuestas de éxito y error (`{ error: { codigo, requestId } }`) y esquema de seguridad Bearer; visualización local (p. ej. Swagger UI en `GET /docs`, deshabilitada en producción). Los esquemas Zod y el contrato no pueden divergir.
 - [ ] Tests de integración que validen las respuestas contra el OpenAPI.
 - [ ] Mocks/stubs de las dependencias de otros módulos hechos desde **sus** OpenAPI, con casos de éxito, error y demora. Encajan como adaptadores en memoria de los puertos (también cumplen el bloque 2 de Puljiz).
 - [ ] **Dockerfile** del backend (multi-stage, usuario no root, `HEALTHCHECK` contra `/health`) y servicio `api` en `docker-compose.yml`. La secuencia de clon limpio de Puljiz tiene que seguir funcionando igual.
@@ -244,5 +245,5 @@ Casi todos ya están en "Lo que falta". El diseño de la web está en `viajes-we
 ## Notas
 
 - Para levantar el backend en Windows primero hay que abrir Docker Desktop (`%LOCALAPPDATA%\Programs\DockerDesktop\Docker Desktop.exe`); si no, `docker compose` falla con "failed to connect to the docker API".
-- Los scripts de `docker-entrypoint-initdb.d` (necesarios para crear las bases `billetera` y `lectura`) sólo corren con el volumen vacío: después de agregarlos hace falta `docker compose down -v` una vez.
+- Las bases `billetera` y `lectura` y los roles los crea `npm run setup` (`migrate.js` con `ADMIN_DATABASE_URL`), no un script de `docker-entrypoint-initdb.d`: no hace falta `docker compose down -v`. Para los tests de integración: `npm run setup:test`.
 - Git, ramas, finales de línea y PowerShell: ver el `CLAUDE.md` de la raíz.

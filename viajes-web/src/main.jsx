@@ -10,7 +10,7 @@ import ViajesActivos from './paginas/operador/ViajesActivos.jsx';
 import Billetera from './paginas/pasajero/Billetera.jsx';
 import MiViaje from './paginas/pasajero/MiViaje.jsx';
 import PedirViaje from './paginas/pasajero/PedirViaje.jsx';
-import { choferEjemplo } from './datos/ejemplo.js';
+import { inicioPorRol, ProveedorSesion, RutaDeRol, usarSesion } from './sesion.jsx';
 import './estilos.css';
 
 const enlacesPasajero = [
@@ -32,39 +32,55 @@ function LayoutPasajero() {
 
 // Chofer, operador y admin tienen una sola pantalla: encabezado sin navegación.
 // El chofer va sobre el mapa (encabezado con barra); operador y admin, en columna.
-function LayoutRol({ rol, plano = false, detalle }) {
+function LayoutRol({ rol, plano = false }) {
   return (
     <div className="con-encabezado">
-      <Encabezado rol={rol} plano={plano} detalle={detalle} />
+      <Encabezado rol={rol} plano={plano} />
       <Outlet />
     </div>
   );
 }
 
+// "/" lleva a la pantalla del rol si ya hay sesión.
+function Inicio() {
+  const { usuario } = usarSesion();
+  return <Navigate to={usuario ? inicioPorRol[usuario.rol] : '/ingresar'} replace />;
+}
+
 createRoot(document.getElementById('raiz')).render(
   <StrictMode>
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Navigate to="/ingresar" replace />} />
-        <Route path="/ingresar" element={<Ingresar />} />
-        <Route path="/registro" element={<Registro />} />
-        <Route path="/pasajero" element={<LayoutPasajero />}>
-          <Route index element={<Navigate to="pedir" replace />} />
-          <Route path="pedir" element={<PedirViaje />} />
-          <Route path="viaje" element={<MiViaje />} />
-          <Route path="billetera" element={<Billetera />} />
-        </Route>
-        <Route element={<LayoutRol rol="chofer" detalle={choferEjemplo.patente} />}>
-          <Route path="/chofer" element={<Oferta />} />
-        </Route>
-        <Route element={<LayoutRol rol="operador" plano />}>
-          <Route path="/operador" element={<ViajesActivos />} />
-        </Route>
-        <Route element={<LayoutRol rol="administrador" plano />}>
-          <Route path="/admin" element={<Administracion />} />
-        </Route>
-        <Route path="*" element={<Navigate to="/ingresar" replace />} />
-      </Routes>
-    </BrowserRouter>
+    <ProveedorSesion>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<Inicio />} />
+          <Route path="/ingresar" element={<Ingresar />} />
+          <Route path="/registro" element={<Registro />} />
+          <Route element={<RutaDeRol rol="pasajero" />}>
+            <Route path="/pasajero" element={<LayoutPasajero />}>
+              <Route index element={<Navigate to="pedir" replace />} />
+              <Route path="pedir" element={<PedirViaje />} />
+              <Route path="viaje" element={<MiViaje />} />
+              <Route path="billetera" element={<Billetera />} />
+            </Route>
+          </Route>
+          <Route element={<RutaDeRol rol="chofer" />}>
+            <Route element={<LayoutRol rol="chofer" />}>
+              <Route path="/chofer" element={<Oferta />} />
+            </Route>
+          </Route>
+          <Route element={<RutaDeRol rol="operador" />}>
+            <Route element={<LayoutRol rol="operador" plano />}>
+              <Route path="/operador" element={<ViajesActivos />} />
+            </Route>
+          </Route>
+          <Route element={<RutaDeRol rol="administrador" />}>
+            <Route element={<LayoutRol rol="administrador" plano />}>
+              <Route path="/admin" element={<Administracion />} />
+            </Route>
+          </Route>
+          <Route path="*" element={<Inicio />} />
+        </Routes>
+      </BrowserRouter>
+    </ProveedorSesion>
   </StrictMode>,
 );

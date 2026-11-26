@@ -175,54 +175,81 @@ export function crearRepositorioViajesPostgres(pool) {
         return { viajeId, estado: nuevoEstado };
       } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
     },
-    async finalizarYCobrar(viajeId, choferId) {
-      const client = await pool.connect();
-      try {
-        await client.query('BEGIN');
-        const viaje = await client.query('SELECT pasajero_id, chofer_id, estado, estimacion_centavos FROM viajes WHERE id = $1 FOR UPDATE', [viajeId]);
-        const actual = viaje.rows[0];
-        if (!actual || actual.chofer_id !== choferId) throw new ErrorDeDominio('RECURSO_NO_ENCONTRADO', 'El viaje no pertenece al chofer.');
-        if (actual.estado !== 'en_curso') throw new ErrorDeDominio('TRANSICION_INVALIDA', 'Sólo un viaje en curso puede finalizar.');
-        const importe = actual.estimacion_centavos;
-        const suficiente = await debitarSiAlcanza(client, actual.pasajero_id, viajeId, importe);
-        const estado = suficiente ? 'finalizado' : 'pago_pendiente';
-        await client.query('UPDATE viajes SET estado = $2, tarifa_final_centavos = $3, finalizado_at = now(), version = version + 1 WHERE id = $1', [viajeId, estado, importe]);
-        await client.query('INSERT INTO eventos_viaje (viaje_id, tipo, datos) VALUES ($1, $2, $3::jsonb)', [viajeId, suficiente ? 'cobro_confirmado' : 'cobro_pendiente', JSON.stringify({ importeCentavos: importe })]);
-        await client.query('COMMIT');
-        return { viajeId, estado, importeCentavos: importe };
-      } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
+    // Lecturas del chofer (sin bloqueos): la web las consulta cada 2 s mientras no haya SSE.
+    // Sólo devuelve una oferta pendiente, vigente y de un viaje que todavía se puede asignar.
+    async buscarOfertaPendienteDelChofer(choferId) {
+      const { rows } = await pool.query(
+        `SELECT o.id AS oferta_id, o.viaje_id, o.vence_at, v.estimacion_centavos,
+                ST_Y(v.origen::geometry) AS origen_latitud, ST_X(v.origen::geometry) AS origen_longitud,
+                ST_Y(v.destino::geometry) AS destino_latitud, ST_X(v.destino::geometry) AS destino_longitud
+         FROM ofertas_viaje o JOIN viajes v ON v.id = o.viaje_id
+         WHERE o.chofer_id = $1 AND o.estado = 'pendiente' AND o.vence_at > now() AND v.estado = 'solicitado'
+         ORDER BY o.vence_at DESC LIMIT 1`,
+        [choferId],
+      );
+      const fila = rows[0];
+      if (!fila) return null;
+      return {
+        ofertaId: fila.oferta_id, viajeId: fila.viaje_id, venceAt: fila.vence_at,
+        estimacionCentavos: fila.estimacion_centavos, ...mapearRecorrido(fila),
+      };
     },
-    // Salida de pago_pendiente: el pasajero, después de cargar saldo, pide cobrar la deuda del viaje.
-    async reintentarCobro(viajeId, pasajeroId) {
-      const client = await pool.connect();
-      try {
-        await client.query('BEGIN');
-        // Mismo orden de bloqueo que finalizarYCobrar (viaje → billetera) para no generar interbloqueos.
-        const viaje = await client.query('SELECT estado, tarifa_final_centavos FROM viajes WHERE id = $1 AND pasajero_id = $2 FOR UPDATE', [viajeId, pasajeroId]);
-        const actual = viaje.rows[0];
-        if (!actual) throw new ErrorDeDominio('RECURSO_NO_ENCONTRADO', 'El viaje no existe o no pertenece al pasajero.');
-        if (actual.estado !== 'pago_pendiente') throw new ErrorDeDominio('TRANSICION_INVALIDA', 'Sólo un viaje con pago pendiente puede reintentar el cobro.');
-        const importe = actual.tarifa_final_centavos;
-        if (!await debitarSiAlcanza(client, pasajeroId, viajeId, importe)) throw new ErrorDeDominio('SALDO_INSUFICIENTE', 'El saldo no alcanza para pagar el viaje.');
-        await client.query("UPDATE viajes SET estado = 'finalizado', version = version + 1 WHERE id = $1", [viajeId]);
-        await client.query("INSERT INTO eventos_viaje (viaje_id, tipo, datos) VALUES ($1, 'cobro_confirmado', $2::jsonb)", [viajeId, JSON.stringify({ importeCentavos: importe, reintento: true })]);
-        await client.query('COMMIT');
-        return { viajeId, estado: 'finalizado', importeCentavos: importe };
-      } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
+    async buscarViajeActualDelChofer(choferId) {
+      const { rows } = await pool.query(
+        `SELECT id, estado, estimacion_centavos,
+                ST_Y(origen::geometry) AS origen_latitud, ST_X(origen::geometry) AS origen_longitud,
+                ST_Y(destino::geometry) AS destino_latitud, ST_X(destino::geometry) AS destino_longitud
+         FROM viajes
+         WHERE chofer_id = $1 AND estado IN ('asignado', 'chofer_en_camino', 'en_curso')
+         LIMIT 1`,
+        [choferId],
+      );
+      const fila = rows[0];
+      if (!fila) return null;
+      return { id: fila.id, estado: fila.estado, estimacionCentavos: fila.estimacion_centavos, ...mapearRecorrido(fila) };
     },
   };
 }
 
-// Bloquea la billetera del pasajero (FOR UPDATE) y, si el saldo alcanza, inserta el consumo del viaje.
-// Con el bloqueo, dos cobros del mismo pasajero se serializan: el segundo ve el consumo del primero.
-// Un importe 0 no genera movimiento (el CHECK exige importe > 0) y el cobro se considera hecho.
-async function debitarSiAlcanza(client, pasajeroId, viajeId, importe) {
-  const billetera = await client.query('SELECT id FROM billeteras WHERE pasajero_id = $1 FOR UPDATE', [pasajeroId]);
-  if (!billetera.rows[0]) throw new ErrorDeDominio('BILLETERA_NO_ENCONTRADA', 'El pasajero no tiene billetera.');
-  if (importe === 0) return true;
-  const saldo = await client.query(`SELECT COALESCE(SUM(CASE WHEN tipo = 'carga' THEN importe_centavos ELSE -importe_centavos END), 0) AS centavos FROM movimientos_billetera WHERE billetera_id = $1`, [billetera.rows[0].id]);
-  if (Number(saldo.rows[0].centavos) < importe) return false;
-  await client.query("INSERT INTO movimientos_billetera (billetera_id, viaje_id, tipo, importe_centavos) VALUES ($1, $2, 'consumo', $3)", [billetera.rows[0].id, viajeId, importe]);
-  return true;
+function mapearRecorrido(fila) {
+  return {
+    origen: { latitud: fila.origen_latitud, longitud: fila.origen_longitud },
+    destino: { latitud: fila.destino_latitud, longitud: fila.destino_longitud },
+  };
+}
+
+// Parte de viajes del puerto unidadDeTrabajoCobro: trabaja sobre el `client` de la transacción que
+// abre unidadDeTrabajoCobroPostgres, nunca abre ni cierra una propia.
+export function crearCobroViajesPostgres(client) {
+  return {
+    // FOR UPDATE: el viaje queda bloqueado hasta el COMMIT. Es el primer bloqueo del cobro.
+    async bloquearParaCobro(viajeId) {
+      const { rows } = await client.query(
+        'SELECT id, estado, pasajero_id, chofer_id, estimacion_centavos, tarifa_final_centavos FROM viajes WHERE id = $1 FOR UPDATE',
+        [viajeId],
+      );
+      const fila = rows[0];
+      if (!fila) return null;
+      return {
+        id: fila.id, estado: fila.estado, pasajeroId: fila.pasajero_id, choferId: fila.chofer_id,
+        estimacionCentavos: fila.estimacion_centavos, tarifaFinalCentavos: fila.tarifa_final_centavos,
+      };
+    },
+    // Paso 1 del finalizar: el viaje terminó y se debe la tarifa. Queda en pago_pendiente hasta que
+    // la billetera confirme; si algo se cae después de este COMMIT, el viaje no queda "a medias".
+    async registrarCobroSolicitado(viajeId, { tarifaFinalCentavos }) {
+      await client.query("UPDATE viajes SET estado = 'pago_pendiente', tarifa_final_centavos = $2, finalizado_at = now(), version = version + 1 WHERE id = $1", [viajeId, tarifaFinalCentavos]);
+      await client.query("INSERT INTO eventos_viaje (viaje_id, tipo, datos) VALUES ($1, 'cobro_solicitado', $2::jsonb)", [viajeId, JSON.stringify({ importeCentavos: tarifaFinalCentavos })]);
+    },
+    async registrarCobroConfirmado(viajeId, { importeCentavos, reintento }) {
+      await client.query("UPDATE viajes SET estado = 'finalizado', version = version + 1 WHERE id = $1", [viajeId]);
+      const datos = reintento ? { importeCentavos, reintento: true } : { importeCentavos };
+      await client.query("INSERT INTO eventos_viaje (viaje_id, tipo, datos) VALUES ($1, 'cobro_confirmado', $2::jsonb)", [viajeId, JSON.stringify(datos)]);
+    },
+    // El viaje sigue en pago_pendiente; sólo queda registrado por qué no se cobró.
+    async registrarCobroPendiente(viajeId, { importeCentavos, motivo }) {
+      await client.query("INSERT INTO eventos_viaje (viaje_id, tipo, datos) VALUES ($1, 'cobro_pendiente', $2::jsonb)", [viajeId, JSON.stringify({ importeCentavos, motivo })]);
+    },
+  };
 }
 

@@ -137,7 +137,7 @@ El chofer avanza mediante:
 asignado → chofer_en_camino → en_curso → finalizado | pago_pendiente
 ```
 
-En `finalizarYCobrar` se bloquean el viaje y la billetera. Se calcula el saldo desde los movimientos ya existentes. Si alcanza, se inserta exactamente un consumo asociado al viaje y se finaliza. Si no alcanza, no se inserta débito y el viaje queda en `pago_pendiente`. Esto evita cobrar parcialmente.
+En el caso de uso `finalizarViajeYCobrar` (`src/aplicacion/viajes/`), dentro de una unidad de trabajo con una sola transacción, se bloquean el viaje y la billetera, en ese orden. Se calcula el saldo desde los movimientos ya existentes. Si alcanza, se inserta exactamente un consumo asociado al viaje y se finaliza. Si no alcanza, no se inserta débito y el viaje queda en `pago_pendiente`. Esto evita cobrar parcialmente.
 
 La tarifa final hoy reutiliza la estimación. Falta incorporar recorrido/tiempo real para recalcularla con datos efectivos.
 
@@ -185,6 +185,6 @@ La tarifa final hoy reutiliza la estimación. Falta incorporar recorrido/tiempo 
 1. `src/composicion.js` y `src/infra/http/app.js`.
 2. Autenticación: ruta → caso de uso → repositorio.
 3. Webhook de billetera y su transacción.
-4. `repositorioViajesPostgres.js`, especialmente `aceptarOferta` y `finalizarYCobrar`.
+4. `repositorioViajesPostgres.js`, especialmente `aceptarOferta`; el cobro, en `aplicacion/viajes/finalizarViajeYCobrar.js` y `unidadDeTrabajoCobroPostgres.js`.
 5. Las migraciones SQL e índices parciales.
 6. ADR 004, 005, 006 y 007 antes de explicar concurrencia, carga y geolocalización.

@@ -15,6 +15,18 @@ services:
       timeout: 5s
       retries: 10
 
+  # Visualización del contrato (docs/openapi.yaml). No arranca con el compose de siempre:
+  #   docker compose --profile docs up -d docs   →  http://localhost:8080
+  docs:
+    image: swaggerapi/swagger-ui:v5.17.14
+    profiles: ["docs"]
+    environment:
+      SWAGGER_JSON: /contrato/openapi.yaml
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./docs/openapi.yaml:/contrato/openapi.yaml:ro
+
 volumes:
   postgres_data:
 

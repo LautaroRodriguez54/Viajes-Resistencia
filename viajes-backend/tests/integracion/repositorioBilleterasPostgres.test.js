@@ -5,6 +5,10 @@ import crypto from 'node:crypto';
 
 import { crearPoolPostgres } from '../../src/infra/db/postgres.js';
 import { crearRepositorioBilleterasPostgres } from '../../src/infra/db/repositorioBilleterasPostgres.js';
+import { urlsDePrueba, crearPoolsDePrueba, cerrarPools } from '../ayudas/basesDePrueba.js';
+
+// Desde la rama 7 la billetera tiene su propia base (billetera_test, ADR 008): `pool` es esa base.
+// No hay claves foráneas hacia usuarios ni viajes, así que el pasajero y el viaje son uuid sueltos.
 
 async function conBaseDePrueba(t, ejecutar) {
   const databaseUrl = process.env.DATABASE_URL;
@@ -23,7 +27,7 @@ async function conBaseDePrueba(t, ejecutar) {
   );
 
   const pool = crearPoolPostgres({
-    DATABASE_URL: databaseUrl,
+    DATABASE_URL: urlsDePrueba().billetera,
     DATABASE_SSL: false,
   });
 
@@ -36,14 +40,6 @@ async function conBaseDePrueba(t, ejecutar) {
 
 async function crearPasajero(pool, conBilletera = true) {
   const pasajeroId = crypto.randomUUID();
-  const email = `test-${crypto.randomUUID()}@example.com`;
-
-  await pool.query(
-    `INSERT INTO usuarios (id, email, password_hash, rol)
-     VALUES ($1, $2, $3, 'pasajero')`,
-    [pasajeroId, email, 'hash-de-prueba'],
-  );
-
   let billeteraId = null;
 
   if (conBilletera) {
@@ -60,27 +56,9 @@ async function crearPasajero(pool, conBilletera = true) {
   return { pasajeroId, billeteraId };
 }
 
-async function crearViaje(pool, pasajeroId) {
-  const resultado = await pool.query(
-    `INSERT INTO viajes (
-       pasajero_id,
-       estado,
-       origen,
-       destino,
-       estimacion_centavos
-     )
-     VALUES (
-       $1,
-       'solicitado',
-       ST_SetSRID(ST_MakePoint(-58.9867, -27.4514), 4326)::geography,
-       ST_SetSRID(ST_MakePoint(-58.9800, -27.4400), 4326)::geography,
-       1200
-     )
-     RETURNING id`,
-    [pasajeroId],
-  );
-
-  return resultado.rows[0].id;
+// El viaje vive en la base de viajes: para la billetera es sólo un id.
+function crearViaje() {
+  return crypto.randomUUID();
 }
 
 function crearEvento(pasajeroId, importeCentavos = 1_000_000) {
@@ -273,7 +251,7 @@ test('los movimientos de billetera son inmutables', async (t) => {
 test('el saldo suma las cargas y resta los consumos', async (t) => {
   await conBaseDePrueba(t, async (pool) => {
     const { pasajeroId, billeteraId } = await crearPasajero(pool);
-    const viajeId = await crearViaje(pool, pasajeroId);
+    const viajeId = crearViaje();
 
     await pool.query(
       `INSERT INTO movimientos_billetera
@@ -334,4 +312,80 @@ test('dos solicitudes simultáneas del mismo webhook generan una sola carga', as
     assert.equal(resultado.rows[0].movimientos, 1);
     assert.equal(resultado.rows[0].eventos, 1);
   });
+});
+
+async function eventosDelOutbox(pool, pasajeroId) {
+  const { rows } = await pool.query(
+    "SELECT tipo, datos FROM outbox_billetera WHERE datos->>'pasajeroId' = $1 ORDER BY created_at, id",
+    [pasajeroId],
+  );
+  return rows;
+}
+
+test('cobrar es idempotente por viaje: un segundo cobro del mismo viaje no debita otra vez', async (t) => {
+  await conBaseDePrueba(t, async (pool) => {
+    const { pasajeroId } = await crearPasajero(pool);
+    const repositorio = crearRepositorioBilleterasPostgres(pool);
+    await repositorio.registrarCargaDesdeWebhook(crearEvento(pasajeroId, 10000), Buffer.from('{}'));
+    const viajeId = crearViaje();
+
+    const primero = await repositorio.cobrar({ pasajeroId, viajeId, importeCentavos: 4000 });
+    const segundo = await repositorio.cobrar({ pasajeroId, viajeId, importeCentavos: 4000 });
+
+    assert.deepEqual(primero, { cobrado: true });
+    assert.deepEqual(segundo, { cobrado: true });
+    assert.equal((await repositorio.consultarSaldoPorPasajero(pasajeroId)).saldoCentavos, 6000);
+    assert.deepEqual((await eventosDelOutbox(pool, pasajeroId)).map((e) => e.datos.tipo), ['carga', 'consumo']);
+  });
+});
+
+test('cobrar nunca es parcial y sin billetera lanza BILLETERA_NO_ENCONTRADA', async (t) => {
+  await conBaseDePrueba(t, async (pool) => {
+    const { pasajeroId } = await crearPasajero(pool);
+    const repositorio = crearRepositorioBilleterasPostgres(pool);
+    await repositorio.registrarCargaDesdeWebhook(crearEvento(pasajeroId, 3000), Buffer.from('{}'));
+
+    assert.deepEqual(await repositorio.cobrar({ pasajeroId, viajeId: crearViaje(), importeCentavos: 3001 }), { cobrado: false });
+    assert.equal((await repositorio.consultarSaldoPorPasajero(pasajeroId)).saldoCentavos, 3000);
+    await assert.rejects(
+      repositorio.cobrar({ pasajeroId: crypto.randomUUID(), viajeId: crearViaje(), importeCentavos: 100 }),
+      (error) => error.codigo === 'BILLETERA_NO_ENCONTRADA',
+    );
+  });
+});
+
+test('crearBilleteraPorEvento crea una sola billetera aunque el evento llegue dos veces', async (t) => {
+  await conBaseDePrueba(t, async (pool) => {
+    const repositorio = crearRepositorioBilleterasPostgres(pool);
+    const pasajeroId = crypto.randomUUID();
+    const eventoId = crypto.randomUUID();
+
+    assert.deepEqual(await repositorio.crearBilleteraPorEvento({ eventoId, pasajeroId }), { creada: true, duplicado: false });
+    assert.deepEqual(await repositorio.crearBilleteraPorEvento({ eventoId, pasajeroId }), { creada: false, duplicado: true });
+
+    const { rows } = await pool.query('SELECT COUNT(*)::int AS n FROM billeteras WHERE pasajero_id = $1', [pasajeroId]);
+    assert.equal(rows[0].n, 1);
+    assert.deepEqual((await eventosDelOutbox(pool, pasajeroId)).map((e) => e.tipo), ['BilleteraCreada']);
+    assert.equal((await repositorio.consultarSaldoPorPasajero(pasajeroId)).saldoCentavos, 0);
+  });
+});
+
+// Tema 12: cada base tiene sólo las tablas de su módulo.
+test('propiedad de datos: viajes no tiene tablas de la billetera y billetera no tiene usuarios ni viajes', async (t) => {
+  const urls = urlsDePrueba();
+  if (!urls) {
+    t.skip('Definir DATABASE_URL para ejecutar las pruebas de integración');
+    return;
+  }
+  const pools = crearPoolsDePrueba(urls);
+  try {
+    const existe = async (pool, tabla) => (await pool.query('SELECT to_regclass($1) IS NOT NULL AS existe', [tabla])).rows[0].existe;
+    for (const tabla of ['billeteras', 'movimientos_billetera', 'eventos_webhook_pago']) {
+      assert.equal(await existe(pools.viajes, tabla), false, `viajes no debería tener ${tabla}`);
+      assert.equal(await existe(pools.billetera, tabla), true);
+    }
+    for (const tabla of ['usuarios', 'viajes']) assert.equal(await existe(pools.billetera, tabla), false);
+  } finally {
+    await cerrarPools(pools);
+  }
 });

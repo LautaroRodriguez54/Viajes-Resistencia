@@ -20,6 +20,10 @@ export default function Administracion() {
 
   return (
     <div className="columna columna--ancha montos">
+      <p role="note" className="aviso aviso--advertencia" data-testid="aviso-ejemplo">
+        Datos de ejemplo: el backend todavía no lista los choferes por habilitar ni administra tarifas.
+        {' '}La habilitación existe (PATCH /admin/choferes/:choferId/habilitacion) y se usa desde requests.http.
+      </p>
       <section className="tarjeta lista" aria-labelledby="titulo-choferes">
         <h1 id="titulo-choferes">Choferes por habilitar</h1>
         {choferes.length === 0 ? (

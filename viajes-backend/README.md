@@ -24,6 +24,24 @@ npm run dev
 
 La base de este proyecto se publica en el puerto local `5433` para no interferir con una instalación local de PostgreSQL.
 
+## Bases de datos (ADR 008)
+
+El contenedor tiene tres bases, una por módulo, y cada una con su propio rol: `viajes` (`viajes_app`), `billetera` (`billetera_app`) y `lectura` (`lectura_app`, proyecciones del ADR 009). `npm run setup` las crea junto con sus roles y migraciones. Se puede correr las veces que haga falta, y en un volumen ya existente no hace falta `docker compose down -v`. Las URL están en `.env.example`. `ADMIN_DATABASE_URL` (el superusuario del contenedor) sólo la usa `npm run migrate`, no la app.
+
+- `npm run demo:propiedad-datos`: muestra que cada rol entra sólo a su base (`permission denied` entre módulos).
+- `npm run proyecciones:reconstruir`: rearma la proyección de saldos desde el outbox de la billetera.
+
+### Tests de integración
+
+Sin `DATABASE_URL` en el entorno, `npm test` corre sólo los tests que no necesitan base (los de integración se saltean). Para correrlos todos:
+
+```powershell
+npm run setup:test
+$env:DATABASE_URL='postgres://viajes:viajes@localhost:5433/viajes_test'; npm test
+```
+
+`setup:test` crea `viajes_test`, `billetera_test` y `lectura_test`. Los tests derivan las URL de las otras dos a partir de `DATABASE_URL`.
+
 Comprobar el proceso con `GET http://localhost:3000/health` y la disponibilidad real con `GET http://localhost:3000/ready`.
 
 ## Acceso inicial
@@ -62,7 +80,8 @@ La autenticación usa JWT y las contraseñas usarán Argon2id. La matriz detalla
 ## Documentación
 
 - [Modelo de dominio](docs/modelo.md)
-- [Contrato HTTP](docs/api.md)
+- [Contrato HTTP (OpenAPI 3.1)](docs/openapi.yaml): resumen en [`api.md`](docs/api.md); Swagger UI con `docker compose --profile docs up -d docs` (http://localhost:8080)
+- [Colección de pedidos](docs/requests.http): el recorrido completo de un viaje para REST Client
 - [Mediciones](docs/mediciones.md)
 - [Bitácora de ataque](docs/ataque.md)
 - [Guía de implementación](docs/guia-implementacion.md)

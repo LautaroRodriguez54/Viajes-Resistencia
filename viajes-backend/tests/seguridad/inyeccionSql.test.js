@@ -8,6 +8,7 @@ import { crearRepositorioUsuariosPostgres } from '../../src/infra/db/repositorio
 import { crearRepositorioViajesPostgres } from '../../src/infra/db/repositorioViajesPostgres.js';
 import { crearRepositorioBilleterasPostgres } from '../../src/infra/db/repositorioBilleterasPostgres.js';
 import { crearRepositorioChoferesPostgres } from '../../src/infra/db/repositorioChoferesPostgres.js';
+import { urlsDePrueba } from '../ayudas/basesDePrueba.js';
 
 const PAYLOADS_SQL = [
   "' OR '1'='1",
@@ -114,8 +115,23 @@ test('SQL Injection - consultas y operaciones de viajes', async (t) => {
   });
 });
 
+// La billetera vive en su propia base, billetera_test (ADR 008).
+async function conBaseDeBilletera(t, ejecutar) {
+  const urls = urlsDePrueba();
+  if (!urls) {
+    t.skip('Definir DATABASE_URL para ejecutar las pruebas de integración');
+    return;
+  }
+  const pool = crearPoolPostgres({ DATABASE_URL: urls.billetera, DATABASE_SSL: false });
+  try {
+    await ejecutar(pool);
+  } finally {
+    await pool.end();
+  }
+}
+
 test('SQL Injection - operaciones de billetera', async (t) => {
-  await conBaseDePrueba(t, async (pool) => {
+  await conBaseDeBilletera(t, async (pool) => {
     const repositorio = crearRepositorioBilleterasPostgres(pool);
 
     await comprobarRechazoUuid(t, (payload) =>

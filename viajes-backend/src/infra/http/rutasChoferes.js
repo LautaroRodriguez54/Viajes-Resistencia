@@ -22,10 +22,22 @@ export function crearRutasChoferes({
   registrarUbicacion,
   avanzarEstado,
   finalizarYCobrar,
+  buscarOfertaPendiente,
+  buscarViajeActual,
   tokens,
+  idempotente,
   limitadorUbicacion = (_req, _res, next) => next(),
 }) {
   const router = express.Router();
+  // Lecturas para la web: devuelven null (y no 404) cuando no hay nada, porque se consultan cada 2 s.
+  router.get('/me/ofertas', requiereAutenticacion(tokens), async (req, res) => {
+    soloChofer(req);
+    res.status(200).json({ oferta: await buscarOfertaPendiente(req.autenticacion.usuarioId) });
+  });
+  router.get('/me/viaje-actual', requiereAutenticacion(tokens), async (req, res) => {
+    soloChofer(req);
+    res.status(200).json({ viaje: await buscarViajeActual(req.autenticacion.usuarioId) });
+  });
   router.put('/me/disponibilidad', requiereAutenticacion(tokens), async (req, res) => {
     soloChofer(req);
     res.status(200).json(await cambiarDisponibilidad(req.autenticacion.usuarioId, validar(disponibilidad, req.body).disponible));
@@ -40,10 +52,10 @@ export function crearRutasChoferes({
     const { estado } = validar(cambioEstado, req.body);
     res.status(200).json(await avanzarEstado(id, req.autenticacion.usuarioId, estado));
   });
-  router.post('/viajes/:viajeId/finalizar', requiereAutenticacion(tokens), async (req, res) => {
+  router.post('/viajes/:viajeId/finalizar', requiereAutenticacion(tokens), idempotente('choferes.finalizar'), async (req, res) => {
     soloChofer(req);
     const id = validar(uuid, req.params.viajeId);
-    res.status(200).json(await finalizarYCobrar(id, req.autenticacion.usuarioId));
+    res.status(200).json(await finalizarYCobrar({ viajeId: id, choferId: req.autenticacion.usuarioId }));
   });
   return router;
 }

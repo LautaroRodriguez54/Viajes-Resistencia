@@ -38,6 +38,9 @@ export default function ViajesActivos() {
 
   return (
     <div className="columna columna--ancha montos">
+      <p role="note" className="aviso aviso--advertencia" data-testid="aviso-ejemplo">
+        Datos de ejemplo: los endpoints del operador (viajes activos y cancelar con motivo) todavía no están en el backend.
+      </p>
       <section className="tarjeta lista" aria-labelledby="titulo-activos">
         <h1 id="titulo-activos">Viajes activos <span className="lista__cantidad">· {viajes.length}</span></h1>
         {viajes.length === 0 ? (

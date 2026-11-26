@@ -5,12 +5,13 @@ import { createServer } from 'node:http';
 
 import { crearApp } from '../../src/infra/http/app.js';
 import { crearServicioJwt } from '../../src/infra/autenticacion/tokensJwt.js';
-import { ErrorDeDominio } from '../../src/dominio/errores.js';
+import { crearRepositorioIdempotenciaEnMemoria } from '../../src/infra/memoria/repositorioIdempotenciaEnMemoria.js';
 import { Rol } from '../../src/dominio/usuarios/roles.js';
 
 const config = {
   JWT_SECRET: 'secreto-de-prueba-con-mas-de-32-caracteres',
   JWT_ACCESS_TOKEN_TTL: '15m',
+  IDEMPOTENCIA_TTL_SEGUNDOS: 86_400,
   CORS_ORIGINS: ['http://localhost:3000'],
 };
 
@@ -29,8 +30,9 @@ function crearToken(rol, usuarioId) {
 async function levantarApp(overrides = {}) {
   const dependencias = {
     config,
-    logger: { error() {} },
+    logger: { error() {}, warn() {}, info() {} },
     verificarDisponibilidad: async () => true,
+    idempotencia: crearRepositorioIdempotenciaEnMemoria(),
 
     autenticacion: {
       registrarUsuario: async () => ({}),
@@ -132,6 +134,7 @@ async function conApp(callback, overrides = {}) {
 function autorizacion(rol, usuarioId) {
   return {
     Authorization: `Bearer ${crearToken(rol, usuarioId)}`,
+    'Idempotency-Key': crypto.randomUUID(),
     'Content-Type': 'application/json',
   };
 }

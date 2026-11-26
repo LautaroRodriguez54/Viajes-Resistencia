@@ -5,11 +5,13 @@ import { createServer } from 'node:http';
 
 import { crearApp } from '../../src/infra/http/app.js';
 import { crearServicioJwt } from '../../src/infra/autenticacion/tokensJwt.js';
+import { crearRepositorioIdempotenciaEnMemoria } from '../../src/infra/memoria/repositorioIdempotenciaEnMemoria.js';
 import { Rol } from '../../src/dominio/usuarios/roles.js';
 
 const config = {
   JWT_SECRET: 'secreto-de-prueba-con-mas-de-32-caracteres',
   JWT_ACCESS_TOKEN_TTL: '15m',
+  IDEMPOTENCIA_TTL_SEGUNDOS: 86_400,
   CORS_ORIGINS: ['http://localhost:3000'],
 };
 
@@ -21,6 +23,7 @@ const choferId = '33333333-3333-4333-8333-333333333333';
 function autorizacion(rol, usuarioId) {
   return {
     Authorization: `Bearer ${tokens.crearTokenDeAcceso({ rol, usuarioId })}`,
+    'Idempotency-Key': crypto.randomUUID(),
     'Content-Type': 'application/json',
   };
 }
@@ -28,8 +31,9 @@ function autorizacion(rol, usuarioId) {
 async function levantarApp(overrides = {}) {
   const dependencias = {
     config,
-    logger: { error() {} },
+    logger: { error() {}, warn() {}, info() {} },
     verificarDisponibilidad: async () => true,
+    idempotencia: crearRepositorioIdempotenciaEnMemoria(),
 
     autenticacion: {
       registrarUsuario: async () => ({}),

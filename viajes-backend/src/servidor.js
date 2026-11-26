@@ -1,7 +1,9 @@
 import { componerAplicacion } from './composicion.js';
 
-const { app, config, logger, cerrar } = componerAplicacion();
+const { app, config, logger, cerrar, iniciarProcesos } = componerAplicacion();
 const server = app.listen(config.PORT, () => logger.info({ port: config.PORT }, 'servidor iniciado'));
+// Despachadores de los outbox (billetera nueva, proyección de saldos). `cerrar` los detiene antes de los pools.
+iniciarProcesos();
 
 let apagando = false;
 async function apagar(signal) {
