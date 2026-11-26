@@ -10,9 +10,11 @@ import { formatearPesos } from '../../formato.js';
 // Qué viaje se sigue: el que se acaba de pedir (llega en el estado de la navegación desde Pedir) o,
 // si se entra desde el menú, el último del historial (GET /viajes?limite=1) mientras siga activo
 // o deba el pago. El historial puede ir unos cientos de ms atrasado, por eso Pedir pasa el id.
-// Pendiente en el backend: patente, vehículo y minutos hasta el retiro en el viaje,
-// y cancelar con motivo. Mientras tanto el botón de cancelar no se muestra.
+// Pendiente en el backend: patente, vehículo y minutos hasta el retiro en el viaje.
 const pasos = ['Pedido', 'Asignado', 'En camino', 'En viaje'];
+
+// El pasajero puede cancelar hasta que el chofer lo levanta (regla de dominio, decidirCancelacion).
+const cancelables = new Set(['solicitado', 'asignado', 'chofer_en_camino']);
 
 const activos = {
   solicitado: { paso: 0, chip: 'Buscando chofer', titulo: 'Buscando un chofer cerca' },
@@ -34,18 +36,25 @@ export default function MiViaje() {
   const navegar = useNavigate();
   const { state } = useLocation();
   const delPedido = state?.viajeId ? state : null;
-  // Una sola consulta: al entrar desde el menú no se acaba de pedir nada, así que no hay atraso que esperar.
-  const { dato: ultimos, error: errorUltimo } = usarConsultaPeriodica(delPedido ? null : () => api.historial(1), 5000, () => true);
+  // Al entrar desde el menú se pregunta cada 2 s hasta encontrar un viaje que seguir: el historial
+  // puede ir unos cientos de ms atrasado (si se acaba de pedir) y también se entera de un viaje pedido
+  // en otra pestaña. Con uno encontrado deja de preguntar y sigue ese viaje por GET /viajes/:id.
+  const esSeguible = (v) => Boolean(v && (activos[v.estado] || v.estado === 'pago_pendiente'));
+  const { dato: ultimos, error: errorUltimo } = usarConsultaPeriodica(delPedido ? null : () => api.historial(1), 2000, (lista) => esSeguible(lista?.[0]));
   const ultimo = ultimos?.[0];
-  const seguible = ultimo && (activos[ultimo.estado] || ultimo.estado === 'pago_pendiente');
+  const seguible = esSeguible(ultimo);
   const guardado = delPedido
     ?? (seguible ? { viajeId: ultimo.viajeId, origen: nombreDelPunto(ultimo.origen), destino: nombreDelPunto(ultimo.destino) } : null);
   const [busqueda, setBusqueda] = useState(state?.busqueda ?? null);
   const [buscando, setBuscando] = useState(false);
   const claveOferta = usarClaveIdempotente();
+  const claveCancelar = usarClaveIdempotente();
+  const [confirmandoCancelar, setConfirmandoCancelar] = useState(false);
+  const [cancelando, setCancelando] = useState(false);
+  const [errorCancelar, setErrorCancelar] = useState(null);
 
   // Deja de consultar cuando el viaje llega a un estado terminal.
-  const { dato: viaje, error } = usarConsultaPeriodica(
+  const { dato: viaje, error, recargar } = usarConsultaPeriodica(
     guardado ? () => api.viaje(guardado.viajeId) : null,
     2000,
     (dato) => Boolean(terminales[dato?.estado]),
@@ -55,10 +64,28 @@ export default function MiViaje() {
     navegar('/pasajero/pedir');
   }
 
-  // Sólo cuando el primer POST /viajes/:id/ofertas no encontró chofer (el viaje sigue
-  // solicitado y sin oferta). Si la oferta vence o el chofer la rechaza, el backend se
-  // la ofrece solo al siguiente; si no queda ninguno, el viaje pasa a
-  // sin_choferes_disponibles (terminal) y se ofrece "Pedir otro viaje".
+  // Sin el paso de confirmación, un toque de más cancelaría el viaje. Si el chofer ya lo
+  // levantó (en_curso), el backend responde TRANSICION_INVALIDA y se muestra el mensaje.
+  async function cancelar() {
+    setCancelando(true);
+    setErrorCancelar(null);
+    try {
+      await conClave(claveCancelar, (clave) => api.cancelarViaje(guardado.viajeId, clave));
+      setConfirmandoCancelar(false);
+    } catch (e) {
+      setErrorCancelar(e.message);
+    } finally {
+      setCancelando(false);
+      recargar();
+    }
+  }
+
+  // Sólo cuando el viaje está solicitado y no tiene una oferta vigente (`tieneOfertaVigente`,
+  // #34): el primer POST /viajes/:id/ofertas no encontró chofer, o se entró desde el menú
+  // después de eso. Si la oferta vence o el chofer la rechaza, el backend se la ofrece solo
+  // al siguiente; si no queda ninguno, el viaje pasa a sin_choferes_disponibles (terminal)
+  // y se ofrece "Pedir otro viaje". Por eso, con una oferta en curso el botón no aparece:
+  // crearía una segunda oferta en paralelo.
   async function buscarDeNuevo() {
     setBuscando(true);
     try {
@@ -91,6 +118,9 @@ export default function MiViaje() {
   const activo = viaje && activos[viaje.estado];
   const terminal = viaje && terminales[viaje.estado];
   const conChofer = activo && activo.paso >= 1;
+  // La oferta en curso la informa el servidor. 'ofrecido' cubre los 2 s hasta la próxima consulta
+  // después de pedir, y el hueco entre que una oferta vence y el backend se la ofrece al siguiente.
+  const ofertaEnCurso = Boolean(viaje?.tieneOfertaVigente) || busqueda === 'ofrecido';
 
   return (
     <MapaSimulado etiquetaDestino={guardado.destino} chofer={conChofer ? { etiqueta: 'Tu chofer' } : undefined}>
@@ -131,7 +161,7 @@ export default function MiViaje() {
                 {busqueda && busqueda !== 'sin_choferes' && busqueda !== 'ofrecido' && (
                   <p role="alert" className="aviso aviso--peligro">{busqueda}</p>
                 )}
-                {busqueda === 'ofrecido' ? (
+                {ofertaEnCurso ? (
                   <p className="ayuda" data-testid="mi-viaje-ofrecido">
                     Le ofrecimos el viaje al chofer más cercano. Si no acepta en 30 s o lo rechaza,
                     {' '}se lo ofrecemos al siguiente.
@@ -143,6 +173,28 @@ export default function MiViaje() {
                 )}
               </>
             )}
+            {cancelables.has(viaje.estado) && (
+              confirmandoCancelar ? (
+                <div className="confirmar" role="group" aria-label="Confirmar cancelación">
+                  <p className="pedir__detalle">
+                    ¿Cancelar el viaje? No se cobra nada{conChofer ? ' y el chofer queda libre' : ''}.
+                  </p>
+                  <div className="confirmar__acciones">
+                    <button type="button" className="boton boton--secundario" onClick={() => setConfirmandoCancelar(false)} disabled={cancelando}>
+                      No, seguir
+                    </button>
+                    <button type="button" className="boton boton--peligro-lleno" onClick={cancelar} disabled={cancelando} data-testid="mi-viaje-cancelar-confirmar">
+                      {cancelando ? 'Cancelando…' : 'Sí, cancelar'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button type="button" className="boton boton--secundario boton--peligro" onClick={() => { setErrorCancelar(null); setConfirmandoCancelar(true); }} data-testid="mi-viaje-cancelar">
+                  Cancelar viaje
+                </button>
+              )
+            )}
+            {errorCancelar && <p role="alert" className="aviso aviso--peligro" data-testid="mi-viaje-cancelar-error">{errorCancelar}</p>}
           </>
         )}
 

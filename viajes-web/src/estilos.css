@@ -309,6 +309,7 @@ h1 { margin: 0; font-weight: 600; }
 
 .aviso { margin: 0; font-size: 14px; border-radius: var(--radio-control); padding: 12px 14px; line-height: 1.45; }
 .aviso--advertencia { color: var(--advertencia); background: var(--advertencia-fondo); }
+.aviso--exito { color: var(--exito); background: var(--exito-fondo); }
 .aviso--peligro { color: var(--peligro); background: var(--peligro-fondo); padding: 10px 14px; }
 
 .texto-exito { color: var(--exito); }
@@ -345,6 +346,12 @@ h1 { margin: 0; font-weight: 600; }
   font-weight: 600;
 }
 .mi-viaje__precio .pedir__detalle { font-size: 15px; font-weight: 400; }
+
+/* Confirmación en la misma tarjeta (sin window.confirm): una acción destructiva pide un segundo toque. */
+.confirmar { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: var(--radio-control); background: var(--peligro-fondo); }
+.confirmar p { margin: 0; color: var(--texto); }
+.confirmar__acciones { display: flex; gap: 10px; }
+.confirmar__acciones .boton { flex: 1; min-height: 44px; }
 
 .progreso {
   margin: 0;
