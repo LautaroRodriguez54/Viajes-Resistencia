@@ -59,7 +59,8 @@ export function crearRepositorioViajesPostgres(pool) {
       try {
         await client.query('BEGIN');
         const viaje = await client.query(
-          'SELECT id, origen FROM viajes WHERE id = $1 AND pasajero_id = $2 AND estado = \'solicitado\' FOR UPDATE', [viajeId, pasajeroId],
+          "SELECT id, origen FROM viajes WHERE id = $1 AND pasajero_id = $2 AND estado = 'solicitado' FOR UPDATE",
+          [viajeId, pasajeroId],
         );
         if (!viaje.rows[0]) throw new ErrorDeDominio('RECURSO_NO_ENCONTRADO', 'El viaje no está disponible para recibir ofertas.');
         const candidato = await client.query(
@@ -68,9 +69,22 @@ export function crearRepositorioViajesPostgres(pool) {
            JOIN ubicaciones_actuales_chofer u ON u.chofer_id = p.usuario_id
            WHERE p.habilitado = TRUE AND p.disponible = TRUE
              AND ST_DWithin(u.ubicacion, $1::geography, 5000)
-             AND NOT EXISTS (SELECT 1 FROM viajes v WHERE v.chofer_id = p.usuario_id AND v.estado IN ('asignado','chofer_en_camino','en_curso'))
-           ORDER BY ST_Distance(u.ubicacion, $1::geography) LIMIT 1 FOR UPDATE OF p`,
-          [viaje.rows[0].origen],
+             AND NOT EXISTS (
+               SELECT 1 FROM viajes v
+               WHERE v.chofer_id = p.usuario_id
+                 AND v.estado IN ('asignado', 'chofer_en_camino', 'en_curso')
+             )
+             AND NOT EXISTS (
+               SELECT 1 FROM ofertas_viaje o
+               WHERE o.viaje_id = $2 AND o.chofer_id = p.usuario_id AND o.estado = 'pendiente'
+             )
+             AND NOT EXISTS (
+               SELECT 1 FROM ofertas_viaje o
+               WHERE o.chofer_id = p.usuario_id AND o.estado = 'pendiente' AND o.vence_at > now()
+             )
+           ORDER BY ST_Distance(u.ubicacion, $1::geography)
+           LIMIT 1 FOR UPDATE OF p SKIP LOCKED`,
+          [viaje.rows[0].origen, viajeId],
         );
         if (!candidato.rows[0]) throw new ErrorDeDominio('SIN_CHOFERES_CERCANOS', 'No hay choferes disponibles en el radio configurado.');
         const oferta = await client.query(
@@ -78,31 +92,73 @@ export function crearRepositorioViajesPostgres(pool) {
            VALUES ($1, $2, 'pendiente', now() + interval '30 seconds') RETURNING id, chofer_id, vence_at`,
           [viajeId, candidato.rows[0].usuario_id],
         );
-        await client.query('INSERT INTO eventos_viaje (viaje_id, tipo, datos) VALUES ($1, \'oferta_creada\', $2::jsonb)', [viajeId, JSON.stringify({ ofertaId: oferta.rows[0].id })]);
+        await client.query("INSERT INTO eventos_viaje (viaje_id, tipo, datos) VALUES ($1, 'oferta_creada', $2::jsonb)", [viajeId, JSON.stringify({ ofertaId: oferta.rows[0].id })]);
         await client.query('COMMIT');
         return { ofertaId: oferta.rows[0].id, choferId: oferta.rows[0].chofer_id, venceAt: oferta.rows[0].vence_at };
-      } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
+      } catch (error) {
+        await client.query('ROLLBACK');
+        if (error?.code === '23505' && error.constraint === 'ux_oferta_pendiente_viaje_chofer') {
+          throw new ErrorDeDominio('OFERTA_NO_DISPONIBLE', 'Ya existe una oferta pendiente para ese chofer en este viaje.');
+        }
+        throw error;
+      } finally { client.release(); }
     },
     async aceptarOferta(ofertaId, choferId) {
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
-        const oferta = await client.query('SELECT id, viaje_id, chofer_id, estado, vence_at FROM ofertas_viaje WHERE id = $1 FOR UPDATE', [ofertaId]);
-        if (!oferta.rows[0]) throw new ErrorDeDominio('OFERTA_NO_ENCONTRADA', 'La oferta no existe.');
-        const actual = oferta.rows[0];
+        const referencia = await client.query('SELECT id, viaje_id, chofer_id FROM ofertas_viaje WHERE id = $1', [ofertaId]);
+        if (!referencia.rows[0]) throw new ErrorDeDominio('OFERTA_NO_ENCONTRADA', 'La oferta no existe.');
+        if (referencia.rows[0].chofer_id !== choferId) throw new ErrorDeDominio('RECURSO_PROHIBIDO', 'La oferta pertenece a otro chofer.');
+        const viajeId = referencia.rows[0].viaje_id;
+
+        // Orden global de bloqueos: viajes -> ofertas_viaje (ORDER BY id) -> perfiles_chofer.
+        const viaje = await client.query('SELECT id, estado FROM viajes WHERE id = $1 FOR UPDATE', [viajeId]);
+        const ofertas = await client.query(
+          `SELECT id, viaje_id, chofer_id, estado, (vence_at <= now()) AS vencida
+           FROM ofertas_viaje
+           WHERE viaje_id = $1 AND (estado = 'pendiente' OR id = $2)
+           ORDER BY id
+           FOR UPDATE`,
+          [viajeId, ofertaId],
+        );
+        const actual = ofertas.rows.find((fila) => fila.id === ofertaId);
+        if (!actual) throw new ErrorDeDominio('OFERTA_NO_ENCONTRADA', 'La oferta no existe.');
         if (actual.chofer_id !== choferId) throw new ErrorDeDominio('RECURSO_PROHIBIDO', 'La oferta pertenece a otro chofer.');
-        if (actual.estado !== 'pendiente' || new Date(actual.vence_at) <= new Date()) throw new ErrorDeDominio('OFERTA_NO_DISPONIBLE', 'La oferta venció o ya fue respondida.');
-        const viaje = await client.query('SELECT id, estado FROM viajes WHERE id = $1 FOR UPDATE', [actual.viaje_id]);
-        if (viaje.rows[0].estado !== 'solicitado') throw new ErrorDeDominio('OFERTA_NO_DISPONIBLE', 'El viaje ya no puede asignarse.');
-        const chofer = await client.query('SELECT disponible FROM perfiles_chofer WHERE usuario_id = $1 AND habilitado = TRUE FOR UPDATE', [choferId]);
-        if (!chofer.rows[0]?.disponible) throw new ErrorDeDominio('CHOFER_NO_DISPONIBLE', 'El chofer no está disponible.');
-        await client.query("UPDATE viajes SET chofer_id = $2, estado = 'asignado', asignado_at = now(), version = version + 1 WHERE id = $1", [actual.viaje_id, choferId]);
+        if (actual.estado !== 'pendiente' || actual.vencida) throw new ErrorDeDominio('OFERTA_NO_DISPONIBLE', 'La oferta venció o ya fue respondida.');
+        if (!viaje.rows[0] || viaje.rows[0].estado !== 'solicitado') throw new ErrorDeDominio('OFERTA_NO_DISPONIBLE', 'El viaje ya no puede asignarse.');
+
+        const chofer = await client.query('SELECT habilitado, disponible FROM perfiles_chofer WHERE usuario_id = $1 FOR UPDATE', [choferId]);
+        if (!chofer.rows[0]?.habilitado) throw new ErrorDeDominio('CHOFER_NO_HABILITADO', 'El chofer no está habilitado.');
+        const viajeActivo = await client.query(
+          "SELECT 1 FROM viajes WHERE chofer_id = $1 AND estado IN ('asignado', 'chofer_en_camino', 'en_curso') LIMIT 1",
+          [choferId],
+        );
+        if (viajeActivo.rows[0]) throw new ErrorDeDominio('CHOFER_CON_VIAJE_ACTIVO', 'El chofer ya tiene un viaje activo.');
+        if (!chofer.rows[0].disponible) throw new ErrorDeDominio('CHOFER_NO_DISPONIBLE', 'El chofer no está disponible.');
+
+        await client.query("UPDATE viajes SET chofer_id = $2, estado = 'asignado', asignado_at = now(), version = version + 1 WHERE id = $1", [viajeId, choferId]);
         await client.query("UPDATE ofertas_viaje SET estado = 'aceptada', respondida_at = now() WHERE id = $1", [ofertaId]);
+        await client.query(
+          "UPDATE ofertas_viaje SET estado = 'vencida', respondida_at = now() WHERE viaje_id = $1 AND id <> $2 AND estado = 'pendiente'",
+          [viajeId, ofertaId],
+        );
         await client.query('UPDATE perfiles_chofer SET disponible = FALSE, updated_at = now() WHERE usuario_id = $1', [choferId]);
-        await client.query("INSERT INTO eventos_viaje (viaje_id, tipo, datos) VALUES ($1, 'viaje_asignado', $2::jsonb)", [actual.viaje_id, JSON.stringify({ choferId, ofertaId })]);
+        await client.query("INSERT INTO eventos_viaje (viaje_id, tipo, datos) VALUES ($1, 'viaje_asignado', $2::jsonb)", [viajeId, JSON.stringify({ choferId, ofertaId })]);
         await client.query('COMMIT');
-        return { viajeId: actual.viaje_id, ofertaId, estado: 'asignado' };
-      } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
+        return { viajeId, ofertaId, estado: 'asignado' };
+      } catch (error) {
+        await client.query('ROLLBACK');
+        if (error?.code === '23505') {
+          if (error.constraint === 'ux_chofer_un_viaje_activo') {
+            throw new ErrorDeDominio('CHOFER_CON_VIAJE_ACTIVO', 'El chofer ya tiene un viaje activo.');
+          }
+          if (error.constraint === 'ux_una_oferta_aceptada_por_viaje') {
+            throw new ErrorDeDominio('OFERTA_NO_DISPONIBLE', 'El viaje ya fue asignado a otro chofer.');
+          }
+        }
+        throw error;
+      } finally { client.release(); }
     },
     async avanzarEstado(viajeId, choferId, nuevoEstado) {
       const anteriores = { chofer_en_camino: 'asignado', en_curso: 'chofer_en_camino' };
