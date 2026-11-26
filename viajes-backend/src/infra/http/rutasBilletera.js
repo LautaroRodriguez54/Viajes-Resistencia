@@ -16,10 +16,15 @@ function validarCarga(body) {
   return resultado.data;
 }
 
-export function crearRutasBilletera({ procesarCargaWebhook, consultarSaldoPorPasajero, tokens }) {
+export function crearRutasBilletera({
+  procesarCargaWebhook,
+  consultarSaldoPorPasajero,
+  tokens,
+  limitadorWebhook = (_req, _res, next) => next(),
+}) {
   const router = express.Router();
 
-  router.post('/webhooks/cargas', async (req, res) => {
+  router.post('/webhooks/cargas', limitadorWebhook, async (req, res) => {
     const resultado = await procesarCargaWebhook({
       firma: req.get('x-webhook-signature'),
       cuerpoCrudo: req.cuerpoCrudo,
