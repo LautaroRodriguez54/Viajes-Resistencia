@@ -44,7 +44,7 @@ async function conApp(pool, fn) {
   };
   const tokens = crearServicioJwt(config);
   const viajes = crearRepositorioViajesPostgres(pool);
-  const { avanzarEstado } = crearCasosDeUsoViajesPostgres(pool);
+  const { avanzarEstado, aceptarOferta } = crearCasosDeUsoViajesPostgres(pool);
   const noUsado = async () => { throw new Error('no usado en este test'); };
   const app = crearApp({
     config,
@@ -59,7 +59,7 @@ async function conApp(pool, fn) {
       reintentarCobro: noUsado,
       tokens,
     },
-    ofertas: { aceptarOferta: viajes.aceptarOferta, rechazarOferta: viajes.rechazarOferta, tokens },
+    ofertas: { aceptarOferta, rechazarOferta: viajes.rechazarOferta, tokens },
     choferes: {
       cambiarDisponibilidad: noUsado,
       registrarUbicacion: noUsado,

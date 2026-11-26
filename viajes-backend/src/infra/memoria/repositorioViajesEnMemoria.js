@@ -136,6 +136,62 @@ export function crearRepositorioViajesEnMemoria() {
             eventos.push(datos === null ? { viajeId, tipo } : { viajeId, tipo, datos });
           });
         },
+        async buscarReferenciaOferta(ofertaId) {
+          const oferta = ofertas.get(ofertaId);
+          if (!oferta) return null;
+          return { id: oferta.id, viajeId: oferta.viajeId, choferId: oferta.choferId };
+        },
+        async bloquearOfertasDelViaje(viajeId, ofertaId = null) {
+          tx.retener(await tomarCandado(`ofertas:${viajeId}`));
+          const ahora = new Date();
+          return [...ofertas.values()]
+            .filter((o) => o.viajeId === viajeId && (o.estado === 'pendiente' || (ofertaId && o.id === ofertaId)))
+            .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+            .map((o) => ({
+              id: o.id,
+              viajeId: o.viajeId,
+              choferId: o.choferId,
+              estado: o.estado,
+              vencida: o.venceAt <= ahora,
+            }));
+        },
+        async bloquearChofer(choferId) {
+          tx.retener(await tomarCandado(`chofer:${choferId}`));
+          const chofer = choferes.get(choferId);
+          if (!chofer) return null;
+          const tieneViajeActivo = [...viajes.values()].some(
+            (v) => v.choferId === choferId && ['asignado', 'chofer_en_camino', 'en_curso'].includes(v.estado),
+          );
+          return {
+            habilitado: chofer.habilitado,
+            disponible: chofer.disponible,
+            tieneViajeActivo,
+          };
+        },
+        async registrarAceptacionOferta({ viajeId, ofertaId, choferId }) {
+          tx.alConfirmar(() => {
+            const ahora = new Date();
+            const actual = viajes.get(viajeId);
+            actual.choferId = choferId;
+            actual.estado = 'asignado';
+            actual.asignadoAt = ahora;
+            actual.version = (actual.version ?? 1) + 1;
+
+            for (const oferta of ofertas.values()) {
+              if (oferta.id === ofertaId) {
+                oferta.estado = 'aceptada';
+                oferta.respondidaAt = ahora;
+              } else if (oferta.viajeId === viajeId && oferta.estado === 'pendiente') {
+                oferta.estado = 'vencida';
+                oferta.respondidaAt = ahora;
+              }
+            }
+
+            const chofer = choferes.get(choferId);
+            if (chofer) chofer.disponible = false;
+            eventos.push({ viajeId, tipo: 'viaje_asignado', datos: { choferId, ofertaId } });
+          });
+        },
       };
     },
   };

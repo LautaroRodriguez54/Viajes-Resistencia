@@ -24,6 +24,7 @@ import { crearReintentarCobro } from './aplicacion/viajes/reintentarCobro.js';
 import { crearReintentarCobroOperador } from './aplicacion/viajes/reintentarCobroOperador.js';
 import { crearAvanzarEstadoViaje } from './aplicacion/viajes/avanzarEstadoViaje.js';
 import { crearCancelarViaje } from './aplicacion/viajes/cancelarViaje.js';
+import { crearAceptarOferta } from './aplicacion/viajes/aceptarOferta.js';
 import { crearVerificadorWebhookHmac } from './infra/externos/verificadorWebhookHmac.js';
 
 export function componerAplicacion() {
@@ -70,8 +71,9 @@ export function componerAplicacion() {
   });
   const avanzarEstado = crearAvanzarEstadoViaje({ unidadDeTrabajo: unidadDeTrabajoViajes });
   const cancelarViaje = crearCancelarViaje({ unidadDeTrabajo: unidadDeTrabajoViajes });
+  const aceptarOferta = crearAceptarOferta({ unidadDeTrabajo: unidadDeTrabajoViajes });
   const viajesHttp = { solicitarViaje: crearSolicitarViaje({ viajes }), buscarViajePropio: viajes.buscarPorIdDelPasajero, ofrecerAlChoferCercano: viajes.ofrecerAlChoferCercano, reintentarCobro, cancelarViaje, listarHistorial: proyectorHistorial.listarPorPasajero, tokens };
-  const ofertasHttp = { aceptarOferta: viajes.aceptarOferta, rechazarOferta: viajes.rechazarOferta, tokens };
+  const ofertasHttp = { aceptarOferta, rechazarOferta: viajes.rechazarOferta, tokens };
   const choferesHttp = { cambiarDisponibilidad: choferes.cambiarDisponibilidad, registrarUbicacion: choferes.registrarUbicacion, avanzarEstado, finalizarYCobrar, cancelarViaje, buscarOfertaPendiente: viajes.buscarOfertaPendienteDelChofer, buscarViajeActual: viajes.buscarViajeActualDelChofer, tokens };
   const administracion = { establecerHabilitacion: choferes.establecerHabilitacion, tokens };
   const operadorHttp = { listarViajesActivos: viajes.listarViajesActivos, cancelarViaje, reintentarCobro: crearReintentarCobroOperador(dependenciasCobro), tokens };

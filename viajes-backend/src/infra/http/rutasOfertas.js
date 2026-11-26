@@ -13,7 +13,7 @@ export function crearRutasOfertas({ aceptarOferta, rechazarOferta, tokens, idemp
     idempotente('ofertas.aceptar'),
     async (req, res) => {
       if (!z.string().uuid().safeParse(req.params.ofertaId).success) throw new ErrorDeDominio('ENTRADA_INVALIDA', 'Identificador de oferta inválido.');
-      res.status(200).json(await aceptarOferta(req.params.ofertaId, req.autenticacion.usuarioId));
+      res.status(200).json(await aceptarOferta({ ofertaId: req.params.ofertaId, choferId: req.autenticacion.usuarioId }));
     },
   );
   router.post(

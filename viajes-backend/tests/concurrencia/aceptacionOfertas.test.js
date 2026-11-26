@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { crearPoolPostgres } from '../../src/infra/db/postgres.js';
 import { crearRepositorioViajesPostgres } from '../../src/infra/db/repositorioViajesPostgres.js';
 import { crearRepositorioChoferesPostgres } from '../../src/infra/db/repositorioChoferesPostgres.js';
+import { crearCasosDeUsoViajesPostgres } from '../ayudas/casosDeUsoViajesPostgres.js';
 
 async function conBaseDePrueba(t, ejecutar) {
   const databaseUrl = process.env.DATABASE_URL;
@@ -83,7 +84,7 @@ test('50 aceptaciones simultáneas sobre el mismo viaje asignan exactamente una 
   await conBaseDePrueba(t, async (pool) => {
     const pasajeroId = await crearPasajero(pool);
     const viajeId = await crearViaje(pool, pasajeroId);
-    const repositorio = crearRepositorioViajesPostgres(pool);
+    const { aceptarOferta } = crearCasosDeUsoViajesPostgres(pool);
 
     const choferes = [];
     const ofertas = [];
@@ -95,7 +96,7 @@ test('50 aceptaciones simultáneas sobre el mismo viaje asignan exactamente una 
     }
 
     const resultados = await Promise.allSettled(
-      ofertas.map(({ ofertaId, choferId }) => repositorio.aceptarOferta(ofertaId, choferId)),
+      ofertas.map(({ ofertaId, choferId }) => aceptarOferta({ ofertaId, choferId })),
     );
 
     const exitos = resultados.filter((r) => r.status === 'fulfilled');
@@ -141,7 +142,7 @@ test('chofer con viaje activo queda bloqueado para aceptar otro viaje o marcarse
     const pasajero1 = await crearPasajero(pool);
     const pasajero2 = await crearPasajero(pool);
     const choferId = await crearChofer(pool, true);
-    const repoViajes = crearRepositorioViajesPostgres(pool);
+    const { aceptarOferta } = crearCasosDeUsoViajesPostgres(pool);
     const repoChoferes = crearRepositorioChoferesPostgres(pool);
 
     const viaje1 = await crearViaje(pool, pasajero1);
@@ -150,8 +151,8 @@ test('chofer con viaje activo queda bloqueado para aceptar otro viaje o marcarse
     const oferta2 = await crearOferta(pool, viaje2, choferId);
 
     const carreras = await Promise.allSettled([
-      repoViajes.aceptarOferta(oferta1, choferId),
-      repoViajes.aceptarOferta(oferta2, choferId),
+      aceptarOferta({ ofertaId: oferta1, choferId }),
+      aceptarOferta({ ofertaId: oferta2, choferId }),
     ]);
     assert.equal(carreras.filter((r) => r.status === 'fulfilled').length, 1);
     const rechazo = carreras.find((r) => r.status === 'rejected');
@@ -210,10 +211,10 @@ test('aceptarOferta evalúa el vencimiento con now() de PostgreSQL y rechaza ofe
     const choferId = await crearChofer(pool, true);
     const viajeId = await crearViaje(pool, pasajeroId);
     const ofertaVencida = await crearOferta(pool, viajeId, choferId, '-5 seconds');
-    const repoViajes = crearRepositorioViajesPostgres(pool);
+    const { aceptarOferta } = crearCasosDeUsoViajesPostgres(pool);
 
     await assert.rejects(
-      repoViajes.aceptarOferta(ofertaVencida, choferId),
+      aceptarOferta({ ofertaId: ofertaVencida, choferId }),
       (err) => err.codigo === 'OFERTA_NO_DISPONIBLE',
     );
   });
@@ -248,6 +249,7 @@ test('ofrecerAlChoferCercano bajo ráfaga concurrente asigna choferes distintos 
 test('carrera vencimiento vs aceptación simultánea mantiene exclusión mutua estricta sin deadlocks', async (t) => {
   await conBaseDePrueba(t, async (pool) => {
     const repoViajes = crearRepositorioViajesPostgres(pool);
+    const { aceptarOferta } = crearCasosDeUsoViajesPostgres(pool);
 
     for (let ronda = 0; ronda < 8; ronda += 1) {
       await pool.query('UPDATE perfiles_chofer SET disponible = FALSE WHERE disponible = TRUE');
@@ -260,7 +262,7 @@ test('carrera vencimiento vs aceptación simultánea mantiene exclusión mutua e
       const oferta1 = await crearOferta(pool, viajeId, chofer1, '-5 milliseconds');
 
       const [resAceptar, resVencer] = await Promise.allSettled([
-        repoViajes.aceptarOferta(oferta1, chofer1),
+        aceptarOferta({ ofertaId: oferta1, choferId: chofer1 }),
         repoViajes.procesarOfertasVencidas(),
       ]);
 
@@ -330,6 +332,7 @@ test('dos despachadores de vencimiento simultáneos sobre la misma oferta vencid
 test('carrera aceptación vs rechazo simultáneo sobre la misma oferta: exactamente uno gana', async (t) => {
   await conBaseDePrueba(t, async (pool) => {
     const repoViajes = crearRepositorioViajesPostgres(pool);
+    const { aceptarOferta } = crearCasosDeUsoViajesPostgres(pool);
 
     for (let ronda = 0; ronda < 5; ronda += 1) {
       await pool.query('UPDATE perfiles_chofer SET disponible = FALSE WHERE disponible = TRUE');
@@ -342,7 +345,7 @@ test('carrera aceptación vs rechazo simultáneo sobre la misma oferta: exactame
       const oferta1 = await crearOferta(pool, viajeId, chofer1);
 
       const resultados = await Promise.allSettled([
-        repoViajes.aceptarOferta(oferta1, chofer1),
+        aceptarOferta({ ofertaId: oferta1, choferId: chofer1 }),
         repoViajes.rechazarOferta(oferta1, chofer1),
       ]);
 
