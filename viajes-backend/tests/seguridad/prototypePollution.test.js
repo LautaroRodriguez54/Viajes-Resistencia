@@ -28,7 +28,7 @@ function autorizacion(rol, usuarioId) {
 async function levantarApp(overrides = {}) {
   const dependencias = {
     config,
-    logger: { error() {} },
+    logger: { error() {}, warn() {}, info() {} },
     verificarDisponibilidad: async () => true,
 
     autenticacion: {

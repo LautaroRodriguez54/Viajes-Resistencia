@@ -64,7 +64,7 @@ async function levantarApp(overrides = {}) {
       tokens,
     },
     config,
-    logger: { error() {} },
+    logger: { error() {}, warn() {}, info() {} },
     verificarDisponibilidad: async () => true,
   };
 

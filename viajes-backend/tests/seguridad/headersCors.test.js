@@ -54,7 +54,7 @@ async function levantarApp() {
       tokens,
     },
     config,
-    logger: { error() {} },
+    logger: { error() {}, warn() {}, info() {} },
     verificarDisponibilidad: async () => true,
   };
 

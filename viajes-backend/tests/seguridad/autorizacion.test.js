@@ -5,7 +5,6 @@ import { createServer } from 'node:http';
 
 import { crearApp } from '../../src/infra/http/app.js';
 import { crearServicioJwt } from '../../src/infra/autenticacion/tokensJwt.js';
-import { ErrorDeDominio } from '../../src/dominio/errores.js';
 import { Rol } from '../../src/dominio/usuarios/roles.js';
 
 const config = {
@@ -29,7 +28,7 @@ function crearToken(rol, usuarioId) {
 async function levantarApp(overrides = {}) {
   const dependencias = {
     config,
-    logger: { error() {} },
+    logger: { error() {}, warn() {}, info() {} },
     verificarDisponibilidad: async () => true,
 
     autenticacion: {
