@@ -5,6 +5,7 @@ import { createServer } from 'node:http';
 
 import { crearApp } from '../../src/infra/http/app.js';
 import { crearServicioJwt } from '../../src/infra/autenticacion/tokensJwt.js';
+import { crearRepositorioIdempotenciaEnMemoria } from '../../src/infra/memoria/repositorioIdempotenciaEnMemoria.js';
 
 const SECRET = 'secreto-de-prueba-con-mas-de-32-caracteres';
 
@@ -14,6 +15,7 @@ const ORIGEN_NO_PERMITIDO = 'https://sitio-malicioso.example';
 const config = {
   JWT_SECRET: SECRET,
   JWT_ACCESS_TOKEN_TTL: '15m',
+  IDEMPOTENCIA_TTL_SEGUNDOS: 86_400,
   CORS_ORIGINS: [ORIGEN_PERMITIDO],
 };
 
@@ -56,6 +58,7 @@ async function levantarApp() {
     config,
     logger: { error() {}, warn() {}, info() {} },
     verificarDisponibilidad: async () => true,
+    idempotencia: crearRepositorioIdempotenciaEnMemoria(),
   };
 
   const app = crearApp(dependencias);

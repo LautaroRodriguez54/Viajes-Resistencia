@@ -23,6 +23,7 @@ export function crearRutasChoferes({
   avanzarEstado,
   finalizarYCobrar,
   tokens,
+  idempotente,
   limitadorUbicacion = (_req, _res, next) => next(),
 }) {
   const router = express.Router();
@@ -40,7 +41,7 @@ export function crearRutasChoferes({
     const { estado } = validar(cambioEstado, req.body);
     res.status(200).json(await avanzarEstado(id, req.autenticacion.usuarioId, estado));
   });
-  router.post('/viajes/:viajeId/finalizar', requiereAutenticacion(tokens), async (req, res) => {
+  router.post('/viajes/:viajeId/finalizar', requiereAutenticacion(tokens), idempotente('choferes.finalizar'), async (req, res) => {
     soloChofer(req);
     const id = validar(uuid, req.params.viajeId);
     res.status(200).json(await finalizarYCobrar(id, req.autenticacion.usuarioId));

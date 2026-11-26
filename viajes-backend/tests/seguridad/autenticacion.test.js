@@ -5,6 +5,7 @@ import { createServer } from 'node:http';
 
 import { crearApp } from '../../src/infra/http/app.js';
 import { crearServicioJwt } from '../../src/infra/autenticacion/tokensJwt.js';
+import { crearRepositorioIdempotenciaEnMemoria } from '../../src/infra/memoria/repositorioIdempotenciaEnMemoria.js';
 import { ErrorDeDominio } from '../../src/dominio/errores.js';
 import { Rol } from '../../src/dominio/usuarios/roles.js';
 
@@ -14,6 +15,7 @@ const SECRET_ALTERNO = 'otro-secreto-de-prueba-con-mas-de-32-caracteres';
 const config = {
   JWT_SECRET: SECRET,
   JWT_ACCESS_TOKEN_TTL: '15m',
+  IDEMPOTENCIA_TTL_SEGUNDOS: 86_400,
   CORS_ORIGINS: ['http://localhost:3000'],
 };
 
@@ -66,6 +68,7 @@ async function levantarApp(overrides = {}) {
     config,
     logger: { error() {}, warn() {}, info() {} },
     verificarDisponibilidad: async () => true,
+    idempotencia: crearRepositorioIdempotenciaEnMemoria(),
   };
 
   const app = crearApp({

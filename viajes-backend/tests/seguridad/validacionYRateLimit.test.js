@@ -5,6 +5,7 @@ import { crearApp } from '../../src/infra/http/app.js';
 import { crearServicioJwt } from '../../src/infra/autenticacion/tokensJwt.js';
 import { ErrorDeDominio } from '../../src/dominio/errores.js';
 import { Rol } from '../../src/dominio/usuarios/roles.js';
+import { crearRepositorioIdempotenciaEnMemoria } from '../../src/infra/memoria/repositorioIdempotenciaEnMemoria.js';
 
 const JWT_SECRET = 'un-secreto-de-prueba-muy-largo-de-al-menos-32-chars';
 
@@ -29,6 +30,7 @@ function crearDependenciasPrueba(sobreescribir = {}) {
     RATE_LIMIT_WEBHOOK_MAX: 2,
     RATE_LIMIT_UBICACION_VENTANA_MS: 60_000,
     RATE_LIMIT_UBICACION_MAX: 2,
+    IDEMPOTENCIA_TTL_SEGUNDOS: 86_400,
     ...sobreescribir.config,
   };
   const logger = sobreescribir.logger ?? crearLoggerEspia();
@@ -89,6 +91,7 @@ function crearDependenciasPrueba(sobreescribir = {}) {
     ofertas,
     choferes,
     administracion,
+    idempotencia: crearRepositorioIdempotenciaEnMemoria(),
   });
 
   return { app, logger, tokens };
@@ -139,6 +142,7 @@ test('validación de UUID y cuerpo estricto en rutasChoferes devuelve 400 ENTRAD
         headers: {
           'content-type': 'application/json',
           authorization: `Bearer ${tokenChofer}`,
+          'idempotency-key': crypto.randomUUID(),
         },
         body: JSON.stringify(caso.body),
       });
@@ -270,7 +274,7 @@ test('mapeo de CHOFER_NO_ENCONTRADO (404 warn), TRANSICION_INVALIDA (409 warn) y
 
     const res500 = await fetch(`${baseUrl}/choferes/viajes/${viajeId}/finalizar`, {
       method: 'POST',
-      headers: { authorization: `Bearer ${tokenChofer}` },
+      headers: { authorization: `Bearer ${tokenChofer}`, 'idempotency-key': crypto.randomUUID() },
     });
     const body500 = await res500.json();
     assert.equal(res500.status, 500);

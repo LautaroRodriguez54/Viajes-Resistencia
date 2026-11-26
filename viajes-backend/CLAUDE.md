@@ -154,7 +154,7 @@ Prioridad: lo que pide el **control 3** de Puljiz (carrera con test concurrente 
 - [ ] `npm audit` sin altas ni críticas, o justificadas en el README.
 
 ### Bloque 6 y problema central (6.3) — Concurrencia e idempotencia
-- [ ] Idempotencia HTTP (tema 3) con test.
+- [x] Idempotencia HTTP (tema 3) con test (ADR 010, `tests/integracion/idempotenciaHttp.test.js`).
 - [ ] Test: 50 aceptaciones simultáneas sobre el mismo viaje, exactamente una gana y las demás reciben un rechazo claro.
 - [ ] Cancelaciones (pasajero, chofer, operador con motivo) y test de cancelación simultánea a la aceptación, con los dos resultados posibles documentados.
 - [ ] Test: un chofer con viaje activo no puede aceptar otro.
