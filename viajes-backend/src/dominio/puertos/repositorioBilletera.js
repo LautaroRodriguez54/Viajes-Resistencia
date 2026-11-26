@@ -1,18 +1,19 @@
-// Puerto de la billetera. Lo implementan repositorioBilleterasPostgres y repositorioBilleteraEnMemoria.
+// Puerto de la billetera. Lo implementan repositorioBilleterasPostgres (base `billetera`) y
+// repositorioBilleteraEnMemoria. Cada operación abre y cierra su propia transacción.
 //
-// Operaciones propias (cada una abre y cierra su transacción):
 // - registrarCargaDesdeWebhook({ eventoExternoId, pasajeroId, importeCentavos }, cuerpoCrudo)
 //     → { procesado, duplicado }. Un evento repetido no acredita dos veces.
-// - consultarSaldoPorPasajero(pasajeroId) → { saldoCentavos }. Lanza BILLETERA_NO_ENCONTRADA.
-//
-// Operación dentro de la unidad de trabajo del cobro (ver unidadDeTrabajoCobro.js):
+// - consultarSaldoPorPasajero(pasajeroId) → { saldoCentavos }, sumando los movimientos.
+//     Lanza BILLETERA_NO_ENCONTRADA. La pantalla lee la proyección (base `lectura`), no esto.
 // - cobrar({ pasajeroId, viajeId, importeCentavos }) → { cobrado }.
-//     Bloquea la billetera del pasajero hasta el fin de la transacción, así dos cobros del mismo
-//     pasajero van de a uno. Aplica decidirCobro: nunca parcial e importe 0 sin consumo.
-//     Lanza BILLETERA_NO_ENCONTRADA. Cuando la billetera tenga su propia base (rama 7) la firma
-//     sigue igual: cambia sólo quién abre la transacción.
+//     Bloquea la billetera del pasajero, así dos cobros del mismo pasajero van de a uno. Aplica
+//     decidirCobro (nunca parcial; importe 0 sin consumo). Idempotente por viajeId: si el viaje ya
+//     tiene su consumo, devuelve cobrado sin debitar otra vez. Lanza BILLETERA_NO_ENCONTRADA.
+// - crearBilleteraPorEvento({ eventoId, pasajeroId }) → { creada, duplicado }: consumidor del
+//     evento UsuarioRegistrado, deduplicado por eventoId.
 export const repositorioBilletera = Object.freeze({
   registrarCargaDesdeWebhook: 'registrarCargaDesdeWebhook',
   consultarSaldoPorPasajero: 'consultarSaldoPorPasajero',
   cobrar: 'cobrar',
+  crearBilleteraPorEvento: 'crearBilleteraPorEvento',
 });

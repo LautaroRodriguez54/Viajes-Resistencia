@@ -8,13 +8,19 @@ import { crearRepositorioViajesPostgres } from '../../src/infra/db/repositorioVi
 import { crearUnidadDeTrabajoCobroPostgres } from '../../src/infra/db/unidadDeTrabajoCobroPostgres.js';
 import { crearFinalizarViajeYCobrar } from '../../src/aplicacion/viajes/finalizarViajeYCobrar.js';
 import { crearReintentarCobro } from '../../src/aplicacion/viajes/reintentarCobro.js';
+import { crearRepositorioBilleterasPostgres } from '../../src/infra/db/repositorioBilleterasPostgres.js';
+import { urlsDePrueba } from '../ayudas/basesDePrueba.js';
+
+// La billetera vive en billetera_test (ADR 008): este pool lo abre conBaseDePrueba y lo usan los
+// helpers que tocan tablas de la billetera.
+let poolBilletera;
 
 // El cobro ya no es un método del repositorio: son los casos de uso sobre la unidad de trabajo
-// Postgres (rama 6). Se envuelven con la firma de antes para no reescribir los tests.
+// Postgres y el repositorio de la billetera. Se envuelven con la firma de antes para no reescribir los tests.
 function crearCobroPostgres(pool) {
-  const unidadDeTrabajo = crearUnidadDeTrabajoCobroPostgres(pool);
-  const finalizar = crearFinalizarViajeYCobrar({ unidadDeTrabajo });
-  const reintentar = crearReintentarCobro({ unidadDeTrabajo });
+  const dependencias = { unidadDeTrabajo: crearUnidadDeTrabajoCobroPostgres(pool), billetera: crearRepositorioBilleterasPostgres(poolBilletera) };
+  const finalizar = crearFinalizarViajeYCobrar(dependencias);
+  const reintentar = crearReintentarCobro(dependencias);
   return {
     finalizarYCobrar: (viajeId, choferId) => finalizar({ viajeId, choferId }),
     reintentarCobro: (viajeId, pasajeroId) => reintentar({ viajeId, pasajeroId }),
@@ -41,11 +47,12 @@ async function conBaseDePrueba(t, ejecutar) {
     DATABASE_URL: databaseUrl,
     DATABASE_SSL: false,
   });
+  poolBilletera = crearPoolPostgres({ DATABASE_URL: urlsDePrueba().billetera, DATABASE_SSL: false });
 
   try {
     await ejecutar(pool);
   } finally {
-    await pool.end();
+    await Promise.all([pool.end(), poolBilletera.end()]);
   }
 }
 
@@ -67,7 +74,7 @@ async function crearPasajero(pool, conBilletera = true) {
   let billeteraId = null;
 
   if (conBilletera) {
-    const resultado = await pool.query(
+    const resultado = await poolBilletera.query(
       'INSERT INTO billeteras (pasajero_id) VALUES ($1) RETURNING id',
       [pasajeroId],
     );
@@ -141,7 +148,7 @@ async function crearOferta(pool, viajeId, choferId) {
 }
 
 async function cargarSaldo(pool, billeteraId, importe) {
-  await pool.query(
+  await poolBilletera.query(
     `INSERT INTO movimientos_billetera (billetera_id, tipo, importe_centavos)
      VALUES ($1, 'carga', $2)`,
     [billeteraId, importe],
@@ -388,7 +395,7 @@ test('finalizarYCobrar descuenta el saldo cuando hay fondos suficientes', async 
     assert.equal(resultado.estado, 'finalizado');
     assert.equal(resultado.importeCentavos, 5000);
 
-    const saldo = await pool.query(
+    const saldo = await poolBilletera.query(
       `SELECT SUM(
          CASE WHEN tipo = 'carga' THEN importe_centavos
               ELSE -importe_centavos END
@@ -429,7 +436,7 @@ test('finalizarYCobrar deja el viaje pendiente si el saldo es insuficiente', asy
     assert.equal(resultado.estado, 'pago_pendiente');
     assert.equal(resultado.importeCentavos, 5000);
 
-    const consumos = await pool.query(
+    const consumos = await poolBilletera.query(
       `SELECT COUNT(*)::int AS cantidad
        FROM movimientos_billetera
        WHERE viaje_id = $1 AND tipo = 'consumo'`,
@@ -478,7 +485,7 @@ test('dos finalizaciones simultáneas no generan dos cobros', async (t) => {
       1,
     );
 
-    const consumos = await pool.query(
+    const consumos = await poolBilletera.query(
       `SELECT COUNT(*)::int AS cantidad
        FROM movimientos_billetera
        WHERE viaje_id = $1 AND tipo = 'consumo'`,
@@ -487,7 +494,7 @@ test('dos finalizaciones simultáneas no generan dos cobros', async (t) => {
 
     assert.equal(consumos.rows[0].cantidad, 1);
 
-    const saldo = await pool.query(
+    const saldo = await poolBilletera.query(
       `SELECT SUM(
          CASE WHEN tipo = 'carga' THEN importe_centavos
               ELSE -importe_centavos END
@@ -502,7 +509,7 @@ test('dos finalizaciones simultáneas no generan dos cobros', async (t) => {
 });
 
 async function saldoDe(pool, billeteraId) {
-  const { rows } = await pool.query(
+  const { rows } = await poolBilletera.query(
     `SELECT COALESCE(SUM(
        CASE WHEN tipo = 'carga' THEN importe_centavos
             ELSE -importe_centavos END
@@ -520,7 +527,7 @@ async function estadoDe(pool, viajeId) {
 }
 
 async function contarConsumosDelViaje(pool, viajeId) {
-  const { rows } = await pool.query(
+  const { rows } = await poolBilletera.query(
     `SELECT COUNT(*)::int AS cantidad FROM movimientos_billetera
      WHERE viaje_id = $1 AND tipo = 'consumo'`,
     [viajeId],
@@ -590,18 +597,26 @@ test('finalizarYCobrar con estimación 0 finaliza sin generar movimiento', async
   });
 });
 
-test('finalizarYCobrar sin billetera rechaza con BILLETERA_NO_ENCONTRADA y no cambia el viaje', async (t) => {
+// Rama 7: la billetera está en otra base y se crea por evento, así que puede no existir todavía.
+// El viaje terminó igual: queda en pago_pendiente con el motivo, y el reintento del pasajero sí
+// recibe BILLETERA_NO_ENCONTRADA.
+test('finalizarYCobrar sin billetera deja el viaje en pago_pendiente con motivo BILLETERA_NO_ENCONTRADA', async (t) => {
   await conBaseDePrueba(t, async (pool) => {
     const { pasajeroId } = await crearPasajero(pool, false);
     const choferId = await crearChofer(pool);
     const viajeId = await crearViaje(pool, pasajeroId, { choferId, estado: 'en_curso', importe: 5000 });
     const repositorio = crearCobroPostgres(pool);
 
+    const resultado = await repositorio.finalizarYCobrar(viajeId, choferId);
+
+    assert.equal(resultado.estado, 'pago_pendiente');
+    assert.equal(await estadoDe(pool, viajeId), 'pago_pendiente');
+    const evento = await pool.query("SELECT datos FROM eventos_viaje WHERE viaje_id = $1 AND tipo = 'cobro_pendiente'", [viajeId]);
+    assert.equal(evento.rows[0].datos.motivo, 'BILLETERA_NO_ENCONTRADA');
     await assert.rejects(
-      repositorio.finalizarYCobrar(viajeId, choferId),
+      repositorio.reintentarCobro(viajeId, pasajeroId),
       (error) => error.codigo === 'BILLETERA_NO_ENCONTRADA',
     );
-    assert.equal(await estadoDe(pool, viajeId), 'en_curso');
   });
 });
 

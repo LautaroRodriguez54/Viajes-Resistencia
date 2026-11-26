@@ -4,7 +4,13 @@ import { z } from 'zod';
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
+  // Una base por módulo (tema 12), cada una con su propio rol: viajes, billetera y lectura (proyecciones).
   DATABASE_URL: z.string().url(),
+  BILLETERA_DATABASE_URL: z.string().url(),
+  LECTURA_DATABASE_URL: z.string().url(),
+  // Sólo para `npm run migrate`: superusuario que crea bases, roles y extensiones. La app no lo usa.
+  ADMIN_DATABASE_URL: z.string().url().optional(),
+  OUTBOX_INTERVALO_MS: z.coerce.number().int().positive().default(500),
   DATABASE_SSL: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
   JWT_SECRET: z.string().min(32),
   JWT_ACCESS_TOKEN_TTL: z.string().regex(/^\d+[smhd]$/, 'Debe tener formato, por ejemplo, 15m.'),

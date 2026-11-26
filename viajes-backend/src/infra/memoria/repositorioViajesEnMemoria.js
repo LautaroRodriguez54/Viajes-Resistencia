@@ -2,8 +2,8 @@ import crypto from 'node:crypto';
 import { crearCandados } from './candados.js';
 
 // Viajes en memoria, por ahora sólo con la parte que usa la unidad de trabajo del cobro
-// (bloquearParaCobro, registrarFinalizacion, registrarPagoDeDeuda). Ofertas, aceptación y
-// cambios de estado siguen sólo en Postgres (son de Lucas).
+// (bloquearParaCobro y los tres registros del cobro). Ofertas, aceptación y cambios de estado
+// siguen sólo en Postgres (son de Lucas).
 export function crearRepositorioViajesEnMemoria() {
   const viajes = new Map(); // viajeId → { id, estado, pasajeroId, choferId, estimacionCentavos, tarifaFinalCentavos }
   const eventos = []; // equivalente a eventos_viaje: { viajeId, tipo, datos }
@@ -25,18 +25,20 @@ export function crearRepositorioViajesEnMemoria() {
           const viaje = viajes.get(viajeId);
           return viaje ? { ...viaje } : null;
         },
-        async registrarFinalizacion(viajeId, { estado, tarifaFinalCentavos }) {
-          const tipo = estado === 'finalizado' ? 'cobro_confirmado' : 'cobro_pendiente';
+        async registrarCobroSolicitado(viajeId, { tarifaFinalCentavos }) {
           tx.alConfirmar(() => {
-            Object.assign(viajes.get(viajeId), { estado, tarifaFinalCentavos });
-            eventos.push({ viajeId, tipo, datos: { importeCentavos: tarifaFinalCentavos } });
+            Object.assign(viajes.get(viajeId), { estado: 'pago_pendiente', tarifaFinalCentavos });
+            eventos.push({ viajeId, tipo: 'cobro_solicitado', datos: { importeCentavos: tarifaFinalCentavos } });
           });
         },
-        async registrarPagoDeDeuda(viajeId, { importeCentavos }) {
+        async registrarCobroConfirmado(viajeId, { importeCentavos, reintento }) {
           tx.alConfirmar(() => {
             viajes.get(viajeId).estado = 'finalizado';
-            eventos.push({ viajeId, tipo: 'cobro_confirmado', datos: { importeCentavos, reintento: true } });
+            eventos.push({ viajeId, tipo: 'cobro_confirmado', datos: reintento ? { importeCentavos, reintento: true } : { importeCentavos } });
           });
+        },
+        async registrarCobroPendiente(viajeId, { importeCentavos, motivo }) {
+          tx.alConfirmar(() => eventos.push({ viajeId, tipo: 'cobro_pendiente', datos: { importeCentavos, motivo } }));
         },
       };
     },

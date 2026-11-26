@@ -26,7 +26,12 @@ export function crearRepositorioUsuariosPostgres(pool) {
           );
         }
         if (rol === 'pasajero') {
-          await client.query('INSERT INTO billeteras (pasajero_id) VALUES ($1)', [usuario.id]);
+          // La billetera vive en otra base (tema 12): Viajes no la crea, avisa. El evento va al outbox
+          // en esta misma transacción, así no se pierde aunque el proceso se caiga después del COMMIT.
+          await client.query(
+            "INSERT INTO outbox_viajes (tipo, datos) VALUES ('UsuarioRegistrado', $1::jsonb)",
+            [JSON.stringify({ usuarioId: usuario.id, rol })],
+          );
         }
         await client.query('COMMIT');
         return { id: usuario.id, email: usuario.email, rol: usuario.rol };

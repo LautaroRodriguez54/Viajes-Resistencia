@@ -9,15 +9,16 @@ import { crearUnidadDeTrabajoCobroEnMemoria } from '../../src/infra/memoria/unid
 
 // Tests de aplicación del cobro con los adaptadores en memoria (bloque 2): las mismas reglas que
 // tests/integracion/repositorioViajesPostgres.test.js, pero sin Postgres.
+// Desde la rama 7 el cobro va en dos pasos (ADR 008): en_curso → pago_pendiente, y después,
+// con el viaje bloqueado, la billetera cobra y el viaje pasa a finalizado.
 
-function armar({ viajes = crearRepositorioViajesEnMemoria() } = {}) {
-  const billetera = crearRepositorioBilleteraEnMemoria();
-  const unidadDeTrabajo = crearUnidadDeTrabajoCobroEnMemoria({ viajes, billetera });
+function armar({ viajes = crearRepositorioViajesEnMemoria(), billetera = crearRepositorioBilleteraEnMemoria() } = {}) {
+  const dependencias = { unidadDeTrabajo: crearUnidadDeTrabajoCobroEnMemoria({ viajes }), billetera };
   return {
     viajes,
     billetera,
-    finalizar: crearFinalizarViajeYCobrar({ unidadDeTrabajo }),
-    reintentar: crearReintentarCobro({ unidadDeTrabajo }),
+    finalizar: crearFinalizarViajeYCobrar(dependencias),
+    reintentar: crearReintentarCobro(dependencias),
   };
 }
 
@@ -53,7 +54,7 @@ test('finalizarViajeYCobrar con saldo suficiente finaliza y debita la estimació
   assert.equal(viajes.viajes.get(viajeId).estado, 'finalizado');
   assert.equal(viajes.viajes.get(viajeId).tarifaFinalCentavos, 5000);
   assert.equal(await saldoDe(billetera, pasajeroId), 3000);
-  assert.deepEqual(eventosDe(viajes, viajeId), ['cobro_confirmado']);
+  assert.deepEqual(eventosDe(viajes, viajeId), ['cobro_solicitado', 'cobro_confirmado']);
 });
 
 test('finalizarViajeYCobrar sin saldo suficiente deja pago_pendiente y no cobra parcial', async () => {
@@ -67,7 +68,8 @@ test('finalizarViajeYCobrar sin saldo suficiente deja pago_pendiente y no cobra 
   assert.equal(viajes.viajes.get(viajeId).tarifaFinalCentavos, 5000);
   assert.equal(consumosDe(billetera, pasajeroId).length, 0);
   assert.equal(await saldoDe(billetera, pasajeroId), 4999);
-  assert.deepEqual(eventosDe(viajes, viajeId), ['cobro_pendiente']);
+  assert.deepEqual(eventosDe(viajes, viajeId), ['cobro_solicitado', 'cobro_pendiente']);
+  assert.equal(viajes.eventos.at(-1).datos.motivo, 'SALDO_INSUFICIENTE');
 });
 
 test('finalizarViajeYCobrar con estimación 0 finaliza sin generar consumo', async () => {
@@ -79,16 +81,22 @@ test('finalizarViajeYCobrar con estimación 0 finaliza sin generar consumo', asy
 
   assert.equal(resultado.estado, 'finalizado');
   assert.equal(consumosDe(billetera, pasajeroId).length, 0);
-  assert.deepEqual(eventosDe(viajes, viajeId), ['cobro_confirmado']);
+  assert.deepEqual(eventosDe(viajes, viajeId), ['cobro_solicitado', 'cobro_confirmado']);
 });
 
-test('finalizarViajeYCobrar sin billetera rechaza con BILLETERA_NO_ENCONTRADA y no cambia el viaje', async () => {
-  const { viajes, finalizar } = armar();
-  const { viajeId, choferId } = crearViajeEnCurso(viajes, crypto.randomUUID(), 5000);
+// La billetera se crea por evento (rama 7) y puede no existir todavía: el viaje termina igual,
+// queda en pago_pendiente con el motivo, y el pasajero recibe el error al reintentar.
+test('finalizarViajeYCobrar sin billetera deja pago_pendiente con motivo BILLETERA_NO_ENCONTRADA', async () => {
+  const { viajes, finalizar, reintentar } = armar();
+  const pasajeroId = crypto.randomUUID();
+  const { viajeId, choferId } = crearViajeEnCurso(viajes, pasajeroId, 5000);
 
-  await assert.rejects(finalizar({ viajeId, choferId }), (error) => error.codigo === 'BILLETERA_NO_ENCONTRADA');
-  assert.equal(viajes.viajes.get(viajeId).estado, 'en_curso');
-  assert.deepEqual(eventosDe(viajes, viajeId), []);
+  const resultado = await finalizar({ viajeId, choferId });
+
+  assert.equal(resultado.estado, 'pago_pendiente');
+  assert.deepEqual(eventosDe(viajes, viajeId), ['cobro_solicitado', 'cobro_pendiente']);
+  assert.equal(viajes.eventos.at(-1).datos.motivo, 'BILLETERA_NO_ENCONTRADA');
+  await assert.rejects(reintentar({ viajeId, pasajeroId }), (error) => error.codigo === 'BILLETERA_NO_ENCONTRADA');
 });
 
 test('finalizarViajeYCobrar rechaza el viaje de otro chofer, uno inexistente y uno que no está en curso', async () => {
@@ -100,50 +108,72 @@ test('finalizarViajeYCobrar rechaza el viaje de otro chofer, uno inexistente y u
   await assert.rejects(finalizar({ viajeId, choferId: crypto.randomUUID() }), (error) => error.codigo === 'RECURSO_NO_ENCONTRADO');
   await assert.rejects(finalizar({ viajeId: crypto.randomUUID(), choferId: 'x' }), (error) => error.codigo === 'RECURSO_NO_ENCONTRADO');
   await assert.rejects(finalizar({ viajeId: asignado, choferId: 'chofer-asignado' }), (error) => error.codigo === 'TRANSICION_INVALIDA');
+  assert.equal(viajes.viajes.get(viajeId).estado, 'en_curso');
   assert.equal(consumosDe(billetera, pasajeroId).length, 0);
 });
 
-test('el caso de uso bloquea primero el viaje y después la billetera', async () => {
+// El orden de bloqueo sigue siendo viaje → billetera: la billetera cobra DENTRO de la transacción
+// de viajes, con el viaje bloqueado.
+test('el caso de uso cobra con el viaje bloqueado: primero el viaje, después la billetera', async () => {
   const orden = [];
+  let estado = 'en_curso';
+  let dentroDeTransaccion = false;
   const unidadDeTrabajo = {
-    ejecutar: (trabajo) => trabajo({
-      viajes: {
-        bloquearParaCobro: async (viajeId) => {
-          orden.push('viaje');
-          return { id: viajeId, estado: 'en_curso', pasajeroId: 'p', choferId: 'c', estimacionCentavos: 100 };
-        },
-        registrarFinalizacion: async () => { orden.push('registrar'); },
-      },
-      billetera: { cobrar: async () => { orden.push('billetera'); return { cobrado: true }; } },
-    }),
+    async ejecutar(trabajo) {
+      dentroDeTransaccion = true;
+      try {
+        return await trabajo({
+          viajes: {
+            bloquearParaCobro: async (viajeId) => {
+              orden.push('bloquear viaje');
+              return { id: viajeId, estado, pasajeroId: 'p', choferId: 'c', estimacionCentavos: 100, tarifaFinalCentavos: 100 };
+            },
+            registrarCobroSolicitado: async () => { orden.push('pago_pendiente'); estado = 'pago_pendiente'; },
+            registrarCobroConfirmado: async () => { orden.push('finalizado'); },
+          },
+        });
+      } finally {
+        dentroDeTransaccion = false;
+      }
+    },
   };
+  const billetera = { cobrar: async () => { orden.push(dentroDeTransaccion ? 'cobrar (viaje bloqueado)' : 'cobrar (sin bloqueo)'); return { cobrado: true }; } };
 
-  await crearFinalizarViajeYCobrar({ unidadDeTrabajo })({ viajeId: 'v', choferId: 'c' });
+  await crearFinalizarViajeYCobrar({ unidadDeTrabajo, billetera })({ viajeId: 'v', choferId: 'c' });
 
-  assert.deepEqual(orden, ['viaje', 'billetera', 'registrar']);
+  assert.deepEqual(orden, ['bloquear viaje', 'pago_pendiente', 'bloquear viaje', 'cobrar (viaje bloqueado)', 'finalizado']);
 });
 
-// Si algo falla después de cobrar, la unidad de trabajo deshace todo: no queda un consumo
-// sin el viaje finalizado (en Postgres es el ROLLBACK).
-test('si falla el registro del viaje después de cobrar, no queda el consumo', async () => {
+// Si la billetera cobró pero el registro en viajes falla (caída entre las dos bases), el viaje
+// queda en pago_pendiente y el reintento lo cierra sin debitar otra vez: cobrar es idempotente por viaje.
+test('si falla el registro del viaje después de cobrar, el reintento lo cierra sin debitar dos veces', async () => {
   const viajesReales = crearRepositorioViajesEnMemoria();
-  const viajesQueFallan = {
-    enTransaccion: (tx) => ({
-      ...viajesReales.enTransaccion(tx),
-      registrarFinalizacion: async () => { throw new Error('caída simulada'); },
-    }),
+  let fallar = true;
+  const viajesQueFallanUnaVez = {
+    enTransaccion: (tx) => {
+      const reales = viajesReales.enTransaccion(tx);
+      return {
+        ...reales,
+        registrarCobroConfirmado: async (...args) => {
+          if (fallar) { fallar = false; throw new Error('caída simulada'); }
+          return reales.registrarCobroConfirmado(...args);
+        },
+      };
+    },
   };
-  const billetera = crearRepositorioBilleteraEnMemoria();
-  const finalizar = crearFinalizarViajeYCobrar({
-    unidadDeTrabajo: crearUnidadDeTrabajoCobroEnMemoria({ viajes: viajesQueFallan, billetera }),
-  });
+  const { billetera, finalizar, reintentar } = armar({ viajes: viajesQueFallanUnaVez });
   const pasajeroId = await crearPasajero(billetera, 10000);
   const { viajeId, choferId } = crearViajeEnCurso(viajesReales, pasajeroId, 5000);
 
   await assert.rejects(finalizar({ viajeId, choferId }), /caída simulada/);
-  assert.equal(consumosDe(billetera, pasajeroId).length, 0);
-  assert.equal(await saldoDe(billetera, pasajeroId), 10000);
-  assert.equal(viajesReales.viajes.get(viajeId).estado, 'en_curso');
+  assert.equal(viajesReales.viajes.get(viajeId).estado, 'pago_pendiente');
+  assert.equal(await saldoDe(billetera, pasajeroId), 5000);
+
+  const resultado = await reintentar({ viajeId, pasajeroId });
+
+  assert.equal(resultado.estado, 'finalizado');
+  assert.equal(consumosDe(billetera, pasajeroId).length, 1);
+  assert.equal(await saldoDe(billetera, pasajeroId), 5000);
 });
 
 // Carrera de la variante D, sin Postgres: el candado por pasajero hace de FOR UPDATE.
@@ -185,7 +215,7 @@ test('reintentarCobro paga la deuda después de una carga', async () => {
 
   assert.deepEqual(resultado, { viajeId: viaje.viajeId, estado: 'finalizado', importeCentavos: 5000 });
   assert.equal(await saldoDe(billetera, pasajeroId), 3000);
-  assert.deepEqual(eventosDe(viajes, viaje.viajeId), ['cobro_pendiente', 'cobro_confirmado']);
+  assert.deepEqual(eventosDe(viajes, viaje.viajeId), ['cobro_solicitado', 'cobro_pendiente', 'cobro_confirmado']);
   assert.equal(viajes.eventos.at(-1).datos.reintento, true);
 });
 
@@ -232,4 +262,13 @@ test('repositorioBilleteraEnMemoria: un webhook repetido acredita una sola vez',
   assert.equal((await billetera.registrarCargaDesdeWebhook(carga)).duplicado, true);
   assert.equal(await saldoDe(billetera, pasajeroId), 1500);
   await assert.rejects(billetera.consultarSaldoPorPasajero('sin-billetera'), (error) => error.codigo === 'BILLETERA_NO_ENCONTRADA');
+});
+
+test('repositorioBilleteraEnMemoria: el evento UsuarioRegistrado repetido crea una sola billetera', async () => {
+  const billetera = crearRepositorioBilleteraEnMemoria();
+  const pasajeroId = crypto.randomUUID();
+
+  assert.deepEqual(await billetera.crearBilleteraPorEvento({ eventoId: 'e1', pasajeroId }), { creada: true, duplicado: false });
+  assert.deepEqual(await billetera.crearBilleteraPorEvento({ eventoId: 'e1', pasajeroId }), { creada: false, duplicado: true });
+  assert.equal(billetera.eventos.filter((e) => e.tipo === 'BilleteraCreada').length, 1);
 });

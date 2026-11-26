@@ -1,19 +1,17 @@
 import { crearCobroViajesPostgres } from './repositorioViajesPostgres.js';
-import { crearCobroBilleteraPostgres } from './repositorioBilleterasPostgres.js';
 
-// Unidad de trabajo del cobro: un solo client, un solo BEGIN/COMMIT, y los dos puertos armados
-// sobre ese client. Si el trabajo lanza, ROLLBACK: no queda ni el consumo ni el cambio de estado.
-// Los bloqueos (FOR UPDATE) duran hasta el COMMIT o el ROLLBACK.
+// Unidad de trabajo del cobro sobre la base `viajes`: un client, un BEGIN/COMMIT y el puerto de
+// viajes armado sobre ese client. Si el trabajo lanza, ROLLBACK. El FOR UPDATE del viaje dura hasta
+// el COMMIT o el ROLLBACK.
+// Desde la rama 7 la billetera NO está acá: vive en otra base y cobra en su propia transacción
+// (ADR 008). El caso de uso la llama mientras tiene bloqueado el viaje.
 export function crearUnidadDeTrabajoCobroPostgres(pool) {
   return {
     async ejecutar(trabajo) {
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
-        const resultado = await trabajo({
-          viajes: crearCobroViajesPostgres(client),
-          billetera: crearCobroBilleteraPostgres(client),
-        });
+        const resultado = await trabajo({ viajes: crearCobroViajesPostgres(client) });
         await client.query('COMMIT');
         return resultado;
       } catch (error) {

@@ -8,11 +8,15 @@ import { crearSolicitarViaje } from '../../src/aplicacion/viajes/solicitarViaje.
 import { crearUnidadDeTrabajoCobroPostgres } from '../../src/infra/db/unidadDeTrabajoCobroPostgres.js';
 import { crearFinalizarViajeYCobrar } from '../../src/aplicacion/viajes/finalizarViajeYCobrar.js';
 import { crearReintentarCobro } from '../../src/aplicacion/viajes/reintentarCobro.js';
+import { crearRepositorioBilleterasPostgres } from '../../src/infra/db/repositorioBilleterasPostgres.js';
+import { urlsDePrueba } from '../ayudas/basesDePrueba.js';
 import { crearServicioJwt } from '../../src/infra/autenticacion/tokensJwt.js';
 import { crearApp } from '../../src/infra/http/app.js';
 import { Rol } from '../../src/dominio/usuarios/roles.js';
 
 const loggerMudo = { info() {}, warn() {}, error() {} };
+// La billetera vive en billetera_test (ADR 008); lo abre conBaseDePrueba.
+let poolBilletera;
 const ORIGEN = { latitud: -27.4514, longitud: -58.9867 };
 const DESTINO = { latitud: -27.44, longitud: -58.98 };
 
@@ -24,10 +28,11 @@ async function conBaseDePrueba(t, ejecutar) {
   }
   assert.equal(new URL(databaseUrl).pathname, '/viajes_test', 'Las pruebas solo pueden ejecutarse contra viajes_test');
   const pool = crearPoolPostgres({ DATABASE_URL: databaseUrl, DATABASE_SSL: false });
+  poolBilletera = crearPoolPostgres({ DATABASE_URL: urlsDePrueba().billetera, DATABASE_SSL: false });
   try {
     await ejecutar(pool);
   } finally {
-    await pool.end();
+    await Promise.all([pool.end(), poolBilletera.end()]);
   }
 }
 
@@ -48,7 +53,7 @@ async function conApp(pool, fn) {
   };
   const tokens = crearServicioJwt(config);
   const viajes = crearRepositorioViajesPostgres(pool);
-  const unidadDeTrabajo = crearUnidadDeTrabajoCobroPostgres(pool);
+  const cobro = { unidadDeTrabajo: crearUnidadDeTrabajoCobroPostgres(pool), billetera: crearRepositorioBilleterasPostgres(poolBilletera) };
   const noUsado = async () => { throw new Error('no usado en este test'); };
   const app = crearApp({
     config,
@@ -60,11 +65,11 @@ async function conApp(pool, fn) {
       solicitarViaje: crearSolicitarViaje({ viajes }),
       buscarViajePropio: viajes.buscarPorIdDelPasajero,
       ofrecerAlChoferCercano: viajes.ofrecerAlChoferCercano,
-      reintentarCobro: crearReintentarCobro({ unidadDeTrabajo }),
+      reintentarCobro: crearReintentarCobro(cobro),
       tokens,
     },
     ofertas: { aceptarOferta: viajes.aceptarOferta, tokens },
-    choferes: { cambiarDisponibilidad: noUsado, registrarUbicacion: noUsado, avanzarEstado: viajes.avanzarEstado, finalizarYCobrar: crearFinalizarViajeYCobrar({ unidadDeTrabajo }), buscarOfertaPendiente: viajes.buscarOfertaPendienteDelChofer, buscarViajeActual: viajes.buscarViajeActualDelChofer, tokens },
+    choferes: { cambiarDisponibilidad: noUsado, registrarUbicacion: noUsado, avanzarEstado: viajes.avanzarEstado, finalizarYCobrar: crearFinalizarViajeYCobrar(cobro), buscarOfertaPendiente: viajes.buscarOfertaPendienteDelChofer, buscarViajeActual: viajes.buscarViajeActualDelChofer, tokens },
     administracion: { establecerHabilitacion: noUsado, tokens },
     idempotencia: crearRepositorioIdempotenciaPostgres(pool),
   });
@@ -98,7 +103,7 @@ async function crearUsuario(pool, rol) {
 
 async function crearPasajero(pool) {
   const pasajeroId = await crearUsuario(pool, 'pasajero');
-  const billetera = await pool.query('INSERT INTO billeteras (pasajero_id) VALUES ($1) RETURNING id', [pasajeroId]);
+  const billetera = await poolBilletera.query('INSERT INTO billeteras (pasajero_id) VALUES ($1) RETURNING id', [pasajeroId]);
   return { pasajeroId, billeteraId: billetera.rows[0].id };
 }
 
@@ -191,7 +196,7 @@ test('10 POST /viajes simultáneos con la misma Idempotency-Key crean exactament
 test('finalizar repetido con la misma clave devuelve el mismo cobro; con otra clave el viaje ya está finalizado', async (t) => {
   await conBaseDePrueba(t, async (pool) => {
     const { pasajeroId, billeteraId } = await crearPasajero(pool);
-    await pool.query("INSERT INTO movimientos_billetera (billetera_id, tipo, importe_centavos) VALUES ($1, 'carga', 10000)", [billeteraId]);
+    await poolBilletera.query("INSERT INTO movimientos_billetera (billetera_id, tipo, importe_centavos) VALUES ($1, 'carga', 10000)", [billeteraId]);
     const { choferId, viajeId } = await crearViajeEnCurso(pool, pasajeroId, 5000);
     await conApp(pool, async (baseUrl, tokens) => {
       const token = tokens.crearTokenDeAcceso({ usuarioId: choferId, rol: Rol.CHOFER });
@@ -210,7 +215,7 @@ test('finalizar repetido con la misma clave devuelve el mismo cobro; con otra cl
       assert.equal(otraClave.status, 409);
       assert.equal((await otraClave.json()).error.codigo, 'TRANSICION_INVALIDA');
 
-      const consumos = await pool.query("SELECT COUNT(*)::int AS n FROM movimientos_billetera WHERE viaje_id = $1 AND tipo = 'consumo'", [viajeId]);
+      const consumos = await poolBilletera.query("SELECT COUNT(*)::int AS n FROM movimientos_billetera WHERE viaje_id = $1 AND tipo = 'consumo'", [viajeId]);
       assert.equal(consumos.rows[0].n, 1);
     });
   });

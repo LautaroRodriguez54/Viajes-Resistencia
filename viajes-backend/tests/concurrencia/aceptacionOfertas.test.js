@@ -33,7 +33,7 @@ async function crearUsuario(pool, rol) {
 
 async function crearPasajero(pool) {
   const pasajeroId = await crearUsuario(pool, 'pasajero');
-  await pool.query('INSERT INTO billeteras (pasajero_id) VALUES ($1)', [pasajeroId]);
+  // La billetera ya no está en la base de viajes (ADR 008) y la aceptación no la necesita.
   return pasajeroId;
 }
 

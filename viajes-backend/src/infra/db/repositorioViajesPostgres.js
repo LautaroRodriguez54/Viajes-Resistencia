@@ -235,14 +235,20 @@ export function crearCobroViajesPostgres(client) {
         estimacionCentavos: fila.estimacion_centavos, tarifaFinalCentavos: fila.tarifa_final_centavos,
       };
     },
-    async registrarFinalizacion(viajeId, { estado, tarifaFinalCentavos }) {
-      await client.query('UPDATE viajes SET estado = $2, tarifa_final_centavos = $3, finalizado_at = now(), version = version + 1 WHERE id = $1', [viajeId, estado, tarifaFinalCentavos]);
-      const tipo = estado === 'finalizado' ? 'cobro_confirmado' : 'cobro_pendiente';
-      await client.query('INSERT INTO eventos_viaje (viaje_id, tipo, datos) VALUES ($1, $2, $3::jsonb)', [viajeId, tipo, JSON.stringify({ importeCentavos: tarifaFinalCentavos })]);
+    // Paso 1 del finalizar: el viaje terminó y se debe la tarifa. Queda en pago_pendiente hasta que
+    // la billetera confirme; si algo se cae después de este COMMIT, el viaje no queda "a medias".
+    async registrarCobroSolicitado(viajeId, { tarifaFinalCentavos }) {
+      await client.query("UPDATE viajes SET estado = 'pago_pendiente', tarifa_final_centavos = $2, finalizado_at = now(), version = version + 1 WHERE id = $1", [viajeId, tarifaFinalCentavos]);
+      await client.query("INSERT INTO eventos_viaje (viaje_id, tipo, datos) VALUES ($1, 'cobro_solicitado', $2::jsonb)", [viajeId, JSON.stringify({ importeCentavos: tarifaFinalCentavos })]);
     },
-    async registrarPagoDeDeuda(viajeId, { importeCentavos }) {
+    async registrarCobroConfirmado(viajeId, { importeCentavos, reintento }) {
       await client.query("UPDATE viajes SET estado = 'finalizado', version = version + 1 WHERE id = $1", [viajeId]);
-      await client.query("INSERT INTO eventos_viaje (viaje_id, tipo, datos) VALUES ($1, 'cobro_confirmado', $2::jsonb)", [viajeId, JSON.stringify({ importeCentavos, reintento: true })]);
+      const datos = reintento ? { importeCentavos, reintento: true } : { importeCentavos };
+      await client.query("INSERT INTO eventos_viaje (viaje_id, tipo, datos) VALUES ($1, 'cobro_confirmado', $2::jsonb)", [viajeId, JSON.stringify(datos)]);
+    },
+    // El viaje sigue en pago_pendiente; sólo queda registrado por qué no se cobró.
+    async registrarCobroPendiente(viajeId, { importeCentavos, motivo }) {
+      await client.query("INSERT INTO eventos_viaje (viaje_id, tipo, datos) VALUES ($1, 'cobro_pendiente', $2::jsonb)", [viajeId, JSON.stringify({ importeCentavos, motivo })]);
     },
   };
 }

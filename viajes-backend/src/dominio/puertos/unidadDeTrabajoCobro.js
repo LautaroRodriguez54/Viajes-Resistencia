@@ -1,23 +1,19 @@
 // Puerto de la unidad de trabajo del cobro. Lo implementan unidadDeTrabajoCobroPostgres y
 // unidadDeTrabajoCobroEnMemoria.
 //
-// ejecutar(trabajo): corre `trabajo({ viajes, billetera })` en UNA sola transacción. Si `trabajo`
-// lanza, no queda nada escrito (ni el consumo ni el cambio de estado). Los bloqueos se sueltan
-// recién al terminar, así que el orden en que el caso de uso llama a los puertos es el orden de
-// bloqueo: primero el viaje, después la billetera (ver viajes-backend/CLAUDE.md).
+// ejecutar(trabajo): corre `trabajo({ viajes })` en UNA transacción de la base `viajes`. Si
+// `trabajo` lanza, no queda nada escrito en `viajes`. El bloqueo del viaje dura hasta el final.
 //
 // `viajes`, sólo lo que necesita el cobro:
 // - bloquearParaCobro(viajeId) → { id, estado, pasajeroId, choferId, estimacionCentavos,
 //     tarifaFinalCentavos } o null. Bloquea el viaje hasta el fin de la transacción.
-// - registrarFinalizacion(viajeId, { estado, tarifaFinalCentavos }): finalizado o pago_pendiente,
-//     con su evento cobro_confirmado o cobro_pendiente.
-// - registrarPagoDeDeuda(viajeId, { importeCentavos }): de pago_pendiente a finalizado, con el
-//     evento cobro_confirmado { reintento: true }.
+// - registrarCobroSolicitado(viajeId, { tarifaFinalCentavos }): en_curso → pago_pendiente.
+// - registrarCobroConfirmado(viajeId, { importeCentavos, reintento }): pago_pendiente → finalizado.
+// - registrarCobroPendiente(viajeId, { importeCentavos, motivo }): sigue pago_pendiente, con el motivo.
 //
-// `billetera`: cobrar({ pasajeroId, viajeId, importeCentavos }) → { cobrado } (ver repositorioBilletera.js).
-//
-// En la rama 7 la billetera pasa a su propia base y sale de esta unidad de trabajo: el cobro deja
-// de ser una transacción única y el caso de uso pasa al flujo pago_pendiente → cobrar → finalizado.
+// La billetera ya no está en esta unidad de trabajo (rama 7, ADR 008): vive en su propia base y
+// `billetera.cobrar` abre su propia transacción (ver repositorioBilletera.js). El caso de uso la
+// llama con el viaje bloqueado, así el orden de bloqueo sigue siendo viaje → billetera.
 export const unidadDeTrabajoCobro = Object.freeze({
   ejecutar: 'ejecutar',
 });
