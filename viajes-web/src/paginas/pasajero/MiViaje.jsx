@@ -144,7 +144,7 @@ export default function MiViaje() {
             )}
             {viaje.estado === 'sin_choferes_disponibles' && (
               <p className="aviso aviso--advertencia" data-testid="mi-viaje-sin-choferes-final">
-                Se lo ofrecimos a los choferes cercanos y ninguno lo aceptó a tiempo. No se cobró nada.
+                Se lo ofrecimos a los choferes cercanos y ninguno lo aceptó. No se cobró nada.
               </p>
             )}
             {viaje.estado === 'pago_pendiente' && (
