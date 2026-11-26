@@ -18,12 +18,14 @@
 | Autenticación | `POST /auth/register`, `POST /auth/login`, `GET /auth/me` | — / cualquiera | |
 | Viajes | `POST /viajes` | pasajero | **sí** |
 | Viajes | `GET /viajes/:viajeId` | pasajero dueño | |
+| Viajes | `POST /viajes/:viajeId/cancelar` | pasajero dueño | **sí** |
 | Ofertas | `POST /viajes/:viajeId/ofertas` | pasajero dueño | **sí** |
 | Ofertas | `POST /ofertas/:ofertaId/aceptar` | chofer de la oferta | **sí** |
 | Ofertas | `POST /ofertas/:ofertaId/rechazar` | chofer de la oferta | **sí** |
 | Chofer | `PUT /choferes/me/disponibilidad`, `PUT /choferes/me/ubicacion` | chofer | |
 | Chofer | `GET /choferes/me/ofertas` (oferta vigente o `null`), `GET /choferes/me/viaje-actual` (viaje activo o `null`) | chofer | |
 | Chofer | `POST /choferes/viajes/:viajeId/estado` | chofer asignado | |
+| Chofer | `POST /choferes/viajes/:viajeId/cancelar` | chofer asignado | **sí** |
 | Chofer | `POST /choferes/viajes/:viajeId/finalizar` (finaliza y cobra) | chofer asignado | **sí** |
 | Billetera | `POST /viajes/:viajeId/reintentar-cobro` | pasajero dueño | **sí** |
 | Billetera | `GET /billetera/me` | pasajero | |

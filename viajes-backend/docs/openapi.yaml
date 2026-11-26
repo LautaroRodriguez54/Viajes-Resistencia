@@ -281,6 +281,42 @@ paths:
               example: { error: { codigo: SALDO_INSUFICIENTE, requestId: 6f1c2d4e-8a0b-4c3d-9e2f-1a2b3c4d5e6f } }
         '422': { $ref: '#/components/responses/ClaveReutilizada' }
 
+  /viajes/{viajeId}/cancelar:
+    post:
+      tags: [Viajes]
+      summary: Cancelar un viaje propio (pasajero)
+      description: Cancela viajes en `solicitado`, `asignado` o `chofer_en_camino`, cierra ofertas pendientes y libera al chofer si ya había asignación.
+      operationId: cancelarViajePasajero
+      parameters:
+        - $ref: '#/components/parameters/ViajeId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SolicitudCancelacionOpcional' }
+      responses:
+        '200':
+          description: Viaje cancelado.
+          headers: { Idempotency-Replayed: { $ref: '#/components/headers/IdempotencyReplayed' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ViajeCancelado' }
+        '400': { $ref: '#/components/responses/EntradaOClaveInvalida' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+        '404':
+          description: '`RECURSO_NO_ENCONTRADO` (no existe o es de otro pasajero).'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: '`TRANSICION_INVALIDA` o `PEDIDO_EN_CURSO`.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/ClaveReutilizada' }
+
   /ofertas/{ofertaId}/aceptar:
     post:
       tags: [Ofertas]
@@ -587,6 +623,42 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
         '422': { $ref: '#/components/responses/ClaveReutilizada' }
 
+  /choferes/viajes/{viajeId}/cancelar:
+    post:
+      tags: [Choferes]
+      summary: Cancelar un viaje asignado (chofer)
+      description: Cancela viajes en `asignado` o `chofer_en_camino`. El chofer permanece no disponible hasta volver a activarse.
+      operationId: cancelarViajeChofer
+      parameters:
+        - $ref: '#/components/parameters/ViajeId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SolicitudCancelacionOpcional' }
+      responses:
+        '200':
+          description: Viaje cancelado por el chofer.
+          headers: { Idempotency-Replayed: { $ref: '#/components/headers/IdempotencyReplayed' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ViajeCancelado' }
+        '400': { $ref: '#/components/responses/EntradaOClaveInvalida' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+        '404':
+          description: '`RECURSO_NO_ENCONTRADO` (no existe o no pertenece al chofer).'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: '`TRANSICION_INVALIDA` o `PEDIDO_EN_CURSO`.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/ClaveReutilizada' }
+
   /billetera/me:
     get:
       tags: [Billetera]
@@ -886,7 +958,7 @@ components:
         destino: { $ref: '#/components/schemas/Punto' }
     EstadoViaje:
       type: string
-      enum: [solicitado, asignado, chofer_en_camino, en_curso, finalizado, pago_pendiente, cancelado_pasajero, cancelado_chofer, sin_choferes_disponibles]
+      enum: [solicitado, asignado, chofer_en_camino, en_curso, finalizado, pago_pendiente, cancelado_pasajero, cancelado_chofer, cancelado_operador, sin_choferes_disponibles]
     Viaje:
       type: object
       additionalProperties: false
@@ -975,3 +1047,17 @@ components:
         procesado: { type: boolean }
         duplicado: { type: boolean }
         estado: { type: string, enum: [recibido, procesado, rechazado], description: Sólo en duplicados. }
+    SolicitudCancelacionOpcional:
+      type: object
+      additionalProperties: false
+      properties:
+        motivo: { type: string, minLength: 1, maxLength: 200 }
+    ViajeCancelado:
+      type: object
+      additionalProperties: false
+      required: [viajeId, estado, canceladoAt, motivo]
+      properties:
+        viajeId: { type: string, format: uuid }
+        estado: { type: string, enum: [cancelado_pasajero, cancelado_chofer, cancelado_operador] }
+        canceladoAt: { type: string, format: date-time }
+        motivo: { type: [string, 'null'] }

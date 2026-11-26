@@ -1,4 +1,6 @@
 import { ErrorDeDominio } from '../../dominio/errores.js';
+import { decidirCancelacion } from '../../dominio/viajes/estadosViaje.js';
+import { Rol } from '../../dominio/usuarios/roles.js';
 
 function mapearViaje(row) {
   return {
@@ -447,6 +449,69 @@ export function crearRepositorioViajesPostgres(pool, opciones = {}) {
         await client.query('COMMIT');
         return { viajeId, estado: nuevoEstado };
       } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
+    },
+    async cancelarViaje({ viajeId, actorId, rol, motivo = null }) {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        // Orden global de bloqueos: viajes -> ofertas_viaje (ORDER BY id) -> perfiles_chofer.
+        const actual = await client.query(
+          'SELECT id, estado, pasajero_id, chofer_id FROM viajes WHERE id = $1 FOR UPDATE',
+          [viajeId],
+        );
+        const fila = actual.rows[0];
+        if (!fila) throw new ErrorDeDominio('RECURSO_NO_ENCONTRADO', 'El viaje no existe.');
+        if (rol === Rol.PASAJERO && fila.pasajero_id !== actorId) {
+          throw new ErrorDeDominio('RECURSO_NO_ENCONTRADO', 'El viaje no existe o no pertenece al pasajero.');
+        }
+        if (rol === Rol.CHOFER && fila.chofer_id !== actorId) {
+          throw new ErrorDeDominio('RECURSO_NO_ENCONTRADO', 'El viaje no pertenece al chofer.');
+        }
+
+        const decision = decidirCancelacion({ estadoActual: fila.estado, rol, motivo });
+
+        const ofertasPendientes = await client.query(
+          "SELECT id FROM ofertas_viaje WHERE viaje_id = $1 AND estado = 'pendiente' ORDER BY id FOR UPDATE",
+          [viajeId],
+        );
+        if (ofertasPendientes.rows.length > 0) {
+          await client.query(
+            "UPDATE ofertas_viaje SET estado = 'vencida', respondida_at = now() WHERE id = ANY($1::uuid[])",
+            [ofertasPendientes.rows.map((o) => o.id)],
+          );
+        }
+
+        if (decision.liberarChofer && fila.chofer_id) {
+          await client.query(
+            'UPDATE perfiles_chofer SET disponible = habilitado, updated_at = now() WHERE usuario_id = $1',
+            [fila.chofer_id],
+          );
+        }
+
+        const { rows } = await client.query(
+          `UPDATE viajes
+           SET estado = $2, cancelado_at = now(), cancelado_por_id = $3, motivo_cancelacion = $4, version = version + 1
+           WHERE id = $1
+           RETURNING id, estado, cancelado_at, motivo_cancelacion`,
+          [viajeId, decision.nuevoEstado, actorId, decision.motivo],
+        );
+        await client.query(
+          'INSERT INTO eventos_viaje (viaje_id, tipo, datos) VALUES ($1, $2, $3::jsonb)',
+          [viajeId, decision.nuevoEstado, JSON.stringify({ actorId, rol, motivo: decision.motivo })],
+        );
+        await client.query('COMMIT');
+        return {
+          viajeId: rows[0].id,
+          estado: rows[0].estado,
+          canceladoAt: rows[0].cancelado_at,
+          motivo: rows[0].motivo_cancelacion,
+        };
+      } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+      } finally {
+        client.release();
+      }
     },
     // Lecturas del chofer (sin bloqueos): la web las consulta cada 2 s mientras no haya SSE.
     // Sólo devuelve una oferta pendiente, vigente y de un viaje que todavía se puede asignar.
