@@ -33,7 +33,7 @@ Hexagonal liviana:
 ```text
 src/
   dominio/      reglas puras: roles, estados de viaje, tarifa (Haversine), dinero, billetera, errores, puertos
-  aplicacion/   casos de uso (registrarUsuario, iniciarSesion, procesarCargaWebhook, solicitarViaje)
+  aplicacion/   casos de uso (registrarUsuario, iniciarSesion, procesarCargaWebhook, solicitarViaje, finalizarViajeYCobrar, reintentarCobro)
   infra/
     http/       Express: rutas*, middleware Bearer, contexto (requestId con AsyncLocalStorage), errores
     db/         pool, migraciones SQL, seed, repositorios Postgres
@@ -45,7 +45,8 @@ src/
 ```
 
 - El dominio no importa Express, `pg` ni librerías de infraestructura.
-- Varias operaciones (ofertas, aceptación, cambios de estado, cobro) van directo de la ruta al repositorio sin caso de uso ni puerto intermedio. Esto **no cumple** el bloque 2 (ver "Lo que falta").
+- El cobro (finalizar y reintentar) ya es un caso de uso sobre puertos: la unidad de trabajo `unidadDeTrabajoCobro` (Postgres: un `client` y un `BEGIN`/`COMMIT`; memoria: candados + cambios aplicados al confirmar) da los puertos de viajes y de billetera. Adaptadores en memoria en `src/infra/memoria/`, tests en `tests/aplicacion/`.
+- Ofertas, aceptación y cambios de estado todavía van directo de la ruta al repositorio sin caso de uso ni puerto intermedio. Eso **no cumple** el bloque 2 (ver "Lo que falta").
 - Hay una sola base (`viajes`) compartida por todos los módulos. Los temas 12 y 13 la van a separar (ver abajo).
 
 ## Convenciones
@@ -77,7 +78,7 @@ Hilo conductor: **"La billetera es un servicio dueño de sus datos (12); como ya
 ### Tema 12 · Base de datos por servicio y propiedad de datos
 - **Pregunta guía:** ¿por qué un servicio no debería consultar directamente las tablas internas de otro?
 - **El problema hoy, en nuestro código:**
-  - `repositorioViajesPostgres.js` (`finalizarYCobrar`) bloquea `billeteras`, suma `movimientos_billetera` e inserta el consumo: Viajes escribe en tablas de Billetera.
+  - El cobro ya pasa por el puerto `billetera.cobrar` (rama 6), pero dentro de la misma transacción y la misma base que Viajes (`unidadDeTrabajoCobroPostgres`): la separación real es la rama 7.
   - `repositorioUsuariosPostgres.js` crea la fila de `billeteras` dentro del registro de usuario.
   - FKs cruzadas: `billeteras.pasajero_id → usuarios`, `movimientos_billetera.viaje_id → viajes`.
 - **Diseño propuesto:** monolito modular con **dos bases en el mismo contenedor Postgres**: `viajes` (usuarios, choferes, viajes, ofertas, ubicaciones, tarifas) y `billetera` (billeteras, movimientos, webhooks). Cada módulo tiene su propio pool y su propio usuario de base, sin permisos sobre la otra. Viajes cobra sólo a través del puerto `servicioBilletera.cobrar({ viajeId, pasajeroId, importeCentavos })`, con adaptador real y adaptador en memoria (sirve también para el bloque 2). La billetera se crea al primer uso o por el evento `UsuarioRegistrado`, no desde el repositorio de usuarios.
@@ -136,8 +137,8 @@ Prioridad: lo que pide el **control 3** de Puljiz (carrera con test concurrente 
 - [ ] Probar la secuencia de clon limpio en otra máquina.
 
 ### Bloque 2 — Arquitectura hexagonal
-- [ ] Puertos para viajes, choferes/ofertas y billetera, cada uno con **adaptador real y adaptador en memoria** (`src/infra/memoria/`). Hoy no existe ninguno en memoria.
-- [ ] Sacar la lógica de cobro, aceptación y cambios de estado de los repositorios y pasarla a casos de uso que dependan de puertos.
+- [~] Puertos para viajes, choferes/ofertas y billetera, cada uno con **adaptador real y adaptador en memoria** (`src/infra/memoria/`). Hecho: billetera, la parte de cobro de viajes y la unidad de trabajo del cobro (rama 6), e idempotencia. Falta: ofertas, aceptación y estados (Lucas).
+- [~] Sacar la lógica de cobro, aceptación y cambios de estado de los repositorios y pasarla a casos de uso que dependan de puertos. Hecho: el cobro (`finalizarViajeYCobrar`, `reintentarCobro`). Falta: aceptación y cambios de estado.
 
 ### Bloque 3 — Configuración y ciclo de vida
 - [ ] `/ready` tiene que verificar también que las migraciones estén aplicadas.

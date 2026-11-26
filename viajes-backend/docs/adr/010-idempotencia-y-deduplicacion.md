@@ -17,7 +17,7 @@ La tabla `claves_idempotencia` existía desde `001_inicial.sql`, pero ningún c�
 | Nivel | Qué deduplica | Mecanismo | Dónde |
 |---|---|---|---|
 | HTTP | El mismo pedido de un cliente | Header `Idempotency-Key` + tabla `claves_idempotencia` | `src/infra/http/idempotencia.js`, `src/infra/db/repositorioIdempotenciaPostgres.js` |
-| Cobro | Un viaje cobrado dos veces | Clave natural `viaje_id`: índice único `ux_un_consumo_por_viaje` + `FOR UPDATE` del viaje y de la billetera | `repositorioViajesPostgres.js` (`debitarSiAlcanza`), ADR 004 |
+| Cobro | Un viaje cobrado dos veces | Clave natural `viaje_id`: índice único `ux_un_consumo_por_viaje` + `FOR UPDATE` del viaje y de la billetera | `repositorioBilleterasPostgres.js` (`crearCobroBilleteraPostgres`), ADR 004 |
 | Eventos | Un webhook de carga repetido por el proveedor | `proveedor_evento_id` único + `INSERT ... ON CONFLICT DO NOTHING` en `eventos_webhook_pago` | `repositorioBilleterasPostgres.js` |
 
 Los tres se complementan. El nivel HTTP le devuelve al cliente **la misma respuesta**; los otros dos garantizan que, aunque el pedido llegue igual a la base (otra clave, o sin pasar por HTTP), el efecto no se duplique.

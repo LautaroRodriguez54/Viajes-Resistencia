@@ -69,7 +69,7 @@ Ver el ADR 010. Hay tres niveles:
 
 ## Cobro y `pago_pendiente`
 
-El cobro se hace en una sola transacción al finalizar (`finalizarYCobrar`). Primero se bloquea el viaje y después la billetera del pasajero (`SELECT ... FOR UPDATE`). Ese orden se mantiene siempre para que no haya interbloqueos. Con la billetera bloqueada, dos cobros del mismo pasajero se hacen de a uno: el segundo ya ve el consumo del primero y no puede gastar un saldo que ya no existe.
+El cobro se hace en una sola transacción al finalizar: el caso de uso `src/aplicacion/viajes/finalizarViajeYCobrar.js` corre dentro de la unidad de trabajo `unidadDeTrabajoCobroPostgres` (un `client`, un `BEGIN`/`COMMIT`) y usa dos puertos: viajes (`bloquearParaCobro`, `registrarFinalizacion`) y billetera (`cobrar`). El reintento (`reintentarCobro.js`) usa la misma unidad de trabajo. La regla "nunca parcial, importe 0 sin consumo" está en el dominio (`decidirCobro`, `src/dominio/billetera/billetera.js`). Primero se bloquea el viaje y después la billetera del pasajero (`SELECT ... FOR UPDATE`). Ese orden se mantiene siempre para que no haya interbloqueos. Con la billetera bloqueada, dos cobros del mismo pasajero se hacen de a uno: el segundo ya ve el consumo del primero y no puede gastar un saldo que ya no existe.
 
 | Desde | Hacia | Cuándo | Movimiento | Evento |
 |---|---|---|---|---|
