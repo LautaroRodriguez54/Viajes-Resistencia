@@ -13,7 +13,11 @@ import { formatearDistancia, formatearPesos } from '../../formato.js';
 //   Idempotency-Key; si otro chofer ganó la carrera llega OFERTA_NO_DISPONIBLE.
 // - Viaje: GET /choferes/me/viaje-actual cada 2 s y los botones para avanzar el estado
 //   y finalizar (POST .../finalizar con Idempotency-Key, que cobra de la billetera).
-// Pendiente en el backend: rechazar la oferta (hoy "Rechazar" sólo la oculta acá).
+// - Rechazar: POST /ofertas/:id/rechazar con Idempotency-Key. El backend se lo ofrece
+//   al siguiente chofer cercano y a este no se lo vuelve a ofrecer. Si la oferta ya
+//   venció o la tomó otro, llega OFERTA_NO_DISPONIBLE y sólo se oculta.
+// - Vencimiento: lo decide el servidor (OFERTA_TTL_SEGUNDOS). Cuando la cuenta llega a 0
+//   la tarjeta se oculta; la consulta siguiente ya no devuelve la oferta.
 const duracionOferta = 30;
 
 const siguientePaso = {
@@ -33,11 +37,13 @@ export default function Oferta() {
   const [ignoradas, setIgnoradas] = useState([]);
   const [carreraPerdida, setCarreraPerdida] = useState(null);
   const [aceptando, setAceptando] = useState(false);
+  const [rechazando, setRechazando] = useState(false);
   const [avanzando, setAvanzando] = useState(false);
   const [errorViaje, setErrorViaje] = useState(null);
   const [cobro, setCobro] = useState(null);
   const [ahora, setAhora] = useState(Date.now());
   const claveAceptar = usarClaveIdempotente();
+  const claveRechazar = usarClaveIdempotente();
   const claveFinalizar = usarClaveIdempotente();
 
   const { dato: actual, recargar: recargarViaje } = usarConsultaPeriodica(api.viajeActualChofer);
@@ -97,6 +103,32 @@ export default function Oferta() {
     }
   }
 
+  async function rechazar() {
+    const rechazada = oferta;
+    setRechazando(true);
+    try {
+      await conClave(claveRechazar, (clave) => api.rechazarOferta(rechazada.ofertaId, clave));
+      // Se oculta ya: la consulta cada 2 s podría traerla una vez más antes de enterarse.
+      setIgnoradas((lista) => [...lista, rechazada.ofertaId]);
+    } catch (e) {
+      if (e.codigo === 'OFERTA_NO_DISPONIBLE' || e.codigo === 'OFERTA_NO_ENCONTRADA') {
+        // Venció o la tomó otro chofer mientras decidía: no hay nada que rechazar.
+        setIgnoradas((lista) => [...lista, rechazada.ofertaId]);
+      } else if (e.status !== 0) {
+        setCarreraPerdida({ oferta: rechazada, texto: e.message });
+        setTimeout(() => {
+          setCarreraPerdida(null);
+          setIgnoradas((lista) => [...lista, rechazada.ofertaId]);
+        }, 2500);
+      } else {
+        // Sin conexión: la tarjeta sigue y el próximo "Rechazar" manda la misma clave.
+        setErrorDisponible(e.message);
+      }
+    } finally {
+      setRechazando(false);
+    }
+  }
+
   async function avanzar() {
     const paso = siguientePaso[viaje.estado];
     setAvanzando(true);
@@ -153,11 +185,11 @@ export default function Oferta() {
             <p role="alert" className="aviso aviso--peligro" data-testid="oferta-carrera">{carreraPerdida.texto}</p>
           )}
           <div className="oferta__acciones">
-            <button type="button" className="boton boton--secundario" disabled={Boolean(carreraPerdida) || aceptando}
-              onClick={() => setIgnoradas([...ignoradas, oferta.ofertaId])} data-testid="oferta-rechazar">
-              Rechazar
+            <button type="button" className="boton boton--secundario" disabled={Boolean(carreraPerdida) || aceptando || rechazando}
+              onClick={rechazar} data-testid="oferta-rechazar">
+              {rechazando ? 'Rechazando…' : 'Rechazar'}
             </button>
-            <button type="button" className="boton boton--principal" disabled={Boolean(carreraPerdida) || aceptando}
+            <button type="button" className="boton boton--principal" disabled={Boolean(carreraPerdida) || aceptando || rechazando}
               onClick={aceptar} data-testid="oferta-aceptar">
               {aceptando ? 'Aceptando…' : 'Aceptar'}
             </button>
