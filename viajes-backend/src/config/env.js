@@ -28,6 +28,12 @@ const schema = z.object({
   RATE_LIMIT_UBICACION_VENTANA_MS: z.coerce.number().int().positive().default(60_000),
   RATE_LIMIT_UBICACION_MAX: z.coerce.number().int().positive().default(60),
   IDEMPOTENCIA_TTL_SEGUNDOS: z.coerce.number().int().positive().default(86_400),
+  OFERTA_TTL_SEGUNDOS: z.coerce.number().int().positive().default(30),
+  OFERTA_VERIFICACION_MS: z.coerce.number().int().positive().default(1_000),
+  UBICACION_TTL_SEGUNDOS: z.preprocess(
+    (value) => (value === '' || value === undefined ? undefined : value),
+    z.coerce.number().int().positive().optional(),
+  ),
 });
 
 export function leerConfiguracion(environment = process.env) {

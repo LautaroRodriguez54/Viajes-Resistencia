@@ -8,6 +8,7 @@ import { crearRepositorioChoferesPostgres } from './infra/db/repositorioChoferes
 import { crearRepositorioIdempotenciaPostgres } from './infra/db/repositorioIdempotenciaPostgres.js';
 import { crearUnidadDeTrabajoCobroPostgres } from './infra/db/unidadDeTrabajoCobroPostgres.js';
 import { crearDespachadorOutbox } from './infra/db/despachadorOutbox.js';
+import { crearDespachadorVencimientoOfertas } from './infra/db/despachadorVencimientoOfertas.js';
 import { crearProyectorSaldosPostgres } from './infra/db/proyectorSaldosPostgres.js';
 import { crearHasheadorArgon2 } from './infra/autenticacion/contrasenasArgon2.js';
 import { crearServicioJwt } from './infra/autenticacion/tokensJwt.js';
@@ -30,7 +31,10 @@ export function componerAplicacion() {
   const proyectorSaldos = crearProyectorSaldosPostgres(poolLectura);
   const usuarios = crearRepositorioUsuariosPostgres(pool);
   const billeteras = crearRepositorioBilleterasPostgres(poolBilletera);
-  const viajes = crearRepositorioViajesPostgres(pool);
+  const viajes = crearRepositorioViajesPostgres(pool, {
+    ofertaTtlSegundos: config.OFERTA_TTL_SEGUNDOS,
+    ubicacionTtlSegundos: config.UBICACION_TTL_SEGUNDOS,
+  });
   const choferes = crearRepositorioChoferesPostgres(pool);
   const hasheador = crearHasheadorArgon2(config);
   const tokens = crearServicioJwt(config);
@@ -53,7 +57,7 @@ export function componerAplicacion() {
   const finalizarYCobrar = crearFinalizarViajeYCobrar(dependenciasCobro);
   const reintentarCobro = crearReintentarCobro(dependenciasCobro);
   const viajesHttp = { solicitarViaje: crearSolicitarViaje({ viajes }), buscarViajePropio: viajes.buscarPorIdDelPasajero, ofrecerAlChoferCercano: viajes.ofrecerAlChoferCercano, reintentarCobro, tokens };
-  const ofertasHttp = { aceptarOferta: viajes.aceptarOferta, tokens };
+  const ofertasHttp = { aceptarOferta: viajes.aceptarOferta, rechazarOferta: viajes.rechazarOferta, tokens };
   const choferesHttp = { cambiarDisponibilidad: choferes.cambiarDisponibilidad, registrarUbicacion: choferes.registrarUbicacion, avanzarEstado: viajes.avanzarEstado, finalizarYCobrar, buscarOfertaPendiente: viajes.buscarOfertaPendienteDelChofer, buscarViajeActual: viajes.buscarViajeActualDelChofer, tokens };
   const administracion = { establecerHabilitacion: choferes.establecerHabilitacion, tokens };
   const app = crearApp({ config, logger, verificarDisponibilidad: () => Promise.all([pool, poolBilletera, poolLectura].map(verificarPostgres)), autenticacion, billetera, viajes: viajesHttp, ofertas: ofertasHttp, choferes: choferesHttp, administracion, idempotencia: crearRepositorioIdempotenciaPostgres(pool) });
@@ -73,11 +77,17 @@ export function componerAplicacion() {
       manejar: (evento) => proyectorSaldos.aplicar(evento),
     }),
   ];
+  const despachadorVencimiento = crearDespachadorVencimientoOfertas({
+    procesarOfertasVencidas: viajes.procesarOfertasVencidas,
+    logger,
+    intervaloMs: config.OFERTA_VERIFICACION_MS,
+  });
+  const procesos = [...despachadores, despachadorVencimiento];
   return {
     app, config, logger,
-    iniciarProcesos: () => despachadores.forEach((d) => d.iniciar()),
+    iniciarProcesos: () => procesos.forEach((p) => p.iniciar()),
     async cerrar() {
-      await Promise.all(despachadores.map((d) => d.detener()));
+      await Promise.all(procesos.map((p) => p.detener()));
       await Promise.all([pool.end(), poolBilletera.end(), poolLectura.end()]);
     },
   };

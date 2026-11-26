@@ -62,6 +62,7 @@ function crearDependenciasPrueba(sobreescribir = {}) {
 
   const ofertas = {
     aceptarOferta: async () => ({ aceptada: true }),
+    rechazarOferta: async () => ({ estado: 'rechazada' }),
     tokens,
     ...sobreescribir.ofertas,
   };
@@ -410,5 +411,68 @@ test('rate limiter en PUT /choferes/me/ubicacion aísla por chofer (usuarioId) y
 
     const okB = await enviarUbicacion(tokenChoferB);
     assert.equal(okB.status, 200);
+  });
+});
+
+test('errores de tarifa (4.1): TARIFA_NO_CONFIGURADA -> 503 (libera idempotencia) y VIAJE_SUPERA_MAXIMO -> 422', async () => {
+  let modo = 'sin_tarifa';
+  const { app, logger, tokens } = crearDependenciasPrueba({
+    viajes: {
+      solicitarViaje: async () => {
+        if (modo === 'sin_tarifa') {
+          throw new ErrorDeDominio('TARIFA_NO_CONFIGURADA', 'No hay parámetros de tarifa activos.');
+        }
+        throw new ErrorDeDominio('VIAJE_SUPERA_MAXIMO', 'La estimación supera el máximo permitido.');
+      },
+    },
+  });
+  const tokenPasajero = tokens.crearTokenDeAcceso({ usuarioId: crypto.randomUUID(), rol: Rol.PASAJERO });
+  const cuerpo = JSON.stringify({
+    origen: { latitud: -27.4514, longitud: -58.9867 },
+    destino: { latitud: -27.44, longitud: -58.98 },
+  });
+
+  await conServidor(app, async (baseUrl) => {
+    const clave503 = crypto.randomUUID();
+    const res503 = await fetch(`${baseUrl}/viajes`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${tokenPasajero}`, 'idempotency-key': clave503 },
+      body: cuerpo,
+    });
+    assert.equal(res503.status, 503);
+    assert.equal((await res503.json()).error?.codigo, 'TARIFA_NO_CONFIGURADA');
+    assert.ok(logger.registros.error.some((r) => r.datos.codigo === 'TARIFA_NO_CONFIGURADA' && r.datos.status === 503));
+
+    // Al haber sido 503, la clave de idempotencia se liberó y permite reintentar cuando se corrige.
+    modo = 'supera_maximo';
+    const res422 = await fetch(`${baseUrl}/viajes`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${tokenPasajero}`, 'idempotency-key': clave503 },
+      body: cuerpo,
+    });
+    assert.equal(res422.status, 422);
+    assert.equal((await res422.json()).error?.codigo, 'VIAJE_SUPERA_MAXIMO');
+    assert.ok(logger.registros.warn.some((r) => r.datos.codigo === 'VIAJE_SUPERA_MAXIMO' && r.datos.status === 422));
+  });
+});
+
+test('POST /ofertas/:ofertaId/rechazar valida UUID y exige Idempotency-Key', async () => {
+  const { app, tokens } = crearDependenciasPrueba();
+  const tokenChofer = tokens.crearTokenDeAcceso({ usuarioId: crypto.randomUUID(), rol: Rol.CHOFER });
+
+  await conServidor(app, async (baseUrl) => {
+    const sinClave = await fetch(`${baseUrl}/ofertas/${crypto.randomUUID()}/rechazar`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${tokenChofer}` },
+    });
+    assert.equal(sinClave.status, 400);
+    assert.equal((await sinClave.json()).error?.codigo, 'CLAVE_IDEMPOTENCIA_REQUERIDA');
+
+    const uuidInvalido = await fetch(`${baseUrl}/ofertas/no-es-uuid/rechazar`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${tokenChofer}`, 'idempotency-key': crypto.randomUUID() },
+    });
+    assert.equal(uuidInvalido.status, 400);
+    assert.equal((await uuidInvalido.json()).error?.codigo, 'ENTRADA_INVALIDA');
   });
 });

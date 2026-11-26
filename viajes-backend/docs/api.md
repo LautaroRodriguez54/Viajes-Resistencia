@@ -20,6 +20,7 @@
 | Viajes | `GET /viajes/:viajeId` | pasajero dueño | |
 | Ofertas | `POST /viajes/:viajeId/ofertas` | pasajero dueño | **sí** |
 | Ofertas | `POST /ofertas/:ofertaId/aceptar` | chofer de la oferta | **sí** |
+| Ofertas | `POST /ofertas/:ofertaId/rechazar` | chofer de la oferta | **sí** |
 | Chofer | `PUT /choferes/me/disponibilidad`, `PUT /choferes/me/ubicacion` | chofer | |
 | Chofer | `GET /choferes/me/ofertas` (oferta vigente o `null`), `GET /choferes/me/viaje-actual` (viaje activo o `null`) | chofer | |
 | Chofer | `POST /choferes/viajes/:viajeId/estado` | chofer asignado | |
@@ -29,7 +30,7 @@
 | Billetera | `POST /billetera/webhooks/cargas` | proveedor de pagos (firma HMAC) | no: deduplica por `eventoExternoId` |
 | Administración | `PATCH /admin/choferes/:choferId/habilitacion` | administrador | |
 
-**Pendientes** (se agregan al OpenAPI cuando existan): estimación sin crear el viaje, cancelaciones con motivo, rechazo de oferta, endpoints del operador, historiales, movimientos de la billetera y SSE.
+**Pendientes** (se agregan al OpenAPI cuando existan): estimación sin crear el viaje, cancelaciones con motivo, endpoints del operador, historiales, movimientos de la billetera y SSE.
 
 ## Convenciones
 

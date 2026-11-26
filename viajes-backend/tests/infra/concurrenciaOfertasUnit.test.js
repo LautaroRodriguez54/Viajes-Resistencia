@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { crearRepositorioViajesPostgres } from '../../src/infra/db/repositorioViajesPostgres.js';
 import { crearRepositorioChoferesPostgres } from '../../src/infra/db/repositorioChoferesPostgres.js';
+import { crearDespachadorVencimientoOfertas } from '../../src/infra/db/despachadorVencimientoOfertas.js';
 
 function crearPoolSimulado(manejador) {
   const consultas = [];
@@ -111,10 +112,11 @@ test('aceptarOferta traduce errores 23505 de PostgreSQL a errores de dominio 409
   }
 });
 
-test('ofrecerAlChoferCercano usa FOR UPDATE OF p SKIP LOCKED y filtra ofertas pendientes', async () => {
+test('ofrecerAlChoferCercano usa FOR UPDATE OF p SKIP LOCKED y revalida elegibilidad con SAVEPOINT', async () => {
   const pool = crearPoolSimulado((sql) => {
-    if (sql === 'BEGIN' || sql === 'COMMIT') return { rows: [] };
+    if (sql === 'BEGIN' || sql === 'COMMIT' || sql.includes('SAVEPOINT')) return { rows: [] };
     if (sql.includes('FROM viajes WHERE id = $1')) return { rows: [{ id: 'v-1', origen: 'POINT(0 0)' }] };
+    if (sql.startsWith('SELECT 1')) return { rowCount: 1, rows: [{ '?column?': 1 }] };
     if (sql.includes('FROM perfiles_chofer p')) return { rows: [{ usuario_id: 'ch-1' }] };
     if (sql.startsWith('INSERT INTO ofertas_viaje')) return { rows: [{ id: 'of-1', chofer_id: 'ch-1', vence_at: '2026-01-01T00:00:00Z' }] };
     return { rows: [] };
@@ -124,9 +126,11 @@ test('ofrecerAlChoferCercano usa FOR UPDATE OF p SKIP LOCKED y filtra ofertas pe
   const res = await repo.ofrecerAlChoferCercano('v-1', 'p-1');
   assert.equal(res.ofertaId, 'of-1');
 
-  const queryCandidato = pool.consultas.find((c) => c.sql.includes('FROM perfiles_chofer p'));
-  assert.ok(queryCandidato.sql.includes('FOR UPDATE OF p SKIP LOCKED'));
+  const queryCandidato = pool.consultas.find((c) => c.sql.includes('FOR UPDATE OF p SKIP LOCKED'));
+  assert.ok(queryCandidato);
   assert.ok(queryCandidato.sql.includes('FROM ofertas_viaje o'));
+  assert.ok(pool.consultas.some((c) => c.sql === 'SAVEPOINT buscar_candidato'));
+  assert.ok(pool.consultas.some((c) => c.sql.startsWith('SELECT 1') && c.sql.includes('FROM perfiles_chofer p')));
 });
 
 test('cambiarDisponibilidad bloquea disponible=true si el chofer tiene un viaje activo', async () => {
@@ -177,4 +181,87 @@ test('registrarUbicacion permite chofer con viaje activo aunque disponible sea f
     repoInactivo.registrarUbicacion('ch-1', { latitud: -27.45, longitud: -58.98 }),
     (err) => err.codigo === 'CHOFER_NO_DISPONIBLE',
   );
+});
+
+test('rechazarOferta respeta orden de bloqueos y re-ofrece al siguiente candidato o marca sin_choferes_disponibles', async () => {
+  const poolReofrece = crearPoolSimulado((sql) => {
+    if (sql === 'BEGIN' || sql === 'COMMIT' || sql.includes('SAVEPOINT')) return { rows: [] };
+    if (sql.startsWith('SELECT id, viaje_id, chofer_id FROM ofertas_viaje')) {
+      return { rows: [{ id: 'of-1', viaje_id: 'v-1', chofer_id: 'ch-1' }] };
+    }
+    if (sql.startsWith('SELECT id, estado, origen FROM viajes WHERE id = $1 FOR UPDATE')) {
+      return { rows: [{ id: 'v-1', estado: 'solicitado', origen: 'POINT(0 0)' }] };
+    }
+    if (sql.includes('FROM ofertas_viaje') && sql.includes('ORDER BY id FOR UPDATE')) {
+      return { rows: [{ id: 'of-1', viaje_id: 'v-1', chofer_id: 'ch-1', estado: 'pendiente', vencida: false }] };
+    }
+    if (sql.startsWith('SELECT 1 FROM perfiles_chofer p')) return { rowCount: 1, rows: [{ '?column?': 1 }] };
+    if (sql.includes('FROM perfiles_chofer p')) return { rows: [{ usuario_id: 'ch-2' }] };
+    if (sql.startsWith('INSERT INTO ofertas_viaje')) {
+      return { rows: [{ id: 'of-2', chofer_id: 'ch-2', vence_at: '2026-01-01T00:00:30Z' }] };
+    }
+    return { rows: [] };
+  });
+
+  const repoReofrece = crearRepositorioViajesPostgres(poolReofrece);
+  const resReofrece = await repoReofrece.rechazarOferta('of-1', 'ch-1');
+  assert.deepEqual(resReofrece, {
+    viajeId: 'v-1',
+    ofertaId: 'of-1',
+    estado: 'rechazada',
+    viajeEstado: 'solicitado',
+    reofrecida: true,
+  });
+
+  const locks = poolReofrece.consultas.map((c) => c.sql).filter((s) => s.includes('FOR UPDATE'));
+  assert.ok(locks[0].includes('FROM viajes'));
+  assert.ok(locks[1].includes('FROM ofertas_viaje') && locks[1].includes('ORDER BY id FOR UPDATE'));
+  assert.ok(locks[2].includes('FROM perfiles_chofer p') && locks[2].includes('SKIP LOCKED'));
+
+  const poolSinCandidato = crearPoolSimulado((sql) => {
+    if (sql === 'BEGIN' || sql === 'COMMIT' || sql.includes('SAVEPOINT')) return { rows: [] };
+    if (sql.startsWith('SELECT id, viaje_id, chofer_id FROM ofertas_viaje')) {
+      return { rows: [{ id: 'of-1', viaje_id: 'v-1', chofer_id: 'ch-1' }] };
+    }
+    if (sql.startsWith('SELECT id, estado, origen FROM viajes WHERE id = $1 FOR UPDATE')) {
+      return { rows: [{ id: 'v-1', estado: 'solicitado', origen: 'POINT(0 0)' }] };
+    }
+    if (sql.includes('FROM ofertas_viaje') && sql.includes('ORDER BY id FOR UPDATE')) {
+      return { rows: [{ id: 'of-1', viaje_id: 'v-1', chofer_id: 'ch-1', estado: 'pendiente', vencida: false }] };
+    }
+    return { rows: [] };
+  });
+
+  const repoSinCandidato = crearRepositorioViajesPostgres(poolSinCandidato);
+  const resSinCandidato = await repoSinCandidato.rechazarOferta('of-1', 'ch-1');
+  assert.deepEqual(resSinCandidato, {
+    viajeId: 'v-1',
+    ofertaId: 'of-1',
+    estado: 'rechazada',
+    viajeEstado: 'sin_choferes_disponibles',
+    reofrecida: false,
+  });
+  assert.ok(poolSinCandidato.consultas.some((c) => c.sql.includes("estado = 'sin_choferes_disponibles'")));
+});
+
+test('crearDespachadorVencimientoOfertas resiste errores y detiene limpio', async () => {
+  let intentos = 0;
+  const errores = [];
+  const despachador = crearDespachadorVencimientoOfertas({
+    intervaloMs: 10,
+    logger: { error: (datos, mensaje) => errores.push({ datos, mensaje }) },
+    procesarOfertasVencidas: async () => {
+      intentos += 1;
+      if (intentos === 1) throw new Error('fallo transitorio');
+      return [];
+    },
+  });
+
+  despachador.iniciar();
+  despachador.iniciar();
+  await new Promise((resolver) => setTimeout(resolver, 55));
+  await despachador.detener();
+
+  assert.ok(intentos >= 2);
+  assert.equal(errores.length, 1);
 });
