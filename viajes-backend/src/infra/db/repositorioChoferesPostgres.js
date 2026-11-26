@@ -13,14 +13,37 @@ export function crearRepositorioChoferesPostgres(pool) {
       return { choferId: rows[0].usuario_id, habilitado: rows[0].habilitado, disponible: rows[0].disponible };
     },
     async cambiarDisponibilidad(choferId, disponible) {
-      const { rows } = await pool.query(
-        `UPDATE perfiles_chofer SET disponible = $2, updated_at = now()
-         WHERE usuario_id = $1 AND habilitado = TRUE
-         RETURNING usuario_id, habilitado, disponible, updated_at`,
-        [choferId, disponible],
-      );
-      if (!rows[0]) throw new ErrorDeDominio('CHOFER_NO_HABILITADO', 'El chofer no está habilitado.');
-      return { choferId: rows[0].usuario_id, disponible: rows[0].disponible, updatedAt: rows[0].updated_at };
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const perfil = await client.query(
+          'SELECT usuario_id, habilitado, disponible FROM perfiles_chofer WHERE usuario_id = $1 FOR UPDATE',
+          [choferId],
+        );
+        if (!perfil.rows[0]?.habilitado) throw new ErrorDeDominio('CHOFER_NO_HABILITADO', 'El chofer no está habilitado.');
+        if (disponible === true) {
+          const viajeActivo = await client.query(
+            "SELECT 1 FROM viajes WHERE chofer_id = $1 AND estado IN ('asignado', 'chofer_en_camino', 'en_curso') LIMIT 1",
+            [choferId],
+          );
+          if (viajeActivo.rows[0]) {
+            throw new ErrorDeDominio('CHOFER_CON_VIAJE_ACTIVO', 'Un chofer con viaje activo no puede marcarse disponible.');
+          }
+        }
+        const { rows } = await client.query(
+          `UPDATE perfiles_chofer SET disponible = $2, updated_at = now()
+           WHERE usuario_id = $1
+           RETURNING usuario_id, habilitado, disponible, updated_at`,
+          [choferId, disponible],
+        );
+        await client.query('COMMIT');
+        return { choferId: rows[0].usuario_id, disponible: rows[0].disponible, updatedAt: rows[0].updated_at };
+      } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+      } finally {
+        client.release();
+      }
     },
 
     async registrarUbicacion(choferId, { latitud, longitud }) {
@@ -28,9 +51,19 @@ export function crearRepositorioChoferesPostgres(pool) {
       try {
         await client.query('BEGIN');
         const perfil = await client.query(
-          'SELECT disponible FROM perfiles_chofer WHERE usuario_id = $1 AND habilitado = TRUE FOR UPDATE', [choferId],
+          'SELECT habilitado, disponible FROM perfiles_chofer WHERE usuario_id = $1 AND habilitado = TRUE FOR UPDATE',
+          [choferId],
         );
-        if (!perfil.rows[0]?.disponible) throw new ErrorDeDominio('CHOFER_NO_DISPONIBLE', 'El chofer debe estar habilitado y disponible.');
+        if (!perfil.rows[0]) throw new ErrorDeDominio('CHOFER_NO_HABILITADO', 'El chofer no está habilitado.');
+        if (!perfil.rows[0].disponible) {
+          const viajeActivo = await client.query(
+            "SELECT 1 FROM viajes WHERE chofer_id = $1 AND estado IN ('asignado', 'chofer_en_camino', 'en_curso') LIMIT 1",
+            [choferId],
+          );
+          if (!viajeActivo.rows[0]) {
+            throw new ErrorDeDominio('CHOFER_NO_DISPONIBLE', 'El chofer debe estar disponible o en un viaje activo.');
+          }
+        }
         await client.query(
           `INSERT INTO ubicaciones_actuales_chofer (chofer_id, ubicacion, reportada_at)
            VALUES ($1, ST_SetSRID(ST_MakePoint($3, $2), 4326)::geography, now())

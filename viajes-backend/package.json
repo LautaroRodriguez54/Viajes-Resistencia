@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "node --watch src/servidor.js",
     "start": "node src/servidor.js",
-    "test": "node --test",
+    "test": "node --test --test-concurrency=1",
     "lint": "eslint .",
     "migrate": "node src/infra/db/migrate.js",
     "seed": "node src/infra/db/seed.js",
