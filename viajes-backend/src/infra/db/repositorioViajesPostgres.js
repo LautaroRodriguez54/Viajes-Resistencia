@@ -165,10 +165,20 @@ export function crearRepositorioViajesPostgres(pool) {
     },
     async buscarPorIdDelPasajero(viajeId, pasajeroId) {
       const { rows } = await pool.query(
-        `SELECT id, estado, pasajero_id, chofer_id, estimacion_centavos, tarifa_final_centavos, solicitado_at
-         FROM viajes WHERE id = $1 AND pasajero_id = $2`, [viajeId, pasajeroId],
+        `SELECT v.id, v.estado, v.pasajero_id, v.chofer_id, v.estimacion_centavos,
+                v.tarifa_final_centavos, v.solicitado_at,
+                EXISTS (
+                  SELECT 1 FROM ofertas_viaje o
+                  WHERE o.viaje_id = v.id
+                    AND o.estado = 'pendiente'
+                    AND o.vence_at > now()
+                ) AS tiene_oferta_vigente
+         FROM viajes v
+         WHERE v.id = $1 AND v.pasajero_id = $2`,
+        [viajeId, pasajeroId],
       );
-      return rows[0] ? mapearViaje(rows[0]) : null;
+      if (!rows[0]) return null;
+      return { ...mapearViaje(rows[0]), tieneOfertaVigente: Boolean(rows[0].tiene_oferta_vigente) };
     },
     // Lecturas del chofer (sin bloqueos): la web las consulta cada 2 s mientras no haya SSE.
     // Sólo devuelve una oferta pendiente, vigente y de un viaje que todavía se puede asignar.
