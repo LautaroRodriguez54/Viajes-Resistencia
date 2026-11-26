@@ -47,8 +47,7 @@ src/
 ```
 
 - El dominio no importa Express, `pg` ni librerías de infraestructura.
-- El cobro (finalizar y reintentar) es un caso de uso sobre puertos, en dos pasos (ADR 008): la unidad de trabajo `unidadDeTrabajoCobro` cubre la base `viajes` (Postgres: un `client` y un `BEGIN`/`COMMIT`; memoria: candados + cambios aplicados al confirmar) y `billetera.cobrar` cobra en su propia base con el viaje bloqueado. Adaptadores en memoria en `src/infra/memoria/`, tests en `tests/aplicacion/`.
-- Ofertas, aceptación y cambios de estado todavía van directo de la ruta al repositorio sin caso de uso ni puerto intermedio. Eso **no cumple** el bloque 2 (ver "Lo que falta").
+- El cobro (finalizar y reintentar) y el ciclo de vida completo de viajes y ofertas (ofrecer, aceptar, rechazar, vencer, cancelar y avanzar estado) viven como casos de uso en `src/aplicacion/viajes/` detrás de puertos (`unidadDeTrabajoCobro`, `unidadDeTrabajoViajes`), con adaptadores Postgres (`src/infra/db/`) y en memoria (`src/infra/memoria/` + `candados.js`), cubiertos en `tests/aplicacion/`.
 - Tres bases en el mismo contenedor, una por módulo y con su propio rol (ADR 008): `viajes`, `billetera` y `lectura` (proyecciones, ADR 009). Se comunican por outbox (`outbox_viajes`, `outbox_billetera`) y un despachador dentro del backend (`despachadorOutbox.js`).
 
 ## Convenciones
@@ -140,8 +139,8 @@ Prioridad: lo que pide el **control 3** de Puljiz (carrera con test concurrente 
 - [ ] Probar la secuencia de clon limpio en otra máquina.
 
 ### Bloque 2 — Arquitectura hexagonal
-- [~] Puertos para viajes, choferes/ofertas y billetera, cada uno con **adaptador real y adaptador en memoria** (`src/infra/memoria/`). Hecho: billetera, la parte de cobro de viajes y la unidad de trabajo del cobro (rama 6), e idempotencia. Falta: ofertas, aceptación y estados (Lucas).
-- [~] Sacar la lógica de cobro, aceptación y cambios de estado de los repositorios y pasarla a casos de uso que dependan de puertos. Hecho: el cobro (`finalizarViajeYCobrar`, `reintentarCobro`). Falta: aceptación y cambios de estado.
+- [x] Puertos para viajes, choferes/ofertas y billetera, cada uno con **adaptador real y adaptador en memoria** (`src/infra/memoria/`). Hecho: billetera, cobro, idempotencia, y ciclo de vida de viajes y ofertas (`unidadDeTrabajoViajes`, `candados.js`).
+- [x] Sacar la lógica de cobro, aceptación y cambios de estado de los repositorios y pasarla a casos de uso que dependan de puertos (`finalizarViajeYCobrar`, `reintentarCobro`, `avanzarEstadoViaje`, `cancelarViaje`, `aceptarOferta`, `ofrecerAlChoferCercano`, `rechazarOferta`, `procesarOfertasVencidas`).
 
 ### Bloque 3 — Configuración y ciclo de vida
 - [ ] `/ready` tiene que verificar también que las migraciones estén aplicadas.
@@ -160,7 +159,7 @@ Prioridad: lo que pide el **control 3** de Puljiz (carrera con test concurrente 
 ### Bloque 6 y problema central (6.3) — Concurrencia e idempotencia
 - [x] Idempotencia HTTP (tema 3) con test (ADR 010, `tests/integracion/idempotenciaHttp.test.js`).
 - [x] Test: 50 aceptaciones simultáneas sobre el mismo viaje, exactamente una gana (`tests/concurrencia/aceptacionOfertas.test.js`).
-- [ ] Cancelaciones (pasajero, chofer, operador con motivo) y test de cancelación simultánea a la aceptación, con los dos resultados posibles documentados.
+- [x] Cancelaciones (pasajero, chofer, operador con motivo) y test de cancelación simultánea a la aceptación, con los dos resultados posibles documentados (#24–#26).
 - [x] Test: un chofer con viaje activo no puede aceptar otro.
 - [x] Vencimiento de ofertas en el servidor, siguiente candidato y `sin_choferes_disponibles` al agotar la lista (PR #22).
 - [x] Ofertas duplicadas y choferes con oferta pendiente con `FOR UPDATE SKIP LOCKED` + revalidación después del bloqueo (PR #21, que arregla el test intermitente).
@@ -183,7 +182,7 @@ Prioridad: lo que pide el **control 3** de Puljiz (carrera con test concurrente 
 - [~] Historiales (pasajero y chofer) y panel del operador: salen de las proyecciones del tema 13. Hecho: el del pasajero (`GET /viajes`, rama 10) y los movimientos de la billetera. Falta el del chofer y que el panel del operador lea la proyección.
 - [ ] Administración de tarifas, zonas y parámetros.
 - [ ] Campo `nombre` en `usuarios` (migración nueva) y pedirlo en `POST /auth/register`. Hoy sólo hay email, y la proyección `historial_viajes` (tema 13) y las pantallas muestran nombre de pasajero y chofer.
-- [ ] Usuario operador en el seed (el rol existe en el `CHECK` pero no hay ningún usuario) y endpoints del operador: `GET /operador/viajes?estado=activos`, cancelar con motivo, reintentar cobro de un `pago_pendiente`.
+- [x] Usuario operador en el seed (`operador@demo.local`) y endpoints del operador: `GET /operador/viajes?estado=activos`, cancelar con motivo, reintentar cobro de un `pago_pendiente` (#24–#26).
 - [ ] La oferta le llega al chofer por SSE con origen, destino, polilínea de la ruta, distancia/tiempo hasta el retiro y tarifa estimada (la web la previsualiza en el mapa).
 - [ ] Decidir si el radio de búsqueda (hoy fijo en 5 km) pasa a parámetros administrables o queda como constante.
 - [ ] Política de retención/agregación de `historial_ubicaciones_chofer` (con 500 choferes son ~21 M filas/día).
