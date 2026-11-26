@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import MapaSimulado from '../../componentes/MapaSimulado.jsx';
+import Mapa from '../../componentes/Mapa.jsx';
 import { api } from '../../api/cliente.js';
 import { distanciaMetros, nombreDe, posicionChoferDemo } from '../../datos/lugares.js';
 import { conClave, usarClaveIdempotente, usarConsultaPeriodica } from '../../ganchos.js';
@@ -150,7 +150,11 @@ export default function Oferta() {
   const urgente = segundos <= 5;
 
   return (
-    <MapaSimulado oferta conRuta={visible || Boolean(viaje)}>
+    <Mapa
+      oferta conRuta={visible || Boolean(viaje)} posicion={posicionChoferDemo}
+      origen={(visible ? oferta : viaje)?.origen} destino={(visible ? oferta : viaje)?.destino}
+      tarjeta={visible ? 'arriba' : 'lateral'}
+    >
       {visible && (
         <section
           role="alertdialog" aria-labelledby="oferta-titulo" aria-describedby="oferta-detalle"
@@ -251,6 +255,6 @@ export default function Oferta() {
           </button>
         </div>
       )}
-    </MapaSimulado>
+    </Mapa>
   );
 }

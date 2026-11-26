@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
-import MapaSimulado from '../../componentes/MapaSimulado.jsx';
+import Mapa from '../../componentes/Mapa.jsx';
 import { api } from '../../api/cliente.js';
 import { nombreDelPunto } from '../../datos/lugares.js';
 import { conClave, usarClaveIdempotente, usarConsultaPeriodica } from '../../ganchos.js';
@@ -39,7 +39,13 @@ export default function MiViaje() {
   const ultimo = ultimos?.[0];
   const seguible = ultimo && (activos[ultimo.estado] || ultimo.estado === 'pago_pendiente');
   const guardado = delPedido
-    ?? (seguible ? { viajeId: ultimo.viajeId, origen: nombreDelPunto(ultimo.origen), destino: nombreDelPunto(ultimo.destino) } : null);
+    ?? (seguible ? {
+      viajeId: ultimo.viajeId,
+      origen: nombreDelPunto(ultimo.origen),
+      destino: nombreDelPunto(ultimo.destino),
+      origenPunto: ultimo.origen,
+      destinoPunto: ultimo.destino,
+    } : null);
   const [busqueda, setBusqueda] = useState(state?.busqueda ?? null);
   const [buscando, setBuscando] = useState(false);
   const claveOferta = usarClaveIdempotente();
@@ -93,7 +99,11 @@ export default function MiViaje() {
   const conChofer = activo && activo.paso >= 1;
 
   return (
-    <MapaSimulado etiquetaDestino={guardado.destino} chofer={conChofer ? { etiqueta: 'Tu chofer' } : undefined}>
+    // La posición del chofer no llega al pasajero (no hay endpoint todavía): el mapa real muestra retiro y destino.
+    <Mapa
+      etiquetaDestino={guardado.destino} chofer={conChofer ? { etiqueta: 'Tu chofer' } : undefined}
+      origen={guardado.origenPunto} destino={guardado.destinoPunto}
+    >
       <section
         className="tarjeta tarjeta--flotante pedir mi-viaje montos" aria-labelledby="titulo-viaje"
         data-testid="mi-viaje" data-estado={viaje?.estado ?? 'cargando'}
@@ -176,6 +186,6 @@ export default function MiViaje() {
           </>
         )}
       </section>
-    </MapaSimulado>
+    </Mapa>
   );
 }
