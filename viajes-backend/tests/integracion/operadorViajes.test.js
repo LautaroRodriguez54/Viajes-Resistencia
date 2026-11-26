@@ -10,6 +10,7 @@ import { crearReintentarCobroOperador } from '../../src/aplicacion/viajes/reinte
 import { crearServicioJwt } from '../../src/infra/autenticacion/tokensJwt.js';
 import { crearApp } from '../../src/infra/http/app.js';
 import { Rol } from '../../src/dominio/usuarios/roles.js';
+import { crearCasosDeUsoViajesPostgres } from '../ayudas/casosDeUsoViajesPostgres.js';
 import { urlsDePrueba } from '../ayudas/basesDePrueba.js';
 
 const loggerMudo = { info() {}, warn() {}, error() {} };
@@ -43,17 +44,18 @@ async function conApp(pool, fn) {
   };
   const tokens = crearServicioJwt(config);
   const viajes = crearRepositorioViajesPostgres(pool);
+  const { cancelarViaje } = crearCasosDeUsoViajesPostgres(pool);
   const cobro = { unidadDeTrabajo: crearUnidadDeTrabajoCobroPostgres(pool), billetera: crearRepositorioBilleterasPostgres(poolBilletera) };
   const noUsado = async () => { throw new Error('no usado'); };
   const app = crearApp({
     config, logger: loggerMudo, verificarDisponibilidad: async () => true,
     autenticacion: { registrarUsuario: noUsado, iniciarSesion: noUsado, buscarUsuarioPorId: noUsado, tokens },
     billetera: { procesarCargaWebhook: noUsado, consultarSaldoPorPasajero: noUsado, tokens },
-    viajes: { solicitarViaje: noUsado, buscarViajePropio: viajes.buscarPorIdDelPasajero, ofrecerAlChoferCercano: noUsado, reintentarCobro: noUsado, cancelarViaje: viajes.cancelarViaje, tokens },
+    viajes: { solicitarViaje: noUsado, buscarViajePropio: viajes.buscarPorIdDelPasajero, ofrecerAlChoferCercano: noUsado, reintentarCobro: noUsado, cancelarViaje, tokens },
     ofertas: { aceptarOferta: noUsado, rechazarOferta: noUsado, tokens },
-    choferes: { cambiarDisponibilidad: noUsado, registrarUbicacion: noUsado, avanzarEstado: noUsado, finalizarYCobrar: noUsado, cancelarViaje: viajes.cancelarViaje, buscarOfertaPendiente: noUsado, buscarViajeActual: noUsado, tokens },
+    choferes: { cambiarDisponibilidad: noUsado, registrarUbicacion: noUsado, avanzarEstado: noUsado, finalizarYCobrar: noUsado, cancelarViaje, buscarOfertaPendiente: noUsado, buscarViajeActual: noUsado, tokens },
     administracion: { establecerHabilitacion: noUsado, tokens },
-    operador: { listarViajesActivos: viajes.listarViajesActivos, cancelarViaje: viajes.cancelarViaje, reintentarCobro: crearReintentarCobroOperador(cobro), tokens },
+    operador: { listarViajesActivos: viajes.listarViajesActivos, cancelarViaje, reintentarCobro: crearReintentarCobroOperador(cobro), tokens },
     idempotencia: crearRepositorioIdempotenciaPostgres(pool),
   });
   const servidor = await new Promise((r) => { const s = app.listen(0, '127.0.0.1', () => r(s)); });
