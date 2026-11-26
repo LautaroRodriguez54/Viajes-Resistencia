@@ -17,7 +17,8 @@
     "setup": "npm run migrate && npm run seed",
     "setup:test": "node src/infra/db/migrate.js --pruebas",
     "cargar-saldo": "node scripts/cargarSaldo.js",
-    "demo:propiedad-datos": "node scripts/demoPropiedadDatos.js"
+    "demo:propiedad-datos": "node scripts/demoPropiedadDatos.js",
+    "proyecciones:reconstruir": "node scripts/reconstruirProyecciones.js"
   },
   "dependencies": {
     "argon2": "^0.45.1",
