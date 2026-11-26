@@ -2,7 +2,7 @@ import express from 'express';
 import { z } from 'zod';
 import { ErrorDeDominio } from '../../dominio/errores.js';
 import { Rol } from '../../dominio/usuarios/roles.js';
-import { requiereAutenticacion } from './autenticacion.js';
+import { requiereAutenticacion, requiereRol } from './autenticacion.js';
 
 const cargaWebhook = z.object({
   eventoExternoId: z.string().trim().min(1).max(128),
@@ -38,18 +38,14 @@ export function crearRutasBilletera({
     res.status(resultado.duplicado ? 200 : 201).json(resultado);
   });
 
-  router.get('/me', requiereAutenticacion(tokens), async (req, res) => {
-    if (req.autenticacion.rol !== Rol.PASAJERO) {
-      throw new ErrorDeDominio('RECURSO_PROHIBIDO', 'Sólo un pasajero puede consultar su billetera.');
-    }
+  const soloPasajero = requiereRol(Rol.PASAJERO, 'Sólo un pasajero puede consultar su billetera.');
+
+  router.get('/me', requiereAutenticacion(tokens), soloPasajero, async (req, res) => {
     res.status(200).json(await consultarSaldoPorPasajero(req.autenticacion.usuarioId));
   });
 
   // Lee la base `billetera` (fuente de verdad), no una proyección: los movimientos se ven sin atraso.
-  router.get('/me/movimientos', requiereAutenticacion(tokens), async (req, res) => {
-    if (req.autenticacion.rol !== Rol.PASAJERO) {
-      throw new ErrorDeDominio('RECURSO_PROHIBIDO', 'Sólo un pasajero puede consultar su billetera.');
-    }
+  router.get('/me/movimientos', requiereAutenticacion(tokens), soloPasajero, async (req, res) => {
     const consulta = listado.safeParse(req.query);
     if (!consulta.success) throw new ErrorDeDominio('ENTRADA_INVALIDA', 'Parámetros de consulta inválidos.');
     const movimientos = await listarMovimientosPorPasajero(req.autenticacion.usuarioId, consulta.data);
