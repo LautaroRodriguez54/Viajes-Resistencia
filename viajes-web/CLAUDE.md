@@ -16,7 +16,7 @@ Para Puljiz no suma nota; para el TP3 de Fernández es obligatoria (ver el choqu
   - **Admin:** choferes por habilitar + tarifa (base, por km, por minuto, máximo; guardar crea una fila nueva activa).
   - Operador y admin **se quedan en la web** (decisión del grupo).
 - **Stack:** React + Vite en JavaScript (puerto `5173`), `react-router`, cliente HTTP propio (`src/api/cliente.js`) que agrega el token y traduce `error.codigo` a mensajes. Mapa con **Google Maps** (decidido): `@vis.gl/react-google-maps`, Places Autocomplete en el navegador y Routes API desde el backend.
-- **Estado (rama `feat/web-conexion-api`, 26/11/2026): pasajero y chofer conectados al backend; operador y admin siguen con datos de ejemplo y un aviso visible.** El detalle (qué endpoint usa cada pantalla, el recorrido de la demo y lo que falta) está en `README.md`.
+- **Estado (rama `feat/web-rechazo-vencimiento`, 26/11/2026): pasajero y chofer conectados al backend, con rechazo y vencimiento de ofertas; operador y admin siguen con datos de ejemplo y un aviso visible.** El detalle (qué endpoint usa cada pantalla, el recorrido de la demo y lo que falta) está en `README.md`.
   - `src/api/cliente.js` es el único lugar que llama a la API. Agrega el JWT (nunca en la URL), manda `Idempotency-Key` y traduce `error.codigo` a un mensaje. Desenvuelve `{ viaje }` de `POST /viajes` y `GET /viajes/:id`.
   - `src/ganchos.js`:
     - `usarConsultaPeriodica` (cada 2 s, en lugar del SSE) con `detenerSi` para los estados terminales;
@@ -24,6 +24,8 @@ Para Puljiz no suma nota; para el TP3 de Fernández es obligatoria (ver el choqu
   - `src/sesion.jsx`: sesión en `sessionStorage` (una por pestaña: pasajero y chofer a la vez en la demo), `RutaDeRol` y vuelta a Ingresar con aviso ante un 401.
   - Pedir: lista fija de lugares (`src/datos/lugares.js`, todos a ≤5 km de la plaza) hasta tener Places. La web hace `POST /viajes` y después `POST /viajes/:id/ofertas` (todavía no hay asignación automática). El último viaje se guarda en la pestaña (`src/datos/viajeActual.js`) porque falta `GET /viajes`.
   - Chofer: usa `GET /choferes/me/ofertas` y `GET /choferes/me/viaje-actual`, que se sumaron al backend en esta misma rama. La cuenta regresiva sale de `venceAt`. Si se pierde la carrera, se muestra la copia de la oferta con el aviso. La ubicación es fija, junto a la plaza, y se manda cada 10 s.
+  - Rechazar llama a `POST /ofertas/:id/rechazar` con `Idempotency-Key`; si llega `OFERTA_NO_DISPONIBLE` (venció o la tomó otro) sólo se oculta. El vencimiento y la re-oferta los hace el backend; la tarjeta se oculta cuando la cuenta llega a 0.
+  - Mi viaje: "Buscar chofer de nuevo" sólo aparece si el primer pedido de oferta no encontró chofer. `sin_choferes_disponibles` es terminal y ofrece "Pedir otro viaje".
   - Registro sin "Nombre" (el `.strict()` lo rechazaría) hasta que exista la columna.
   - El mapa sigue siendo `MapaSimulado.jsx`.
 - **Mapas y seguridad:** dos claves de Google (navegador restringida por referrer a Maps JS y Places; servidor `GOOGLE_MAPS_SERVER_KEY` restringida a Routes, nunca al cliente), ninguna commiteada. **La tarifa se calcula siempre en el servidor**: el cliente manda sólo coordenadas. El JWT nunca va en la URL (también lo pide RNF-19). La posición del chofer viene del navegador y puede falsificarse (lo valida el backend).
