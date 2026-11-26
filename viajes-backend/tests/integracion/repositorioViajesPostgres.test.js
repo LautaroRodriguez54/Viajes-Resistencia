@@ -5,6 +5,21 @@ import crypto from 'node:crypto';
 
 import { crearPoolPostgres } from '../../src/infra/db/postgres.js';
 import { crearRepositorioViajesPostgres } from '../../src/infra/db/repositorioViajesPostgres.js';
+import { crearUnidadDeTrabajoCobroPostgres } from '../../src/infra/db/unidadDeTrabajoCobroPostgres.js';
+import { crearFinalizarViajeYCobrar } from '../../src/aplicacion/viajes/finalizarViajeYCobrar.js';
+import { crearReintentarCobro } from '../../src/aplicacion/viajes/reintentarCobro.js';
+
+// El cobro ya no es un método del repositorio: son los casos de uso sobre la unidad de trabajo
+// Postgres (rama 6). Se envuelven con la firma de antes para no reescribir los tests.
+function crearCobroPostgres(pool) {
+  const unidadDeTrabajo = crearUnidadDeTrabajoCobroPostgres(pool);
+  const finalizar = crearFinalizarViajeYCobrar({ unidadDeTrabajo });
+  const reintentar = crearReintentarCobro({ unidadDeTrabajo });
+  return {
+    finalizarYCobrar: (viajeId, choferId) => finalizar({ viajeId, choferId }),
+    reintentarCobro: (viajeId, pasajeroId) => reintentar({ viajeId, pasajeroId }),
+  };
+}
 
 async function conBaseDePrueba(t, ejecutar) {
   const databaseUrl = process.env.DATABASE_URL;
@@ -367,7 +382,7 @@ test('finalizarYCobrar descuenta el saldo cuando hay fondos suficientes', async 
 
     await cargarSaldo(pool, billeteraId, 10000);
 
-    const repositorio = crearRepositorioViajesPostgres(pool);
+    const repositorio = crearCobroPostgres(pool);
     const resultado = await repositorio.finalizarYCobrar(viajeId, choferId);
 
     assert.equal(resultado.estado, 'finalizado');
@@ -408,7 +423,7 @@ test('finalizarYCobrar deja el viaje pendiente si el saldo es insuficiente', asy
 
     await cargarSaldo(pool, billeteraId, 2000);
 
-    const repositorio = crearRepositorioViajesPostgres(pool);
+    const repositorio = crearCobroPostgres(pool);
     const resultado = await repositorio.finalizarYCobrar(viajeId, choferId);
 
     assert.equal(resultado.estado, 'pago_pendiente');
@@ -446,7 +461,7 @@ test('dos finalizaciones simultáneas no generan dos cobros', async (t) => {
 
     await cargarSaldo(pool, billeteraId, 10000);
 
-    const repositorio = crearRepositorioViajesPostgres(pool);
+    const repositorio = crearCobroPostgres(pool);
 
     const resultados = await Promise.allSettled([
       repositorio.finalizarYCobrar(viajeId, choferId),
@@ -516,7 +531,7 @@ async function contarConsumosDelViaje(pool, viajeId) {
 async function crearViajeEnPagoPendiente(pool, pasajeroId, importe) {
   const choferId = await crearChofer(pool);
   const viajeId = await crearViaje(pool, pasajeroId, { choferId, estado: 'en_curso', importe });
-  const resultado = await crearRepositorioViajesPostgres(pool).finalizarYCobrar(viajeId, choferId);
+  const resultado = await crearCobroPostgres(pool).finalizarYCobrar(viajeId, choferId);
   assert.equal(resultado.estado, 'pago_pendiente');
   return viajeId;
 }
@@ -526,7 +541,7 @@ async function crearViajeEnPagoPendiente(pool, pasajeroId, importe) {
 // los dos cobros: el segundo ve el consumo del primero y no gasta saldo que ya no existe.
 test('dos viajes distintos del mismo pasajero cobrados a la vez: sólo uno consume el saldo', async (t) => {
   await conBaseDePrueba(t, async (pool) => {
-    const repositorio = crearRepositorioViajesPostgres(pool);
+    const repositorio = crearCobroPostgres(pool);
 
     // Se repite con varios pasajeros para que la carrera ocurra de verdad y no por suerte del orden.
     for (let intento = 0; intento < 10; intento += 1) {
@@ -557,7 +572,7 @@ test('finalizarYCobrar con estimación 0 finaliza sin generar movimiento', async
     const { pasajeroId, billeteraId } = await crearPasajero(pool);
     const choferId = await crearChofer(pool);
     const viajeId = await crearViaje(pool, pasajeroId, { choferId, estado: 'en_curso', importe: 0 });
-    const repositorio = crearRepositorioViajesPostgres(pool);
+    const repositorio = crearCobroPostgres(pool);
 
     const resultado = await repositorio.finalizarYCobrar(viajeId, choferId);
 
@@ -580,7 +595,7 @@ test('finalizarYCobrar sin billetera rechaza con BILLETERA_NO_ENCONTRADA y no ca
     const { pasajeroId } = await crearPasajero(pool, false);
     const choferId = await crearChofer(pool);
     const viajeId = await crearViaje(pool, pasajeroId, { choferId, estado: 'en_curso', importe: 5000 });
-    const repositorio = crearRepositorioViajesPostgres(pool);
+    const repositorio = crearCobroPostgres(pool);
 
     await assert.rejects(
       repositorio.finalizarYCobrar(viajeId, choferId),
@@ -595,7 +610,7 @@ test('reintentarCobro cobra un viaje en pago_pendiente después de una carga', a
     const { pasajeroId, billeteraId } = await crearPasajero(pool);
     const viajeId = await crearViajeEnPagoPendiente(pool, pasajeroId, 5000);
     await cargarSaldo(pool, billeteraId, 8000);
-    const repositorio = crearRepositorioViajesPostgres(pool);
+    const repositorio = crearCobroPostgres(pool);
 
     const resultado = await repositorio.reintentarCobro(viajeId, pasajeroId);
 
@@ -619,7 +634,7 @@ test('reintentarCobro con saldo insuficiente no debita y el viaje sigue en pago_
     const { pasajeroId, billeteraId } = await crearPasajero(pool);
     const viajeId = await crearViajeEnPagoPendiente(pool, pasajeroId, 5000);
     await cargarSaldo(pool, billeteraId, 4999);
-    const repositorio = crearRepositorioViajesPostgres(pool);
+    const repositorio = crearCobroPostgres(pool);
 
     await assert.rejects(
       repositorio.reintentarCobro(viajeId, pasajeroId),
@@ -636,7 +651,7 @@ test('reintentarCobro no cobra el viaje de otro pasajero ni un viaje sin deuda',
     const otro = await crearPasajero(pool);
     const viajeId = await crearViajeEnPagoPendiente(pool, pasajeroId, 5000);
     await cargarSaldo(pool, otro.billeteraId, 10000);
-    const repositorio = crearRepositorioViajesPostgres(pool);
+    const repositorio = crearCobroPostgres(pool);
 
     await assert.rejects(
       repositorio.reintentarCobro(viajeId, otro.pasajeroId),
@@ -659,7 +674,7 @@ test('dos reintentos de cobro simultáneos del mismo viaje cobran una sola vez',
     const { pasajeroId, billeteraId } = await crearPasajero(pool);
     const viajeId = await crearViajeEnPagoPendiente(pool, pasajeroId, 5000);
     await cargarSaldo(pool, billeteraId, 20000);
-    const repositorio = crearRepositorioViajesPostgres(pool);
+    const repositorio = crearCobroPostgres(pool);
 
     const resultados = await Promise.allSettled([
       repositorio.reintentarCobro(viajeId, pasajeroId),
@@ -714,7 +729,7 @@ test('buscarViajeActualDelChofer devuelve el viaje activo y null al finalizar', 
     assert.equal(viaje.estimacionCentavos, 0);
     assert.ok(Math.abs(viaje.destino.longitud - -58.98) < 1e-6);
 
-    await repositorio.finalizarYCobrar(viajeId, choferId);
+    await crearCobroPostgres(pool).finalizarYCobrar(viajeId, choferId);
     assert.equal(await repositorio.buscarViajeActualDelChofer(choferId), null);
   });
 });

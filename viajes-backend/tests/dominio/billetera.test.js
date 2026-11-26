@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { calcularSaldo, TipoMovimientoBilletera } from '../../src/dominio/billetera/billetera.js';
+import { calcularSaldo, decidirCobro, TipoMovimientoBilletera } from '../../src/dominio/billetera/billetera.js';
 import { validarCentavos } from '../../src/dominio/billetera/dinero.js';
 
 test('el saldo se deriva de cargas y consumos expresados en centavos', () => {
@@ -84,6 +84,16 @@ test('rechaza un movimiento con importe negativo', () => {
     () => calcularSaldo([
       { tipo: TipoMovimientoBilletera.CARGA, importeCentavos: -100 },
     ]),
+    (error) => error.codigo === 'IMPORTE_INVALIDO',
+  );
+});
+
+test('decidirCobro: nunca cobra parcial y con importe 0 no genera consumo', () => {
+  assert.deepEqual(decidirCobro({ saldoCentavos: 5000, importeCentavos: 5000 }), { cobrado: true, generaConsumo: true });
+  assert.deepEqual(decidirCobro({ saldoCentavos: 4999, importeCentavos: 5000 }), { cobrado: false, generaConsumo: false });
+  assert.deepEqual(decidirCobro({ saldoCentavos: 0, importeCentavos: 0 }), { cobrado: true, generaConsumo: false });
+  assert.throws(
+    () => decidirCobro({ saldoCentavos: 10000, importeCentavos: 0.5 }),
     (error) => error.codigo === 'IMPORTE_INVALIDO',
   );
 });

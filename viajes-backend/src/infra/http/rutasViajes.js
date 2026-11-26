@@ -36,7 +36,7 @@ export function crearRutasViajes({ solicitarViaje, buscarViajePropio, ofrecerAlC
   router.post('/:viajeId/reintentar-cobro', requiereAutenticacion(tokens), idempotente('viajes.reintentar_cobro'), async (req, res) => {
     soloPasajero(req);
     if (!z.string().uuid().safeParse(req.params.viajeId).success) throw new ErrorDeDominio('ENTRADA_INVALIDA', 'Identificador de viaje inválido.');
-    res.status(200).json(await reintentarCobro(req.params.viajeId, req.autenticacion.usuarioId));
+    res.status(200).json(await reintentarCobro({ viajeId: req.params.viajeId, pasajeroId: req.autenticacion.usuarioId }));
   });
   return router;
 }

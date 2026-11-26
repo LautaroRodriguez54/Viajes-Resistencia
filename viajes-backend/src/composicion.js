@@ -6,6 +6,7 @@ import { crearRepositorioBilleterasPostgres } from './infra/db/repositorioBillet
 import { crearRepositorioViajesPostgres } from './infra/db/repositorioViajesPostgres.js';
 import { crearRepositorioChoferesPostgres } from './infra/db/repositorioChoferesPostgres.js';
 import { crearRepositorioIdempotenciaPostgres } from './infra/db/repositorioIdempotenciaPostgres.js';
+import { crearUnidadDeTrabajoCobroPostgres } from './infra/db/unidadDeTrabajoCobroPostgres.js';
 import { crearHasheadorArgon2 } from './infra/autenticacion/contrasenasArgon2.js';
 import { crearServicioJwt } from './infra/autenticacion/tokensJwt.js';
 import { crearApp } from './infra/http/app.js';
@@ -13,6 +14,8 @@ import { crearRegistrarUsuario } from './aplicacion/autenticacion/registrarUsuar
 import { crearIniciarSesion } from './aplicacion/autenticacion/iniciarSesion.js';
 import { crearProcesarCargaWebhook } from './aplicacion/billetera/procesarCargaWebhook.js';
 import { crearSolicitarViaje } from './aplicacion/viajes/solicitarViaje.js';
+import { crearFinalizarViajeYCobrar } from './aplicacion/viajes/finalizarViajeYCobrar.js';
+import { crearReintentarCobro } from './aplicacion/viajes/reintentarCobro.js';
 import { crearVerificadorWebhookHmac } from './infra/externos/verificadorWebhookHmac.js';
 
 export function componerAplicacion() {
@@ -38,9 +41,13 @@ export function componerAplicacion() {
     consultarSaldoPorPasajero: billeteras.consultarSaldoPorPasajero,
     tokens,
   };
-  const viajesHttp = { solicitarViaje: crearSolicitarViaje({ viajes }), buscarViajePropio: viajes.buscarPorIdDelPasajero, ofrecerAlChoferCercano: viajes.ofrecerAlChoferCercano, reintentarCobro: viajes.reintentarCobro, tokens };
+  // El cobro (finalizar y reintentar) corre en una unidad de trabajo: una sola transacción, viaje → billetera.
+  const unidadDeTrabajoCobro = crearUnidadDeTrabajoCobroPostgres(pool);
+  const finalizarYCobrar = crearFinalizarViajeYCobrar({ unidadDeTrabajo: unidadDeTrabajoCobro });
+  const reintentarCobro = crearReintentarCobro({ unidadDeTrabajo: unidadDeTrabajoCobro });
+  const viajesHttp = { solicitarViaje: crearSolicitarViaje({ viajes }), buscarViajePropio: viajes.buscarPorIdDelPasajero, ofrecerAlChoferCercano: viajes.ofrecerAlChoferCercano, reintentarCobro, tokens };
   const ofertasHttp = { aceptarOferta: viajes.aceptarOferta, tokens };
-  const choferesHttp = { cambiarDisponibilidad: choferes.cambiarDisponibilidad, registrarUbicacion: choferes.registrarUbicacion, avanzarEstado: viajes.avanzarEstado, finalizarYCobrar: viajes.finalizarYCobrar, buscarOfertaPendiente: viajes.buscarOfertaPendienteDelChofer, buscarViajeActual: viajes.buscarViajeActualDelChofer, tokens };
+  const choferesHttp = { cambiarDisponibilidad: choferes.cambiarDisponibilidad, registrarUbicacion: choferes.registrarUbicacion, avanzarEstado: viajes.avanzarEstado, finalizarYCobrar, buscarOfertaPendiente: viajes.buscarOfertaPendienteDelChofer, buscarViajeActual: viajes.buscarViajeActualDelChofer, tokens };
   const administracion = { establecerHabilitacion: choferes.establecerHabilitacion, tokens };
   const app = crearApp({ config, logger, verificarDisponibilidad: () => verificarPostgres(pool), autenticacion, billetera, viajes: viajesHttp, ofertas: ofertasHttp, choferes: choferesHttp, administracion, idempotencia: crearRepositorioIdempotenciaPostgres(pool) });
   return { app, config, logger, cerrar: () => pool.end() };

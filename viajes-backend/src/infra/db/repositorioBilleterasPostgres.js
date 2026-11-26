@@ -1,5 +1,31 @@
 import crypto from 'node:crypto';
 import { ErrorDeDominio } from '../../dominio/errores.js';
+import { decidirCobro } from '../../dominio/billetera/billetera.js';
+
+// Parte de billetera del puerto unidadDeTrabajoCobro: usa el `client` de la transacción del cobro.
+// El FOR UPDATE sobre la fila de billeteras es lo que resuelve la carrera de la variante D: dos cobros
+// del mismo pasajero se serializan y el segundo ve el consumo del primero.
+export function crearCobroBilleteraPostgres(client) {
+  return {
+    async cobrar({ pasajeroId, viajeId, importeCentavos }) {
+      const billetera = await client.query('SELECT id FROM billeteras WHERE pasajero_id = $1 FOR UPDATE', [pasajeroId]);
+      if (!billetera.rows[0]) throw new ErrorDeDominio('BILLETERA_NO_ENCONTRADA', 'El pasajero no tiene billetera.');
+      const billeteraId = billetera.rows[0].id;
+      const saldo = await client.query(
+        "SELECT COALESCE(SUM(CASE WHEN tipo = 'carga' THEN importe_centavos ELSE -importe_centavos END), 0) AS centavos FROM movimientos_billetera WHERE billetera_id = $1",
+        [billeteraId],
+      );
+      const decision = decidirCobro({ saldoCentavos: Number(saldo.rows[0].centavos), importeCentavos });
+      if (decision.generaConsumo) {
+        await client.query(
+          "INSERT INTO movimientos_billetera (billetera_id, viaje_id, tipo, importe_centavos) VALUES ($1, $2, 'consumo', $3)",
+          [billeteraId, viajeId, importeCentavos],
+        );
+      }
+      return { cobrado: decision.cobrado };
+    },
+  };
+}
 
 export function crearRepositorioBilleterasPostgres(pool) {
   return {

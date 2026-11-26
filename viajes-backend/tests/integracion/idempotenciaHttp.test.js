@@ -5,6 +5,9 @@ import { crearPoolPostgres } from '../../src/infra/db/postgres.js';
 import { crearRepositorioViajesPostgres } from '../../src/infra/db/repositorioViajesPostgres.js';
 import { crearRepositorioIdempotenciaPostgres } from '../../src/infra/db/repositorioIdempotenciaPostgres.js';
 import { crearSolicitarViaje } from '../../src/aplicacion/viajes/solicitarViaje.js';
+import { crearUnidadDeTrabajoCobroPostgres } from '../../src/infra/db/unidadDeTrabajoCobroPostgres.js';
+import { crearFinalizarViajeYCobrar } from '../../src/aplicacion/viajes/finalizarViajeYCobrar.js';
+import { crearReintentarCobro } from '../../src/aplicacion/viajes/reintentarCobro.js';
 import { crearServicioJwt } from '../../src/infra/autenticacion/tokensJwt.js';
 import { crearApp } from '../../src/infra/http/app.js';
 import { Rol } from '../../src/dominio/usuarios/roles.js';
@@ -45,6 +48,7 @@ async function conApp(pool, fn) {
   };
   const tokens = crearServicioJwt(config);
   const viajes = crearRepositorioViajesPostgres(pool);
+  const unidadDeTrabajo = crearUnidadDeTrabajoCobroPostgres(pool);
   const noUsado = async () => { throw new Error('no usado en este test'); };
   const app = crearApp({
     config,
@@ -56,11 +60,11 @@ async function conApp(pool, fn) {
       solicitarViaje: crearSolicitarViaje({ viajes }),
       buscarViajePropio: viajes.buscarPorIdDelPasajero,
       ofrecerAlChoferCercano: viajes.ofrecerAlChoferCercano,
-      reintentarCobro: viajes.reintentarCobro,
+      reintentarCobro: crearReintentarCobro({ unidadDeTrabajo }),
       tokens,
     },
     ofertas: { aceptarOferta: viajes.aceptarOferta, tokens },
-    choferes: { cambiarDisponibilidad: noUsado, registrarUbicacion: noUsado, avanzarEstado: viajes.avanzarEstado, finalizarYCobrar: viajes.finalizarYCobrar, buscarOfertaPendiente: viajes.buscarOfertaPendienteDelChofer, buscarViajeActual: viajes.buscarViajeActualDelChofer, tokens },
+    choferes: { cambiarDisponibilidad: noUsado, registrarUbicacion: noUsado, avanzarEstado: viajes.avanzarEstado, finalizarYCobrar: crearFinalizarViajeYCobrar({ unidadDeTrabajo }), buscarOfertaPendiente: viajes.buscarOfertaPendienteDelChofer, buscarViajeActual: viajes.buscarViajeActualDelChofer, tokens },
     administracion: { establecerHabilitacion: noUsado, tokens },
     idempotencia: crearRepositorioIdempotenciaPostgres(pool),
   });
