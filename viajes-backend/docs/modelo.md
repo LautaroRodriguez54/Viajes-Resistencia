@@ -27,6 +27,46 @@
 - `eventos_webhook_pago` deduplica por el identificador del proveedor antes de crear una carga.
 - PostGIS almacena `origen`, `destino` y ubicaciones como `geography(Point, 4326)` indexada con GiST.
 
+## Billetera
+
+- **Dinero en centavos enteros** (`src/dominio/billetera/dinero.js`). En punto flotante `0.1 + 0.2 !== 0.3`, porque los binarios no representan exactamente las fracciones decimales; con enteros la suma es exacta. `validarCentavos` rechaza todo lo que no sea un `Number.isSafeInteger` ≥ 0. En la base, todas las columnas `*_centavos` son `INTEGER`. Lo muestra `tests/dominio/billetera.test.js`.
+- **El saldo no se guarda: se calcula.** Es la suma de las cargas menos los consumos de `movimientos_billetera` (`calcularSaldo` en el dominio, `SUM` en el repositorio). No existe una columna "saldo" que se pueda pisar, así que:
+  - todo cambio queda en el historial;
+  - nunca se pierde una actualización entre dos procesos;
+  - el saldo se puede recalcular desde cero.
+
+  El costo es sumar en cada lectura. Lo va a resolver la proyección de saldos del tema 13, que sirve sólo para mostrar: **el cobro siempre decide sobre la suma de movimientos, con la billetera bloqueada**.
+- **Movimientos inmutables.** Un trigger impide `UPDATE` y `DELETE` en `movimientos_billetera`. Una corrección (reintegro, ajuste) se registra como un movimiento nuevo, nunca editando el anterior.
+- **El saldo nunca queda negativo.** Sólo se inserta un `consumo` con la billetera bloqueada y después de verificar que el saldo alcanza; si no alcanza, el viaje queda en `pago_pendiente` (ver abajo).
+- **Cargas.** Las acredita el proveedor de pagos con el webhook firmado `POST /billetera/webhooks/cargas`:
+  - firma HMAC-SHA256 sobre los bytes exactos del cuerpo; una firma inválida da `401 FIRMA_WEBHOOK_INVALIDA`;
+  - deduplicación por `eventoExternoId` (`proveedor_evento_id` único + `ON CONFLICT DO NOTHING`): un evento repetido no acredita dos veces.
+
+  En desarrollo, `npm run cargar-saldo` hace de proveedor contra ese mismo webhook. No hay ningún endpoint de carga manual.
+
+## Tarifa
+
+La calcula **siempre el servidor**; el cliente sólo manda coordenadas (`src/dominio/viajes/tarifa.js`). Con los parámetros activos de `parametros_tarifa` (hay uno solo activo, por el índice único parcial):
+
+```text
+kilómetros = distancia Haversine entre origen y destino (línea recta)
+minutos    = max(1, ⌈kilómetros / velocidad_promedio_kmh × 60⌉)
+importe    = base_centavos + ⌈kilómetros⌉ × por_kilometro_centavos + minutos × por_minuto_centavos
+```
+
+- Con el seed de desarrollo (base 500, 250 por km, 100 por minuto, 30 km/h), un viaje de 1,4 km da 500 + 2 × 250 + 3 × 100 = **1300 centavos**.
+- Si el importe supera `maximo_viaje_centavos`, la solicitud se rechaza (`VIAJE_SUPERA_MAXIMO`). Si no hay tarifa activa, responde `TARIFA_NO_CONFIGURADA`.
+- Al finalizar se cobra `estimacion_centavos`: todavía no hay tarifa final calculada con el recorrido real.
+- Radio de búsqueda de choferes: 5 km fijos (`ST_DWithin` en `ofrecerAlChoferCercano`).
+
+## Idempotencia
+
+Ver el ADR 010. Hay tres niveles:
+
+1. **HTTP**: `Idempotency-Key` en las 5 operaciones que crean o cobran, guardada en `claves_idempotencia`.
+2. **Cobro**: a lo sumo un consumo por viaje, con `ux_un_consumo_por_viaje`.
+3. **Webhook**: `proveedor_evento_id` único.
+
 ## Cobro y `pago_pendiente`
 
 El cobro se hace en una sola transacción al finalizar (`finalizarYCobrar`). Primero se bloquea el viaje y después la billetera del pasajero (`SELECT ... FOR UPDATE`). Ese orden se mantiene siempre para que no haya interbloqueos. Con la billetera bloqueada, dos cobros del mismo pasajero se hacen de a uno: el segundo ya ve el consumo del primero y no puede gastar un saldo que ya no existe.
@@ -45,8 +85,7 @@ El cobro se hace en una sola transacción al finalizar (`finalizarYCobrar`). Pri
 
 ## Decisiones pendientes
 
-- TODO: definir si se permite una carga manual en demo y quién la inicia.
-- TODO: definir reglas completas de tarifa, radio de búsqueda y orden de ofertas.
+- TODO: tarifa final desde el recorrido y la duración reales; radio de búsqueda administrable o constante; orden de ofertas al vencer una.
 - TODO: definir retención/agregación de ubicaciones históricas.
 
 ## Diagrama inicial

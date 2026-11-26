@@ -196,7 +196,7 @@ Prioridad: lo que pide el **control 3** de Puljiz (carrera con test concurrente 
 - [ ] ADR: completar "Participantes" y fecha en todos, cerrar 004 y 005, escribir 008–010.
 - [ ] `docs/mediciones.md`: hipótesis con número antes de medir, entorno, comando exacto, tabla ingenua vs final, conclusión.
 - [ ] `docs/ataque.md`: bitácora (número, hipótesis, petición exacta, esperado, obtenido, veredicto, severidad, impacto) y respuesta del defensor (causa raíz, commit, test que falla antes y pasa después).
-- [ ] `docs/api.md`: actualizar la tabla (la aceptación de oferta figura como TODO pero ya está), prefijo/versión de API y eventos SSE.
+- [x] `docs/api.md` como índice del OpenAPI (rama `docs/api-openapi`). Quedan prefijo/versión de API y eventos SSE.
 - [ ] `docs/modelo.md`: diagrama, transiciones de `pago_pendiente`, reglas de tarifa y radio, retención de ubicaciones, separación de bases.
 - [ ] Git: commits de los tres a lo largo del cuatrimestre, PR con revisión real de otro integrante, tag `entrega-final`.
 
@@ -205,7 +205,7 @@ Prioridad: lo que pide el **control 3** de Puljiz (carrera con test concurrente 
 Además de lo de Puljiz. Códigos RF/RNF del Word. El alcance exacto de cada entrega lo fija el Acta de Alcance: esto es el máximo posible, no todo es obligatorio para TP1.
 
 ### TP1 · Contrato ejecutable
-- [ ] **OpenAPI** versionado (`docs/openapi.yaml`) con parámetros, esquemas, validaciones, ejemplos, respuestas de éxito y error (`{ error: { codigo, requestId } }`) y esquema de seguridad Bearer; visualización local (p. ej. Swagger UI en `GET /docs`, deshabilitada en producción). Los esquemas Zod y el contrato no pueden divergir.
+- [~] **OpenAPI** versionado (hecho: `docs/openapi.yaml` 0.2.0 + Swagger UI en el compose con `--profile docs`; falta validar las respuestas en los tests) (`docs/openapi.yaml`) con parámetros, esquemas, validaciones, ejemplos, respuestas de éxito y error (`{ error: { codigo, requestId } }`) y esquema de seguridad Bearer; visualización local (p. ej. Swagger UI en `GET /docs`, deshabilitada en producción). Los esquemas Zod y el contrato no pueden divergir.
 - [ ] Tests de integración que validen las respuestas contra el OpenAPI.
 - [ ] Mocks/stubs de las dependencias de otros módulos hechos desde **sus** OpenAPI, con casos de éxito, error y demora. Encajan como adaptadores en memoria de los puertos (también cumplen el bloque 2 de Puljiz).
 - [ ] **Dockerfile** del backend (multi-stage, usuario no root, `HEALTHCHECK` contra `/health`) y servicio `api` en `docker-compose.yml`. La secuencia de clon limpio de Puljiz tiene que seguir funcionando igual.

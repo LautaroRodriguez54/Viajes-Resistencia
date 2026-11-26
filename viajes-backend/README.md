@@ -62,7 +62,8 @@ La autenticación usa JWT y las contraseñas usarán Argon2id. La matriz detalla
 ## Documentación
 
 - [Modelo de dominio](docs/modelo.md)
-- [Contrato HTTP](docs/api.md)
+- [Contrato HTTP (OpenAPI 3.1)](docs/openapi.yaml): resumen en [`api.md`](docs/api.md); Swagger UI con `docker compose --profile docs up -d docs` (http://localhost:8080)
+- [Colección de pedidos](docs/requests.http): el recorrido completo de un viaje para REST Client
 - [Mediciones](docs/mediciones.md)
 - [Bitácora de ataque](docs/ataque.md)
 - [Guía de implementación](docs/guia-implementacion.md)

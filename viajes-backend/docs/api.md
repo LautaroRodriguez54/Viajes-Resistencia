@@ -1,44 +1,55 @@
-# Contrato HTTP inicial
+# Contrato HTTP
 
-El contrato detallado se publica antes del congelamiento. Toda entrada se validará con esquema, incluidos parámetros, query y encabezados relevantes.
+**La fuente de verdad es [`openapi.yaml`](openapi.yaml)** (OpenAPI 3.1): esquemas, validaciones, ejemplos, errores por endpoint y seguridad. Este archivo sólo resume el contrato y dice dónde está cada cosa.
 
-| Área | Endpoint previsto | Estado |
-|---|---|---|
-| Salud | `GET /health` | Implementado |
-| Disponibilidad | `GET /ready` | Implementado |
-| Autenticación | `POST /auth/register`, `POST /auth/login`, `GET /auth/me` | Implementado (alcance inicial) |
-| Viajes | `POST /viajes`, `GET /viajes/:viajeId` | Implementado: solicitud/consulta de pasajero |
-| Ofertas | `POST /viajes/:viajeId/ofertas` | Implementado: elige el chofer disponible más cercano en 5 km |
-| Ofertas | `POST /ofertas/:ofertaId/aceptar` | Implementado: aceptación atómica del chofer |
-| Choferes | `PUT /choferes/me/disponibilidad`, `PUT /choferes/me/ubicacion` | Implementado |
-| Viaje del chofer | `POST /choferes/viajes/:viajeId/estado`, `POST /choferes/viajes/:viajeId/finalizar` | Implementado |
-| Administración | `PATCH /admin/choferes/:choferId/habilitacion` | Implementado |
-| Ofertas | aceptación y vencimiento de oferta | TODO |
-| Ubicaciones | actualización de chofer y seguimiento SSE | TODO |
-| Billetera | `GET /billetera/me` | Implementado (saldo) |
-| Pagos | `POST /billetera/webhooks/cargas` | Implementado (carga simulada) |
+## Cómo verlo y probarlo
 
-## Convenciones confirmadas
+| Qué | Cómo |
+|---|---|
+| Swagger UI (interactivo) | `docker compose --profile docs up -d docs` → http://localhost:8080. Con el servidor levantado (`npm run dev`), "Try it out" llama a `http://localhost:3000`: el origen `http://localhost:8080` ya está en `CORS_ORIGINS` de `.env.example`. Se apaga con `docker compose --profile docs stop docs`. |
+| Colección de pedidos | [`requests.http`](requests.http): el recorrido completo de un viaje en orden, más los errores típicos. Se usa con la extensión REST Client de VS Code. |
+| Cargar saldo | `npm run cargar-saldo -- <email> <centavos>` (ver el README del backend). |
 
-- Las operaciones que crean, cobran o producen efectos externos requieren el header `Idempotency-Key` (un UUID por intención): `POST /viajes`, `POST /viajes/:viajeId/ofertas`, `POST /viajes/:viajeId/reintentar-cobro`, `POST /ofertas/:ofertaId/aceptar` y `POST /choferes/viajes/:viajeId/finalizar`. Sin header: 400 `CLAVE_IDEMPOTENCIA_REQUERIDA`; misma clave con otro pedido: 422 `CLAVE_IDEMPOTENCIA_REUTILIZADA`; repetida mientras la primera está en curso: 409 `PEDIDO_EN_CURSO`; repetida ya completada: la misma respuesta con `Idempotency-Replayed: true`. Detalle en el ADR 010.
-- Los errores no exponen stack traces; incluirán `codigo` y `requestId`.
-- El webhook verificará HMAC sobre el cuerpo crudo antes de procesarlo.
+## Endpoints
 
-## Carga de billetera simulada
+| Área | Endpoint | Rol | `Idempotency-Key` |
+|---|---|---|---|
+| Salud | `GET /health`, `GET /ready` | — | |
+| Autenticación | `POST /auth/register`, `POST /auth/login`, `GET /auth/me` | — / cualquiera | |
+| Viajes | `POST /viajes` | pasajero | **sí** |
+| Viajes | `GET /viajes/:viajeId` | pasajero dueño | |
+| Ofertas | `POST /viajes/:viajeId/ofertas` | pasajero dueño | **sí** |
+| Ofertas | `POST /ofertas/:ofertaId/aceptar` | chofer de la oferta | **sí** |
+| Chofer | `PUT /choferes/me/disponibilidad`, `PUT /choferes/me/ubicacion` | chofer | |
+| Chofer | `POST /choferes/viajes/:viajeId/estado` | chofer asignado | |
+| Chofer | `POST /choferes/viajes/:viajeId/finalizar` (finaliza y cobra) | chofer asignado | **sí** |
+| Billetera | `POST /viajes/:viajeId/reintentar-cobro` | pasajero dueño | **sí** |
+| Billetera | `GET /billetera/me` | pasajero | |
+| Billetera | `POST /billetera/webhooks/cargas` | proveedor de pagos (firma HMAC) | no: deduplica por `eventoExternoId` |
+| Administración | `PATCH /admin/choferes/:choferId/habilitacion` | administrador | |
 
-`POST /billetera/webhooks/cargas` recibe un JSON estricto con `eventoExternoId`, `pasajeroId` e `importeCentavos`, y el encabezado `X-Webhook-Signature: sha256=<hmac>`. El HMAC-SHA256 se calcula sobre los bytes exactos del cuerpo con `WEBHOOK_HMAC_SECRET`. Un segundo envío del mismo `eventoExternoId` no crea otro movimiento y responde como duplicado.
+**Pendientes** (se agregan al OpenAPI cuando existan): estimación sin crear el viaje, cancelaciones con motivo, rechazo de oferta, endpoints del operador, historiales, movimientos de la billetera y SSE.
 
-## Autenticación inicial
+## Convenciones
 
-- `POST /auth/register`: registra solamente `pasajero` o `chofer`. Un chofer debe incluir vehículo y queda pendiente de habilitación administrativa.
-- `POST /auth/login`: devuelve un JWT Bearer con `sub` y `rol`.
-- `GET /auth/me`: requiere `Authorization: Bearer <token>`.
-- Las contraseñas requieren entre 12 y 128 caracteres y se almacenan con Argon2id.
-- No se implementan refresh tokens, recuperación de contraseña ni revocación en esta primera etapa.
+- **Errores**: siempre `{ "error": { "codigo", "requestId" } }`, sin stack trace. El cliente decide por `codigo`. El `requestId` es el mismo del header `X-Request-Id` y de los logs.
+- **Idempotencia** (ADR 010):
+  - sin header: `400 CLAVE_IDEMPOTENCIA_REQUERIDA`;
+  - la misma clave con otro pedido: `422 CLAVE_IDEMPOTENCIA_REUTILIZADA`;
+  - repetida mientras la primera sigue en curso: `409 PEDIDO_EN_CURSO`;
+  - repetida ya completada: la misma respuesta con `Idempotency-Replayed: true`.
+- **Entrada estricta**: los cuerpos se validan con Zod `.strict()`, así que un campo de más da `400 ENTRADA_INVALIDA`. JSON mal formado da `400 JSON_INVALIDO`; un cuerpo de más de 100 kB, `413`.
+- **Dinero** en centavos enteros. La tarifa la calcula el servidor (ver `modelo.md`).
+- **Webhook**: HMAC-SHA256 sobre los bytes exactos del cuerpo, en `X-Webhook-Signature: sha256=<hex>`, con `WEBHOOK_HMAC_SECRET`.
+- **Autenticación**: JWT Bearer HS256 de 15 min, sin refresh ni revocación todavía. Contraseñas de 12 a 128 caracteres, guardadas con Argon2id. El registro público admite sólo pasajero y chofer; el chofer queda sin habilitar.
+- **Límite de tasa** en login, webhook y ubicación: `429 LIMITE_DE_PETICIONES_EXCEDIDO` con headers `RateLimit-*`.
+
+## Equivalencias con el TP integrador
+
+pasajero = cliente · chofer = conductor · billetera = medio de pago (M7) · oferta = oferta de despacho (M5).
 
 ## Pendiente de acordar
 
-- TODO: versión/prefijo de API.
-- TODO: formato de login y duración de credenciales.
-- TODO: eventos SSE, estrategia de reconexión y último evento recibido.
-
+- Prefijo y versión de la API (`/v1`), cuando haya que convivir con otros módulos del consorcio.
+- Eventos SSE, estrategia de reconexión y `Last-Event-ID`.
+- Tests que validen las respuestas contra `openapi.yaml` (TP1). Hace falta elegir una librería que lea YAML y valide JSON Schema.

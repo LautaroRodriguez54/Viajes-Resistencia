@@ -1,0 +1,181 @@
+# Colección de pedidos · recorrido completo de un viaje
+#
+# Se usa con la extensión REST Client de VS Code (humao.rest-client):
+# "Send Request" arriba de cada pedido, de a uno y EN ORDEN, porque cada
+# pedido usa ids y tokens de los anteriores (# @name + {{nombre.response...}}).
+# El contrato completo está en docs/openapi.yaml (Swagger UI:
+# `docker compose --profile docs up -d docs` → http://localhost:8080).
+#
+# Antes: `docker compose up -d`, `npm run setup` y `npm run dev`.
+# Cada vuelta usa emails nuevos ({{$timestamp}}), así se puede repetir entera.
+
+@base = http://localhost:3000
+@clave = ClaveSegura123!
+
+### 1. Salud del proceso
+GET {{base}}/health
+
+### 2. La base responde
+GET {{base}}/ready
+
+### 3. Registrar un pasajero (se le crea la billetera)
+# @name pasajero
+POST {{base}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "pasajero-{{$timestamp}}@demo.local",
+  "password": "{{clave}}",
+  "rol": "pasajero"
+}
+
+### 4. Registrar un chofer (queda sin habilitar)
+# @name chofer
+POST {{base}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "chofer-{{$timestamp}}@demo.local",
+  "password": "{{clave}}",
+  "rol": "chofer",
+  "vehiculo": { "patente": "AB{{$randomInt 100 999}}CD", "marca": "Toyota", "modelo": "Etios" }
+}
+
+### 5. Login del administrador de desarrollo (seed)
+# @name admin
+POST {{base}}/auth/login
+Content-Type: application/json
+
+{ "email": "admin@demo.local", "password": "AdminDemo123!" }
+
+### 6. Quién soy (con el token del pasajero)
+GET {{base}}/auth/me
+Authorization: Bearer {{pasajero.response.body.accessToken}}
+
+### 7. El administrador habilita al chofer
+PATCH {{base}}/admin/choferes/{{chofer.response.body.usuario.id}}/habilitacion
+Authorization: Bearer {{admin.response.body.accessToken}}
+Content-Type: application/json
+
+{ "habilitado": true }
+
+### 8. El chofer se marca disponible
+PUT {{base}}/choferes/me/disponibilidad
+Authorization: Bearer {{chofer.response.body.accessToken}}
+Content-Type: application/json
+
+{ "disponible": true }
+
+### 9. El chofer reporta su posición (cerca del origen del viaje)
+PUT {{base}}/choferes/me/ubicacion
+Authorization: Bearer {{chofer.response.body.accessToken}}
+Content-Type: application/json
+
+{ "latitud": -27.4510, "longitud": -58.9860 }
+
+### 10. Saldo del pasajero (arranca en 0)
+# Para cargarle saldo, en una terminal (centavos; 150000 = $1500):
+#   npm run cargar-saldo -- <email del paso 3> 150000
+# Sin carga, el paso 16 deja el viaje en pago_pendiente y sirve para probar el 18.
+GET {{base}}/billetera/me
+Authorization: Bearer {{pasajero.response.body.accessToken}}
+
+### 11. El pasajero solicita un viaje (Idempotency-Key obligatoria)
+# Mandarlo dos veces con la MISMA clave devuelve el mismo viaje con
+# "Idempotency-Replayed: true". Para pedir otro viaje, cambiar la clave.
+# @name viaje
+POST {{base}}/viajes
+Authorization: Bearer {{pasajero.response.body.accessToken}}
+Idempotency-Key: solicitar-{{pasajero.response.body.usuario.id}}
+Content-Type: application/json
+
+{
+  "origen": { "latitud": -27.4514, "longitud": -58.9867 },
+  "destino": { "latitud": -27.4400, "longitud": -58.9800 }
+}
+
+### 12. El pasajero consulta su viaje
+GET {{base}}/viajes/{{viaje.response.body.viaje.id}}
+Authorization: Bearer {{pasajero.response.body.accessToken}}
+
+### 13. Ofrecer el viaje al chofer más cercano (la oferta vence a los 30 s)
+# @name oferta
+POST {{base}}/viajes/{{viaje.response.body.viaje.id}}/ofertas
+Authorization: Bearer {{pasajero.response.body.accessToken}}
+Idempotency-Key: ofrecer-{{viaje.response.body.viaje.id}}
+
+### 14. El chofer acepta (antes de que venzan los 30 s)
+POST {{base}}/ofertas/{{oferta.response.body.ofertaId}}/aceptar
+Authorization: Bearer {{chofer.response.body.accessToken}}
+Idempotency-Key: aceptar-{{oferta.response.body.ofertaId}}
+
+### 15a. El chofer va en camino
+POST {{base}}/choferes/viajes/{{viaje.response.body.viaje.id}}/estado
+Authorization: Bearer {{chofer.response.body.accessToken}}
+Content-Type: application/json
+
+{ "estado": "chofer_en_camino" }
+
+### 15b. Empieza el viaje
+POST {{base}}/choferes/viajes/{{viaje.response.body.viaje.id}}/estado
+Authorization: Bearer {{chofer.response.body.accessToken}}
+Content-Type: application/json
+
+{ "estado": "en_curso" }
+
+### 16. El chofer finaliza: cobra si alcanza; si no, pago_pendiente
+POST {{base}}/choferes/viajes/{{viaje.response.body.viaje.id}}/finalizar
+Authorization: Bearer {{chofer.response.body.accessToken}}
+Idempotency-Key: finalizar-{{viaje.response.body.viaje.id}}
+
+### 17. Saldo después del viaje
+GET {{base}}/billetera/me
+Authorization: Bearer {{pasajero.response.body.accessToken}}
+
+### 18. Si quedó en pago_pendiente: cargar saldo (paso 10) y reintentar
+# Si responde 409 SALDO_INSUFICIENTE, esa clave queda con esa respuesta:
+# cargar saldo y reintentar con OTRA clave (por ejemplo, sumarle "-2").
+POST {{base}}/viajes/{{viaje.response.body.viaje.id}}/reintentar-cobro
+Authorization: Bearer {{pasajero.response.body.accessToken}}
+Idempotency-Key: reintento-{{$guid}}
+
+### ---------------------------------------------------------------------
+### Errores esperados (para ver el formato { error: { codigo, requestId } })
+
+### E1. Sin Idempotency-Key → 400 CLAVE_IDEMPOTENCIA_REQUERIDA
+POST {{base}}/viajes
+Authorization: Bearer {{pasajero.response.body.accessToken}}
+Content-Type: application/json
+
+{ "origen": { "latitud": -27.45, "longitud": -58.98 }, "destino": { "latitud": -27.44, "longitud": -58.98 } }
+
+### E2. La misma clave del paso 11 con otro cuerpo → 422 CLAVE_IDEMPOTENCIA_REUTILIZADA
+POST {{base}}/viajes
+Authorization: Bearer {{pasajero.response.body.accessToken}}
+Idempotency-Key: solicitar-{{pasajero.response.body.usuario.id}}
+Content-Type: application/json
+
+{ "origen": { "latitud": -27.45, "longitud": -58.98 }, "destino": { "latitud": -27.44, "longitud": -58.98 } }
+
+### E3. Un campo de más → 400 ENTRADA_INVALIDA
+PUT {{base}}/choferes/me/disponibilidad
+Authorization: Bearer {{chofer.response.body.accessToken}}
+Content-Type: application/json
+
+{ "disponible": true, "esAdmin": true }
+
+### E4. Un chofer consultando la billetera → 403 RECURSO_PROHIBIDO
+GET {{base}}/billetera/me
+Authorization: Bearer {{chofer.response.body.accessToken}}
+
+### E5. Sin token → 401 TOKEN_REQUERIDO
+GET {{base}}/auth/me
+
+### E6. Webhook con firma inválida → 401 FIRMA_WEBHOOK_INVALIDA
+# El secreto real sólo está en el .env del servidor; las cargas válidas se
+# hacen con `npm run cargar-saldo`.
+POST {{base}}/billetera/webhooks/cargas
+Content-Type: application/json
+X-Webhook-Signature: sha256=0000000000000000000000000000000000000000000000000000000000000000
+
+{ "eventoExternoId": "manual-1", "pasajeroId": "{{pasajero.response.body.usuario.id}}", "importeCentavos": 1000 }

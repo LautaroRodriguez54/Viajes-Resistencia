@@ -64,7 +64,8 @@ En Windows PowerShell 5.1 no existe `&&`: ejecutar los comandos uno por línea.
 
 - [README del backend](viajes-backend/README.md)
 - [Modelo de dominio](viajes-backend/docs/modelo.md)
-- [Contrato HTTP](viajes-backend/docs/api.md)
+- [Contrato HTTP (OpenAPI 3.1)](viajes-backend/docs/openapi.yaml): resumen en [`api.md`](viajes-backend/docs/api.md); Swagger UI con `docker compose --profile docs up -d docs` (http://localhost:8080)
+- [Colección de pedidos](viajes-backend/docs/requests.http): el recorrido completo de un viaje para REST Client
 - [Decisiones de arquitectura (ADR)](viajes-backend/docs/adr/)
 - [Mediciones](viajes-backend/docs/mediciones.md)
 - [Bitácora del ataque cruzado](viajes-backend/docs/ataque.md)

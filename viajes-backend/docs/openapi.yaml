@@ -1,0 +1,842 @@
+openapi: 3.1.0
+info:
+  title: Viajes Resistencia · API del backend
+  version: 0.2.0
+  summary: Viajes a demanda con billetera y pagos (grupo 4, variante D).
+  description: |
+    Contrato HTTP del backend. Es la **fuente de verdad** de la API: `docs/api.md` sólo lo resume.
+
+    ## Convenciones
+    - Todo el cuerpo va en JSON (`Content-Type: application/json`, máx. 100 kB). Los objetos son **estrictos**: un campo de más da `400 ENTRADA_INVALIDA`.
+    - **Dinero siempre en centavos enteros** (`*Centavos`). `150000` = $1500.
+    - Coordenadas en grados decimales (WGS 84): `latitud` en [-90, 90], `longitud` en [-180, 180].
+    - **Errores**: siempre `{ "error": { "codigo", "requestId" } }`, sin stack trace. El `requestId` coincide con el header `X-Request-Id` de la respuesta y con los logs del servidor. Se puede mandar un `X-Request-Id` propio (1 a 128 caracteres ASCII visibles) para seguir un pedido.
+    - **Autenticación**: `Authorization: Bearer <accessToken>` (JWT HS256, 15 min por defecto). El rol sale del token; un rol que no corresponde da `403 RECURSO_PROHIBIDO`.
+    - **Idempotencia** (ADR 010): las operaciones que crean o cobran exigen el header `Idempotency-Key` (un UUID por intención). Repetir la misma clave con el mismo pedido devuelve la respuesta guardada con `Idempotency-Replayed: true` y no ejecuta nada. Ver el parámetro `IdempotencyKey`.
+    - **Límite de tasa**: login, webhook y ubicación responden `429 LIMITE_DE_PETICIONES_EXCEDIDO` y mandan los headers `RateLimit-*` (borrador IETF, draft-6).
+
+    ## Equivalencias con el TP integrador (Fernández)
+    | En esta API | En la consigna |
+    |---|---|
+    | pasajero | cliente |
+    | chofer | conductor |
+    | billetera, consumo, carga | medio de pago, cobro, acreditación (M7) |
+    | oferta | oferta de despacho (M5) |
+    | `eventos_viaje` | auditoría del ciclo de vida (M6) |
+
+    ## Pendiente (no implementado todavía)
+    Estimación sin crear el viaje, cancelaciones (pasajero, chofer, operador), rechazo de oferta, endpoints del operador, historiales, movimientos de billetera y tiempo real por SSE. Se agregan acá cuando existan.
+  contact:
+    name: Grupo 4 · Escobar Lucas, Valussi Agustín, Rodríguez Lautaro
+servers:
+  - url: http://localhost:3000
+    description: Desarrollo local (`npm run dev`)
+tags:
+  - name: Salud
+  - name: Autenticación
+  - name: Viajes
+    description: Lo que hace el pasajero con sus viajes.
+  - name: Ofertas
+  - name: Choferes
+    description: Disponibilidad, ubicación y el viaje asignado al chofer.
+  - name: Billetera
+  - name: Administración
+
+paths:
+  /health:
+    get:
+      tags: [Salud]
+      summary: El proceso está vivo
+      operationId: salud
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ok' }
+  /ready:
+    get:
+      tags: [Salud]
+      summary: El servidor puede atender (la base responde)
+      operationId: disponibilidad
+      security: []
+      responses:
+        '200':
+          description: La base responde.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ok' }
+        '500': { $ref: '#/components/responses/ErrorInterno' }
+
+  /auth/register:
+    post:
+      tags: [Autenticación]
+      summary: Registrar un pasajero o un chofer
+      description: |
+        Sólo admite `pasajero` y `chofer`. Un chofer manda su vehículo y queda **sin habilitar** hasta que lo apruebe un administrador. Al pasajero se le crea la billetera en la misma transacción.
+      operationId: registrar
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Registro' }
+            examples:
+              pasajero:
+                value: { email: pasajero@demo.local, password: ClaveSegura123!, rol: pasajero }
+              chofer:
+                value: { email: chofer@demo.local, password: ClaveSegura123!, rol: chofer, vehiculo: { patente: AB123CD, marca: Toyota, modelo: Etios } }
+      responses:
+        '201':
+          description: Usuario creado; ya devuelve un token.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Sesion' }
+        '400': { $ref: '#/components/responses/EntradaInvalida' }
+        '409':
+          description: '`EMAIL_O_PATENTE_EXISTENTE`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: { codigo: EMAIL_O_PATENTE_EXISTENTE, requestId: 6f1c2d4e-8a0b-4c3d-9e2f-1a2b3c4d5e6f } }
+  /auth/login:
+    post:
+      tags: [Autenticación]
+      summary: Iniciar sesión
+      operationId: iniciarSesion
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Credenciales' }
+            example: { email: admin@demo.local, password: AdminDemo123! }
+      responses:
+        '200':
+          description: Sesión iniciada.
+          headers: { RateLimit-Policy: { $ref: '#/components/headers/RateLimitPolicy' }, RateLimit-Limit: { $ref: '#/components/headers/RateLimitLimit' }, RateLimit-Remaining: { $ref: '#/components/headers/RateLimitRemaining' }, RateLimit-Reset: { $ref: '#/components/headers/RateLimitReset' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Sesion' }
+        '400': { $ref: '#/components/responses/EntradaInvalida' }
+        '401':
+          description: '`CREDENCIALES_INVALIDAS`: el mismo error si el email no existe o si la contraseña está mal.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: { codigo: CREDENCIALES_INVALIDAS, requestId: 6f1c2d4e-8a0b-4c3d-9e2f-1a2b3c4d5e6f } }
+        '429': { $ref: '#/components/responses/LimiteExcedido' }
+  /auth/me:
+    get:
+      tags: [Autenticación]
+      summary: El usuario del token
+      operationId: usuarioActual
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [usuario]
+                properties:
+                  usuario: { $ref: '#/components/schemas/Usuario' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+
+  /viajes:
+    post:
+      tags: [Viajes]
+      summary: Solicitar un viaje (pasajero)
+      description: La tarifa la estima **el servidor** con los parámetros activos; el cliente sólo manda coordenadas.
+      operationId: solicitarViaje
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SolicitudViaje' }
+            example:
+              origen: { latitud: -27.4514, longitud: -58.9867 }
+              destino: { latitud: -27.44, longitud: -58.98 }
+      responses:
+        '201':
+          description: Viaje creado en estado `solicitado`.
+          headers: { Idempotency-Replayed: { $ref: '#/components/headers/IdempotencyReplayed' } }
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [viaje]
+                properties:
+                  viaje: { $ref: '#/components/schemas/ViajeConEstimacion' }
+        '400': { $ref: '#/components/responses/EntradaOClaveInvalida' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+        '409': { $ref: '#/components/responses/PedidoEnCurso' }
+        '422':
+          description: |
+            - `CLAVE_IDEMPOTENCIA_REUTILIZADA`: la misma clave con otro pedido.
+            - `TARIFA_NO_CONFIGURADA`: no hay parámetros de tarifa activos (`npm run setup` los carga).
+            - `VIAJE_SUPERA_MAXIMO`: la estimación supera `maximo_viaje_centavos` de la tarifa activa.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /viajes/{viajeId}:
+    get:
+      tags: [Viajes]
+      summary: Consultar un viaje propio (pasajero)
+      operationId: consultarViaje
+      parameters:
+        - $ref: '#/components/parameters/ViajeId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [viaje]
+                properties:
+                  viaje: { $ref: '#/components/schemas/Viaje' }
+        '400': { $ref: '#/components/responses/EntradaInvalida' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+        '404':
+          description: '`RECURSO_NO_ENCONTRADO`: el viaje no existe **o es de otro pasajero** (no se distingue, para no filtrar ids).'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /viajes/{viajeId}/ofertas:
+    post:
+      tags: [Viajes, Ofertas]
+      summary: Ofrecer el viaje al chofer más cercano (pasajero)
+      description: |
+        Elige el chofer habilitado y disponible más cercano a ≤ 5 km del origen, sin viaje activo ni otra oferta pendiente, y le crea una oferta que vence a los 30 s. Los pedidos simultáneos se reparten choferes con `FOR UPDATE SKIP LOCKED`.
+      operationId: ofrecerViaje
+      parameters:
+        - $ref: '#/components/parameters/ViajeId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201':
+          description: Oferta creada.
+          headers: { Idempotency-Replayed: { $ref: '#/components/headers/IdempotencyReplayed' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OfertaCreada' }
+        '400': { $ref: '#/components/responses/EntradaOClaveInvalida' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+        '404':
+          description: '`RECURSO_NO_ENCONTRADO`: el viaje no existe, es de otro pasajero o ya no está `solicitado`.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: '`SIN_CHOFERES_CERCANOS`, `OFERTA_NO_DISPONIBLE` (ya hay una oferta pendiente para ese chofer) o `PEDIDO_EN_CURSO`.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: { codigo: SIN_CHOFERES_CERCANOS, requestId: 6f1c2d4e-8a0b-4c3d-9e2f-1a2b3c4d5e6f } }
+        '422': { $ref: '#/components/responses/ClaveReutilizada' }
+  /viajes/{viajeId}/reintentar-cobro:
+    post:
+      tags: [Viajes, Billetera]
+      summary: Reintentar el cobro de un viaje en `pago_pendiente` (pasajero)
+      description: |
+        Después de cargar saldo. Cobra la tarifa final completa o nada (nunca parcial). Si el saldo sigue sin alcanzar, el `409 SALDO_INSUFICIENTE` queda guardado para esa `Idempotency-Key`: para volver a intentar, usar una clave nueva.
+      operationId: reintentarCobro
+      parameters:
+        - $ref: '#/components/parameters/ViajeId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Cobrado; el viaje pasa a `finalizado`.
+          headers: { Idempotency-Replayed: { $ref: '#/components/headers/IdempotencyReplayed' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultadoCobro' }
+              example: { viajeId: 3f6c1a2b-4d5e-4f60-8a9b-0c1d2e3f4a5b, estado: finalizado, importeCentavos: 1300 }
+        '400': { $ref: '#/components/responses/EntradaOClaveInvalida' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+        '404':
+          description: '`RECURSO_NO_ENCONTRADO` (no existe o es de otro pasajero) o `BILLETERA_NO_ENCONTRADA`.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: '`SALDO_INSUFICIENTE`, `TRANSICION_INVALIDA` (el viaje no está en `pago_pendiente`) o `PEDIDO_EN_CURSO`.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: { codigo: SALDO_INSUFICIENTE, requestId: 6f1c2d4e-8a0b-4c3d-9e2f-1a2b3c4d5e6f } }
+        '422': { $ref: '#/components/responses/ClaveReutilizada' }
+
+  /ofertas/{ofertaId}/aceptar:
+    post:
+      tags: [Ofertas]
+      summary: Aceptar una oferta (chofer)
+      description: |
+        Asignación única: entre aceptaciones simultáneas del mismo viaje gana exactamente una; las demás reciben `409 OFERTA_NO_DISPONIBLE`. La oferta se considera vencida según el reloj de PostgreSQL (`now()`), no el del cliente.
+      operationId: aceptarOferta
+      parameters:
+        - name: ofertaId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Viaje asignado al chofer.
+          headers: { Idempotency-Replayed: { $ref: '#/components/headers/IdempotencyReplayed' } }
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [viajeId, ofertaId, estado]
+                properties:
+                  viajeId: { type: string, format: uuid }
+                  ofertaId: { type: string, format: uuid }
+                  estado: { type: string, const: asignado }
+        '400': { $ref: '#/components/responses/EntradaOClaveInvalida' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403':
+          description: '`RECURSO_PROHIBIDO`: no es chofer o la oferta es de otro chofer.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: '`OFERTA_NO_ENCONTRADA`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: '`OFERTA_NO_DISPONIBLE` (vencida, ya respondida o el viaje ya se asignó), `CHOFER_CON_VIAJE_ACTIVO`, `CHOFER_NO_DISPONIBLE`, `CHOFER_NO_HABILITADO` o `PEDIDO_EN_CURSO`.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: { codigo: OFERTA_NO_DISPONIBLE, requestId: 6f1c2d4e-8a0b-4c3d-9e2f-1a2b3c4d5e6f } }
+        '422': { $ref: '#/components/responses/ClaveReutilizada' }
+
+  /choferes/me/disponibilidad:
+    put:
+      tags: [Choferes]
+      summary: Marcarse disponible o no disponible (chofer)
+      operationId: cambiarDisponibilidad
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [disponible]
+              properties:
+                disponible: { type: boolean }
+            example: { disponible: true }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [choferId, disponible, updatedAt]
+                properties:
+                  choferId: { type: string, format: uuid }
+                  disponible: { type: boolean }
+                  updatedAt: { type: string, format: date-time }
+        '400': { $ref: '#/components/responses/EntradaInvalida' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+        '404':
+          description: '`CHOFER_NO_ENCONTRADO`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: '`CHOFER_NO_HABILITADO` o `CHOFER_CON_VIAJE_ACTIVO` (no puede marcarse disponible con un viaje en curso).'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /choferes/me/ubicacion:
+    put:
+      tags: [Choferes]
+      summary: Reportar la posición actual (chofer)
+      description: Límite de tasa **por chofer** (60 por minuto por defecto). Se acepta si está disponible o con un viaje activo.
+      operationId: registrarUbicacion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Punto' }
+            example: { latitud: -27.4514, longitud: -58.9867 }
+      responses:
+        '200':
+          description: OK
+          headers: { RateLimit-Policy: { $ref: '#/components/headers/RateLimitPolicy' }, RateLimit-Limit: { $ref: '#/components/headers/RateLimitLimit' }, RateLimit-Remaining: { $ref: '#/components/headers/RateLimitRemaining' }, RateLimit-Reset: { $ref: '#/components/headers/RateLimitReset' } }
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [choferId, latitud, longitud]
+                properties:
+                  choferId: { type: string, format: uuid }
+                  latitud: { type: number }
+                  longitud: { type: number }
+        '400': { $ref: '#/components/responses/EntradaInvalida' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+        '409':
+          description: '`CHOFER_NO_HABILITADO` o `CHOFER_NO_DISPONIBLE` (ni disponible ni en viaje).'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429': { $ref: '#/components/responses/LimiteExcedido' }
+  /choferes/viajes/{viajeId}/estado:
+    post:
+      tags: [Choferes]
+      summary: Avanzar el estado del viaje asignado (chofer)
+      description: 'Transiciones válidas: `asignado` → `chofer_en_camino` → `en_curso`. Para terminar se usa `/finalizar`.'
+      operationId: avanzarEstado
+      parameters:
+        - $ref: '#/components/parameters/ViajeId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [estado]
+              properties:
+                estado: { type: string, enum: [chofer_en_camino, en_curso] }
+            example: { estado: chofer_en_camino }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [viajeId, estado]
+                properties:
+                  viajeId: { type: string, format: uuid }
+                  estado: { type: string, enum: [chofer_en_camino, en_curso] }
+        '400': { $ref: '#/components/responses/EntradaInvalida' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+        '404':
+          description: '`RECURSO_NO_ENCONTRADO`: el viaje no existe o no es de este chofer.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: '`TRANSICION_INVALIDA`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /choferes/viajes/{viajeId}/finalizar:
+    post:
+      tags: [Choferes, Billetera]
+      summary: Finalizar el viaje y cobrarlo (chofer)
+      description: |
+        En una sola transacción (bloquea el viaje y después la billetera del pasajero):
+        - si el saldo alcanza, debita la tarifa y el viaje queda `finalizado`;
+        - si no alcanza, **no debita nada** y queda `pago_pendiente` (el pasajero lo salda con `/viajes/{viajeId}/reintentar-cobro`).
+        Las dos salidas responden 200. Un viaje con tarifa 0 finaliza sin movimiento.
+      operationId: finalizarViaje
+      parameters:
+        - $ref: '#/components/parameters/ViajeId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Finalizado o con pago pendiente.
+          headers: { Idempotency-Replayed: { $ref: '#/components/headers/IdempotencyReplayed' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultadoCobro' }
+              examples:
+                cobrado:
+                  value: { viajeId: 3f6c1a2b-4d5e-4f60-8a9b-0c1d2e3f4a5b, estado: finalizado, importeCentavos: 1300 }
+                pendiente:
+                  value: { viajeId: 3f6c1a2b-4d5e-4f60-8a9b-0c1d2e3f4a5b, estado: pago_pendiente, importeCentavos: 1300 }
+        '400': { $ref: '#/components/responses/EntradaOClaveInvalida' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+        '404':
+          description: '`RECURSO_NO_ENCONTRADO` (no es de este chofer) o `BILLETERA_NO_ENCONTRADA`.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: '`TRANSICION_INVALIDA` (no está `en_curso`) o `PEDIDO_EN_CURSO`.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/ClaveReutilizada' }
+
+  /billetera/me:
+    get:
+      tags: [Billetera]
+      summary: Saldo de la billetera propia (pasajero)
+      description: El saldo no se guarda; es la suma de cargas menos consumos.
+      operationId: consultarSaldo
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [saldoCentavos]
+                properties:
+                  saldoCentavos: { type: integer, minimum: 0 }
+              example: { saldoCentavos: 150000 }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+        '404':
+          description: '`BILLETERA_NO_ENCONTRADA`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /billetera/webhooks/cargas:
+    post:
+      tags: [Billetera]
+      summary: Acreditar una carga de saldo (webhook del proveedor de pagos)
+      description: |
+        Lo llama el proveedor de pagos, no un usuario. La firma es `sha256=<hex>` = HMAC-SHA256 de **los bytes exactos del cuerpo** con `WEBHOOK_HMAC_SECRET`. Se deduplica por `eventoExternoId`: un evento repetido responde 200 con `duplicado: true` y no acredita otra vez. Para la demo, `npm run cargar-saldo` firma y llama a este mismo endpoint.
+      operationId: acreditarCarga
+      security:
+        - firmaWebhook: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [eventoExternoId, pasajeroId, importeCentavos]
+              properties:
+                eventoExternoId: { type: string, minLength: 1, maxLength: 128 }
+                pasajeroId: { type: string, format: uuid }
+                importeCentavos: { type: integer, minimum: 1, maximum: 2000000000 }
+            example: { eventoExternoId: demo-0b6f4c1e-2d3a-4b5c-8d9e-0f1a2b3c4d5e, pasajeroId: 1f080b3d-6055-422c-8dac-603cc7a1b2c3, importeCentavos: 150000 }
+      responses:
+        '201':
+          description: Carga acreditada.
+          headers: { RateLimit-Policy: { $ref: '#/components/headers/RateLimitPolicy' }, RateLimit-Limit: { $ref: '#/components/headers/RateLimitLimit' }, RateLimit-Remaining: { $ref: '#/components/headers/RateLimitRemaining' }, RateLimit-Reset: { $ref: '#/components/headers/RateLimitReset' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultadoWebhook' }
+              example: { procesado: true, duplicado: false }
+        '200':
+          description: Evento ya recibido antes; no se acredita de nuevo.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultadoWebhook' }
+              example: { procesado: false, duplicado: true, estado: procesado }
+        '400': { $ref: '#/components/responses/EntradaInvalida' }
+        '401':
+          description: '`FIRMA_WEBHOOK_INVALIDA`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: '`BILLETERA_NO_ENCONTRADA`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429': { $ref: '#/components/responses/LimiteExcedido' }
+
+  /admin/choferes/{choferId}/habilitacion:
+    patch:
+      tags: [Administración]
+      summary: Habilitar o deshabilitar un chofer (administrador)
+      description: Deshabilitar también lo marca no disponible.
+      operationId: establecerHabilitacion
+      parameters:
+        - name: choferId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [habilitado]
+              properties:
+                habilitado: { type: boolean }
+            example: { habilitado: true }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [choferId, habilitado, disponible]
+                properties:
+                  choferId: { type: string, format: uuid }
+                  habilitado: { type: boolean }
+                  disponible: { type: boolean }
+        '400': { $ref: '#/components/responses/EntradaInvalida' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+        '404':
+          description: '`CHOFER_NO_ENCONTRADO`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+security:
+  - bearer: []
+
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: '`accessToken` de `/auth/register` o `/auth/login`.'
+    firmaWebhook:
+      type: apiKey
+      in: header
+      name: X-Webhook-Signature
+      description: '`sha256=<hex>`: HMAC-SHA256 del cuerpo crudo con el secreto compartido.'
+
+  parameters:
+    ViajeId:
+      name: viajeId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        Un valor por **intención** (se recomienda un UUID nuevo cada vez que el usuario inicia la acción) y el mismo en sus reintentos. Entre 8 y 255 caracteres ASCII visibles. Es por usuario y dura 24 h.
+        - Repetida con el mismo pedido y ya terminada: la misma respuesta, con `Idempotency-Replayed: true`.
+        - Repetida mientras la primera sigue: `409 PEDIDO_EN_CURSO`.
+        - Repetida con otro cuerpo u otro recurso: `422 CLAVE_IDEMPOTENCIA_REUTILIZADA`.
+        - Los 4xx también se repiten; tras un 5xx la clave se libera.
+      schema: { type: string, minLength: 8, maxLength: 255, pattern: '^[\x21-\x7e]+$' }
+      example: 0b6f4c1e-2d3a-4b5c-8d9e-0f1a2b3c4d5e
+
+  headers:
+    IdempotencyReplayed:
+      description: '`true` cuando la respuesta es la guardada de un pedido anterior con la misma clave.'
+      schema: { type: string, const: 'true' }
+    RateLimitPolicy:
+      description: 'Límite y ventana, p. ej. `10;w=900`.'
+      schema: { type: string }
+    RateLimitLimit:
+      description: Pedidos permitidos en la ventana.
+      schema: { type: integer }
+    RateLimitRemaining:
+      description: Pedidos que quedan en la ventana.
+      schema: { type: integer }
+    RateLimitReset:
+      description: Segundos hasta que se renueva la ventana.
+      schema: { type: integer }
+
+  responses:
+    EntradaInvalida:
+      description: '`ENTRADA_INVALIDA` (formato, campos de más, uuid inválido), `JSON_INVALIDO`. Cuerpo > 100 kB: 413 `PAYLOAD_DEMASIADO_GRANDE`; charset no soportado: 415 `CONTENIDO_NO_SOPORTADO`.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { codigo: ENTRADA_INVALIDA, requestId: 6f1c2d4e-8a0b-4c3d-9e2f-1a2b3c4d5e6f } }
+    EntradaOClaveInvalida:
+      description: '`ENTRADA_INVALIDA`, `CLAVE_IDEMPOTENCIA_REQUERIDA` (falta el header) o `CLAVE_IDEMPOTENCIA_INVALIDA`.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { codigo: CLAVE_IDEMPOTENCIA_REQUERIDA, requestId: 6f1c2d4e-8a0b-4c3d-9e2f-1a2b3c4d5e6f } }
+    NoAutenticado:
+      description: '`TOKEN_REQUERIDO` o `TOKEN_INVALIDO` (vencido, mal firmado o de un usuario que ya no existe).'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { codigo: TOKEN_REQUERIDO, requestId: 6f1c2d4e-8a0b-4c3d-9e2f-1a2b3c4d5e6f } }
+    Prohibido:
+      description: '`RECURSO_PROHIBIDO`: el rol del token no puede usar esta operación.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { codigo: RECURSO_PROHIBIDO, requestId: 6f1c2d4e-8a0b-4c3d-9e2f-1a2b3c4d5e6f } }
+    PedidoEnCurso:
+      description: '`PEDIDO_EN_CURSO`: otro pedido con la misma `Idempotency-Key` todavía no terminó. Esperar y reintentar con la misma clave.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { codigo: PEDIDO_EN_CURSO, requestId: 6f1c2d4e-8a0b-4c3d-9e2f-1a2b3c4d5e6f } }
+    ClaveReutilizada:
+      description: '`CLAVE_IDEMPOTENCIA_REUTILIZADA`: la clave ya se usó con otro pedido.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { codigo: CLAVE_IDEMPOTENCIA_REUTILIZADA, requestId: 6f1c2d4e-8a0b-4c3d-9e2f-1a2b3c4d5e6f } }
+    LimiteExcedido:
+      description: '`LIMITE_DE_PETICIONES_EXCEDIDO`'
+      headers: { RateLimit-Policy: { $ref: '#/components/headers/RateLimitPolicy' }, RateLimit-Limit: { $ref: '#/components/headers/RateLimitLimit' }, RateLimit-Remaining: { $ref: '#/components/headers/RateLimitRemaining' }, RateLimit-Reset: { $ref: '#/components/headers/RateLimitReset' } }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { codigo: LIMITE_DE_PETICIONES_EXCEDIDO, requestId: 6f1c2d4e-8a0b-4c3d-9e2f-1a2b3c4d5e6f } }
+    ErrorInterno:
+      description: '`ERROR_INTERNO`: sin detalles; el `requestId` permite encontrarlo en los logs.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { codigo: ERROR_INTERNO, requestId: 6f1c2d4e-8a0b-4c3d-9e2f-1a2b3c4d5e6f } }
+
+  schemas:
+    Ok:
+      type: object
+      additionalProperties: false
+      required: [ok]
+      properties:
+        ok: { type: boolean, const: true }
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [codigo]
+          properties:
+            codigo:
+              type: string
+              description: Código estable en MAYÚSCULAS; el cliente decide por éste, no por el texto.
+            requestId: { type: string }
+    Credenciales:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email: { type: string, format: email, maxLength: 254 }
+        password: { type: string, minLength: 12, maxLength: 128 }
+    Registro:
+      type: object
+      additionalProperties: false
+      required: [email, password, rol]
+      properties:
+        email: { type: string, format: email, maxLength: 254 }
+        password: { type: string, minLength: 12, maxLength: 128 }
+        rol: { type: string, enum: [pasajero, chofer] }
+        vehiculo:
+          description: Obligatorio si `rol` es `chofer`; prohibido si es `pasajero`.
+          type: object
+          additionalProperties: false
+          required: [patente, marca, modelo]
+          properties:
+            patente: { type: string, minLength: 4, maxLength: 16 }
+            marca: { type: string, minLength: 1, maxLength: 60 }
+            modelo: { type: string, minLength: 1, maxLength: 60 }
+    Usuario:
+      type: object
+      additionalProperties: false
+      required: [id, email, rol]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        rol: { type: string, enum: [pasajero, chofer, operador, administrador] }
+    Sesion:
+      type: object
+      additionalProperties: false
+      required: [usuario, accessToken]
+      properties:
+        usuario: { $ref: '#/components/schemas/Usuario' }
+        accessToken: { type: string, description: JWT HS256 }
+    Punto:
+      type: object
+      additionalProperties: false
+      required: [latitud, longitud]
+      properties:
+        latitud: { type: number, minimum: -90, maximum: 90 }
+        longitud: { type: number, minimum: -180, maximum: 180 }
+    SolicitudViaje:
+      type: object
+      additionalProperties: false
+      required: [origen, destino]
+      properties:
+        origen: { $ref: '#/components/schemas/Punto' }
+        destino: { $ref: '#/components/schemas/Punto' }
+    EstadoViaje:
+      type: string
+      enum: [solicitado, asignado, chofer_en_camino, en_curso, finalizado, pago_pendiente, cancelado_pasajero, cancelado_chofer, sin_choferes_disponibles]
+    Viaje:
+      type: object
+      additionalProperties: false
+      required: [id, estado, pasajeroId, choferId, estimacionCentavos, tarifaFinalCentavos, solicitadoAt]
+      properties:
+        id: { type: string, format: uuid }
+        estado: { $ref: '#/components/schemas/EstadoViaje' }
+        pasajeroId: { type: string, format: uuid }
+        choferId: { type: [string, 'null'], format: uuid }
+        estimacionCentavos: { type: integer, minimum: 0 }
+        tarifaFinalCentavos: { type: [integer, 'null'], minimum: 0 }
+        solicitadoAt: { type: string, format: date-time }
+    ViajeConEstimacion:
+      description: Lo mismo que `Viaje` más el detalle de la estimación (sólo al crearlo).
+      type: object
+      additionalProperties: false
+      required: [id, estado, pasajeroId, choferId, estimacionCentavos, tarifaFinalCentavos, solicitadoAt, estimacion]
+      properties:
+        id: { type: string, format: uuid }
+        estado: { $ref: '#/components/schemas/EstadoViaje' }
+        pasajeroId: { type: string, format: uuid }
+        choferId: { type: [string, 'null'], format: uuid }
+        estimacionCentavos: { type: integer, minimum: 0 }
+        tarifaFinalCentavos: { type: [integer, 'null'], minimum: 0 }
+        solicitadoAt: { type: string, format: date-time }
+        estimacion:
+          type: object
+          additionalProperties: false
+          required: [importeCentavos, kilometros, minutos]
+          properties:
+            importeCentavos: { type: integer, minimum: 0 }
+            kilometros: { type: number, minimum: 0, description: Distancia en línea recta (Haversine), 2 decimales. }
+            minutos: { type: integer, minimum: 0 }
+    OfertaCreada:
+      type: object
+      additionalProperties: false
+      required: [ofertaId, choferId, venceAt]
+      properties:
+        ofertaId: { type: string, format: uuid }
+        choferId: { type: string, format: uuid }
+        venceAt: { type: string, format: date-time }
+    ResultadoCobro:
+      type: object
+      additionalProperties: false
+      required: [viajeId, estado, importeCentavos]
+      properties:
+        viajeId: { type: string, format: uuid }
+        estado: { type: string, enum: [finalizado, pago_pendiente] }
+        importeCentavos: { type: integer, minimum: 0 }
+    ResultadoWebhook:
+      type: object
+      additionalProperties: false
+      required: [procesado, duplicado]
+      properties:
+        procesado: { type: boolean }
+        duplicado: { type: boolean }
+        estado: { type: string, enum: [recibido, procesado, rechazado], description: Sólo en duplicados. }
