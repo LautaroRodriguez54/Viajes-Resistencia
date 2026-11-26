@@ -116,7 +116,7 @@ Al 26/11/2026 (`main` en `579a1cc`, más la rama 10). El contrato completo está
 
 | Área | Endpoints | Estado |
 |---|---|---|
-| Salud | `GET /health`, `GET /ready` (verifica las tres bases) | Hecho (`/ready` no verifica migraciones) |
+| Salud | `GET /health`, `GET /ready` (verifica las tres bases y `schema_migrations`) | Hecho |
 | Autenticación | `POST /auth/register` (pasajero/chofer), `POST /auth/login`, `GET /auth/me` | Hecho (sin refresh ni revocación) |
 | Billetera | `POST /billetera/webhooks/cargas` (HMAC + dedupe), `GET /billetera/me` (lee la proyección de `lectura`), `GET /billetera/me/movimientos` (lee la base `billetera`) | Hecho, en su propia base (ADR 008 y 009) |
 | Viajes | `POST /viajes`, `GET /viajes` (historial desde la proyección `historial_viajes`), `GET /viajes/:viajeId` (sólo el pasajero dueño), `POST /viajes/:viajeId/reintentar-cobro`, `POST /viajes/:viajeId/cancelar` | Hecho |
@@ -143,9 +143,9 @@ Prioridad: lo que pide el **control 3** de Puljiz (carrera con test concurrente 
 - [x] Sacar la lógica de cobro, aceptación y cambios de estado de los repositorios y pasarla a casos de uso que dependan de puertos (`finalizarViajeYCobrar`, `reintentarCobro`, `avanzarEstadoViaje`, `cancelarViaje`, `aceptarOferta`, `ofrecerAlChoferCercano`, `rechazarOferta`, `procesarOfertasVencidas`).
 
 ### Bloque 3 — Configuración y ciclo de vida
-- [ ] `/ready` tiene que verificar también que las migraciones estén aplicadas.
-- [ ] Si el apagado supera `SHUTDOWN_TIMEOUT_MS`, loguear antes de `process.exit(1)` (`servidor.js`).
-- [ ] Demo: SIGTERM durante un pedido lento y el pedido termina antes de salir.
+- [x] `/ready` tiene que verificar también que las migraciones estén aplicadas (`schema_migrations` en las 3 bases → `503 SERVICIO_NO_DISPONIBLE`).
+- [x] Si el apagado supera `SHUTDOWN_TIMEOUT_MS`, loguear antes de `process.exit(1)` (`apagadoOrdenado.js` / `servidor.js`).
+- [x] Demo/test: `SIGTERM` durante un pedido lento y el pedido termina antes de salir (`tests/infra/apagadoOrdenado.test.js`).
 
 ### Bloque 4 — Errores y observabilidad
 - [x] Loguear los 4xx esperados con nivel menor que `error` en `errores.js` (`warn`, PR #10).

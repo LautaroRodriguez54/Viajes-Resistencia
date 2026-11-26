@@ -1,6 +1,7 @@
 import pino from 'pino';
 import { leerConfiguracion } from './config/env.js';
-import { crearPoolPostgres, verificarPostgres } from './infra/db/postgres.js';
+import { crearPoolPostgres } from './infra/db/postgres.js';
+import { DIRECTORIOS_MIGRACIONES, verificarMigracionesAplicadas } from './infra/db/migraciones.js';
 import { crearRepositorioUsuariosPostgres } from './infra/db/repositorioUsuariosPostgres.js';
 import { crearRepositorioBilleterasPostgres } from './infra/db/repositorioBilleterasPostgres.js';
 import { crearRepositorioViajesPostgres } from './infra/db/repositorioViajesPostgres.js';
@@ -80,7 +81,12 @@ export function componerAplicacion() {
   const choferesHttp = { cambiarDisponibilidad: choferes.cambiarDisponibilidad, registrarUbicacion: choferes.registrarUbicacion, avanzarEstado, finalizarYCobrar, cancelarViaje, buscarOfertaPendiente: viajes.buscarOfertaPendienteDelChofer, buscarViajeActual: viajes.buscarViajeActualDelChofer, tokens };
   const administracion = { establecerHabilitacion: choferes.establecerHabilitacion, tokens };
   const operadorHttp = { listarViajesActivos: viajes.listarViajesActivos, cancelarViaje, reintentarCobro: crearReintentarCobroOperador(dependenciasCobro), tokens };
-  const app = crearApp({ config, logger, verificarDisponibilidad: () => Promise.all([pool, poolBilletera, poolLectura].map(verificarPostgres)), autenticacion, billetera, viajes: viajesHttp, ofertas: ofertasHttp, choferes: choferesHttp, administracion, operador: operadorHttp, idempotencia: crearRepositorioIdempotenciaPostgres(pool) });
+  const verificarDisponibilidad = () => Promise.all([
+    verificarMigracionesAplicadas(pool, DIRECTORIOS_MIGRACIONES.viajes),
+    verificarMigracionesAplicadas(poolBilletera, DIRECTORIOS_MIGRACIONES.billetera),
+    verificarMigracionesAplicadas(poolLectura, DIRECTORIOS_MIGRACIONES.lectura),
+  ]);
+  const app = crearApp({ config, logger, verificarDisponibilidad, autenticacion, billetera, viajes: viajesHttp, ofertas: ofertasHttp, choferes: choferesHttp, administracion, operador: operadorHttp, idempotencia: crearRepositorioIdempotenciaPostgres(pool) });
   // Outbox de Viajes: cada UsuarioRegistrado de un pasajero crea su billetera, y cada ViajeCambiado
   // (lo deja el trigger de la migración 006) actualiza el historial en la base `lectura`.
   const despachadores = [
