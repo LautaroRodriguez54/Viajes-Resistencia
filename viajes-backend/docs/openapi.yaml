@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Viajes Resistencia · API del backend
-  version: 0.6.0
+  version: 0.7.0
   summary: Viajes a demanda con billetera y pagos (grupo 4, variante D).
   description: |
     Contrato HTTP del backend. Es la **fuente de verdad** de la API: `docs/api.md` sólo lo resume.
@@ -25,7 +25,7 @@ info:
     | `eventos_viaje` | auditoría del ciclo de vida (M6) |
 
     ## Pendiente (no implementado todavía)
-    Estimación sin crear el viaje, historiales, movimientos de billetera y tiempo real por SSE. Se agregan acá cuando existan.
+    Estimación sin crear el viaje, historial del chofer y tiempo real por SSE. Se agregan acá cuando existan.
   contact:
     name: Grupo 4 · Escobar Lucas, Valussi Agustín, Rodríguez Lautaro
 servers:
@@ -148,6 +148,48 @@ paths:
         '401': { $ref: '#/components/responses/NoAutenticado' }
 
   /viajes:
+    get:
+      tags: [Viajes]
+      summary: Historial de viajes propios (pasajero)
+      description: |
+        Lee la proyección `historial_viajes` de la base `lectura` (CQRS, ADR 009): una fila por viaje con su último estado conocido, del más nuevo al más viejo.
+        Se actualiza por eventos (`ViajeCambiado`, que deja un trigger en cada cambio del viaje), así que puede ir unos cientos de milisegundos atrasada. Para seguir un viaje en curso se usa `GET /viajes/{viajeId}`, que lee el modelo de escritura.
+        El estado del cobro sale del estado: `finalizado` = cobrado, `pago_pendiente` = se debe la `tarifaFinalCentavos`.
+      operationId: listarHistorialViajes
+      parameters:
+        - $ref: '#/components/parameters/Limite'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [viajes]
+                properties:
+                  viajes:
+                    type: array
+                    maxItems: 50
+                    items: { $ref: '#/components/schemas/ViajeDelHistorial' }
+              example:
+                viajes:
+                  - viajeId: 12f52519-3c56-4c08-add2-ee1a0c6225c7
+                    choferId: 5b0c1d2e-8a4f-4e7b-9d3c-1f2a3b4c5d6e
+                    estado: finalizado
+                    origen: { latitud: -27.4514, longitud: -58.9867 }
+                    destino: { latitud: -27.44, longitud: -58.98 }
+                    estimacionCentavos: 1300
+                    tarifaFinalCentavos: 1300
+                    solicitadoAt: '2026-11-26T19:10:00.000Z'
+                    asignadoAt: '2026-11-26T19:10:02.000Z'
+                    iniciadoAt: '2026-11-26T19:15:00.000Z'
+                    finalizadoAt: '2026-11-26T19:25:00.000Z'
+                    canceladoAt: null
+                    motivoCancelacion: null
+        '400': { $ref: '#/components/responses/EntradaInvalida' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
     post:
       tags: [Viajes]
       summary: Solicitar un viaje (pasajero)
@@ -688,6 +730,41 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+  /billetera/me/movimientos:
+    get:
+      tags: [Billetera]
+      summary: Movimientos de la billetera propia (pasajero)
+      description: |
+        Cargas y consumos, del más nuevo al más viejo. Se leen de la base `billetera`, que es la fuente de verdad del dinero (ADR 009): sin proyección y sin atraso. Los movimientos son inmutables; una corrección sería un movimiento nuevo.
+      operationId: listarMovimientos
+      parameters:
+        - $ref: '#/components/parameters/Limite'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [movimientos]
+                properties:
+                  movimientos:
+                    type: array
+                    maxItems: 50
+                    items: { $ref: '#/components/schemas/Movimiento' }
+              example:
+                movimientos:
+                  - { id: 0c6c4b1e-2f4b-4f43-9a51-5d0d9f1c2e31, tipo: consumo, importeCentavos: 1300, viajeId: 12f52519-3c56-4c08-add2-ee1a0c6225c7, creadoAt: '2026-11-26T19:25:00.000Z' }
+                  - { id: 7d1e9b20-5a3c-4c7e-8f61-2b3c4d5e6f70, tipo: carga, importeCentavos: 500000, viajeId: null, creadoAt: '2026-11-26T19:00:00.000Z' }
+        '400': { $ref: '#/components/responses/EntradaInvalida' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+        '404':
+          description: '`BILLETERA_NO_ENCONTRADA`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
   /billetera/webhooks/cargas:
     post:
       tags: [Billetera]
@@ -893,6 +970,12 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
+    Limite:
+      name: limite
+      in: query
+      required: false
+      description: Cuántos elementos devolver (los más nuevos). Otro parámetro de consulta da `400 ENTRADA_INVALIDA`.
+      schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
     IdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -1131,6 +1214,34 @@ components:
         viajeId: { type: string, format: uuid }
         estado: { type: string, enum: [finalizado, pago_pendiente] }
         importeCentavos: { type: integer, minimum: 0 }
+    ViajeDelHistorial:
+      type: object
+      additionalProperties: false
+      required: [viajeId, choferId, estado, origen, destino, estimacionCentavos, tarifaFinalCentavos, solicitadoAt, asignadoAt, iniciadoAt, finalizadoAt, canceladoAt, motivoCancelacion]
+      properties:
+        viajeId: { type: string, format: uuid }
+        choferId: { type: [string, 'null'], format: uuid }
+        estado: { $ref: '#/components/schemas/EstadoViaje' }
+        origen: { $ref: '#/components/schemas/Punto' }
+        destino: { $ref: '#/components/schemas/Punto' }
+        estimacionCentavos: { type: integer, minimum: 0 }
+        tarifaFinalCentavos: { type: [integer, 'null'], minimum: 0 }
+        solicitadoAt: { type: string, format: date-time }
+        asignadoAt: { type: [string, 'null'], format: date-time }
+        iniciadoAt: { type: [string, 'null'], format: date-time }
+        finalizadoAt: { type: [string, 'null'], format: date-time }
+        canceladoAt: { type: [string, 'null'], format: date-time }
+        motivoCancelacion: { type: [string, 'null'] }
+    Movimiento:
+      type: object
+      additionalProperties: false
+      required: [id, tipo, importeCentavos, viajeId, creadoAt]
+      properties:
+        id: { type: string, format: uuid }
+        tipo: { type: string, enum: [carga, consumo] }
+        importeCentavos: { type: integer, minimum: 1 }
+        viajeId: { type: [string, 'null'], format: uuid, description: Sólo en los consumos. }
+        creadoAt: { type: string, format: date-time }
     ResultadoWebhook:
       type: object
       additionalProperties: false

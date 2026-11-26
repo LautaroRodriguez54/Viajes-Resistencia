@@ -2,11 +2,14 @@ import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import MapaSimulado from '../../componentes/MapaSimulado.jsx';
 import { api } from '../../api/cliente.js';
-import { guardarViajeActual, leerViajeActual } from '../../datos/viajeActual.js';
+import { nombreDelPunto } from '../../datos/lugares.js';
 import { conClave, usarClaveIdempotente, usarConsultaPeriodica } from '../../ganchos.js';
 import { formatearPesos } from '../../formato.js';
 
 // Pantalla 3 del diseño. Consulta GET /viajes/:viajeId cada 2 s (sin SSE todavía).
+// Qué viaje se sigue: el que se acaba de pedir (llega en el estado de la navegación desde Pedir) o,
+// si se entra desde el menú, el último del historial (GET /viajes?limite=1) mientras siga activo
+// o deba el pago. El historial puede ir unos cientos de ms atrasado, por eso Pedir pasa el id.
 // Pendiente en el backend: patente, vehículo y minutos hasta el retiro en el viaje,
 // y cancelar con motivo. Mientras tanto el botón de cancelar no se muestra.
 const pasos = ['Pedido', 'Asignado', 'En camino', 'En viaje'];
@@ -24,25 +27,31 @@ const terminales = {
   sin_choferes_disponibles: { chip: 'Sin choferes', clase: 'chip--neutro', titulo: 'No encontramos chofer' },
   cancelado_pasajero: { chip: 'Cancelado', clase: 'chip--peligro', titulo: 'Cancelaste el viaje' },
   cancelado_chofer: { chip: 'Cancelado', clase: 'chip--peligro', titulo: 'El chofer canceló el viaje' },
+  cancelado_operador: { chip: 'Cancelado', clase: 'chip--peligro', titulo: 'El operador canceló el viaje' },
 };
 
 export default function MiViaje() {
   const navegar = useNavigate();
   const { state } = useLocation();
-  const guardado = leerViajeActual();
+  const delPedido = state?.viajeId ? state : null;
+  // Una sola consulta: al entrar desde el menú no se acaba de pedir nada, así que no hay atraso que esperar.
+  const { dato: ultimos, error: errorUltimo } = usarConsultaPeriodica(delPedido ? null : () => api.historial(1), 5000, () => true);
+  const ultimo = ultimos?.[0];
+  const seguible = ultimo && (activos[ultimo.estado] || ultimo.estado === 'pago_pendiente');
+  const guardado = delPedido
+    ?? (seguible ? { viajeId: ultimo.viajeId, origen: nombreDelPunto(ultimo.origen), destino: nombreDelPunto(ultimo.destino) } : null);
   const [busqueda, setBusqueda] = useState(state?.busqueda ?? null);
   const [buscando, setBuscando] = useState(false);
   const claveOferta = usarClaveIdempotente();
 
   // Deja de consultar cuando el viaje llega a un estado terminal.
   const { dato: viaje, error } = usarConsultaPeriodica(
-    guardado ? () => api.viaje(guardado.id) : null,
+    guardado ? () => api.viaje(guardado.viajeId) : null,
     2000,
     (dato) => Boolean(terminales[dato?.estado]),
   );
 
   function pedirOtro() {
-    guardarViajeActual(null);
     navegar('/pasajero/pedir');
   }
 
@@ -53,7 +62,7 @@ export default function MiViaje() {
   async function buscarDeNuevo() {
     setBuscando(true);
     try {
-      await conClave(claveOferta, (clave) => api.buscarChofer(guardado.id, clave));
+      await conClave(claveOferta, (clave) => api.buscarChofer(guardado.viajeId, clave));
       setBusqueda('ofrecido');
     } catch (e) {
       setBusqueda(e.codigo === 'SIN_CHOFERES_CERCANOS' ? 'sin_choferes' : e.message);
@@ -62,12 +71,17 @@ export default function MiViaje() {
     }
   }
 
+  if (!delPedido && !ultimos && !errorUltimo) {
+    return <div className="columna"><section className="tarjeta"><p className="pedir__detalle">Buscando tu último viaje…</p></section></div>;
+  }
+
   if (!guardado || error?.codigo === 'RECURSO_NO_ENCONTRADO') {
     return (
       <div className="columna">
         <section className="tarjeta" data-testid="mi-viaje-vacio">
           <h1>No tenés un viaje activo</h1>
-          <p className="pedir__detalle">Pedí uno desde la pantalla Pedir.</p>
+          <p className="pedir__detalle">Pedí uno desde la pantalla Pedir. Los anteriores están en Billetera, en "Mis viajes".</p>
+          {errorUltimo && <p role="alert" className="aviso aviso--peligro">{errorUltimo.message}</p>}
           <Link to="/pasajero/pedir" className="boton boton--principal">Pedir un viaje</Link>
         </section>
       </div>

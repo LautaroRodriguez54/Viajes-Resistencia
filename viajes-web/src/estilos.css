@@ -313,6 +313,8 @@ h1 { margin: 0; font-weight: 600; }
 
 .texto-exito { color: var(--exito); }
 .texto-advertencia { color: var(--advertencia); font-weight: 600; }
+.texto-secundario { color: var(--texto-secundario); }
+.texto-advertencia { color: var(--advertencia); font-weight: 600; }
 
 .boton--peligro { color: var(--peligro); min-height: 46px; }
 .boton--peligro:hover { background: var(--peligro-fondo); }

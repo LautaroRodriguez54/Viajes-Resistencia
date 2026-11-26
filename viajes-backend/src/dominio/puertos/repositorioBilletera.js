@@ -5,6 +5,8 @@
 //     → { procesado, duplicado }. Un evento repetido no acredita dos veces.
 // - consultarSaldoPorPasajero(pasajeroId) → { saldoCentavos }, sumando los movimientos.
 //     Lanza BILLETERA_NO_ENCONTRADA. La pantalla lee la proyección (base `lectura`), no esto.
+// - listarMovimientosPorPasajero(pasajeroId, { limite }) → [{ id, tipo, importeCentavos, viajeId, creadoAt }],
+//     del más nuevo al más viejo. Lanza BILLETERA_NO_ENCONTRADA.
 // - cobrar({ pasajeroId, viajeId, importeCentavos }) → { cobrado }.
 //     Bloquea la billetera del pasajero, así dos cobros del mismo pasajero van de a uno. Aplica
 //     decidirCobro (nunca parcial; importe 0 sin consumo). Idempotente por viajeId: si el viaje ya
@@ -14,6 +16,7 @@
 export const repositorioBilletera = Object.freeze({
   registrarCargaDesdeWebhook: 'registrarCargaDesdeWebhook',
   consultarSaldoPorPasajero: 'consultarSaldoPorPasajero',
+  listarMovimientosPorPasajero: 'listarMovimientosPorPasajero',
   cobrar: 'cobrar',
   crearBilleteraPorEvento: 'crearBilleteraPorEvento',
 });

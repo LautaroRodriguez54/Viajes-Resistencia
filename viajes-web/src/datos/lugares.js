@@ -23,6 +23,12 @@ export function lugarMasCercano(punto) {
   return menor < 1e-6 ? mejor : null;
 }
 
+// El backend guarda coordenadas, no nombres: el historial muestra el lugar de la lista que coincide.
+export function nombreDelPunto(punto) {
+  if (!punto) return '…';
+  return lugarMasCercano(punto)?.nombre ?? `${punto.latitud.toFixed(4)}, ${punto.longitud.toFixed(4)}`;
+}
+
 // Distancia en línea recta, sólo para mostrar (la tarifa la calcula el servidor).
 export function distanciaMetros(a, b) {
   const rad = (g) => (g * Math.PI) / 180;

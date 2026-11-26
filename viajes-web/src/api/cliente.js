@@ -97,6 +97,9 @@ export const api = {
   ingresar: (email, password) => pedir('POST', '/auth/login', { cuerpo: { email, password } }),
   registrar: (datos) => pedir('POST', '/auth/register', { cuerpo: datos }),
   saldo: () => pedir('GET', '/billetera/me'),
+  // Movimientos desde la base `billetera` (sin atraso) e historial desde la proyección (tema 13).
+  movimientos: (limite = 20) => pedir('GET', `/billetera/me/movimientos?limite=${limite}`).then((r) => r.movimientos),
+  historial: (limite = 20) => pedir('GET', `/viajes?limite=${limite}`).then((r) => r.viajes),
   // POST /viajes y GET /viajes/:id responden { viaje } (ver openapi.yaml): se desenvuelve acá.
   solicitarViaje: (origen, destino, clave) => pedir('POST', '/viajes', { cuerpo: { origen, destino }, clave }).then((r) => r.viaje),
   buscarChofer: (viajeId, clave) => pedir('POST', `/viajes/${viajeId}/ofertas`, { clave }),

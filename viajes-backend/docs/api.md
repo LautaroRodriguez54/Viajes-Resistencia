@@ -28,14 +28,16 @@
 | Chofer | `POST /choferes/viajes/:viajeId/cancelar` | chofer asignado | **sí** |
 | Chofer | `POST /choferes/viajes/:viajeId/finalizar` (finaliza y cobra) | chofer asignado | **sí** |
 | Billetera | `POST /viajes/:viajeId/reintentar-cobro` | pasajero dueño | **sí** |
+| Viajes | `GET /viajes?limite=` (historial desde la proyección `historial_viajes`, ADR 009) | pasajero | |
 | Billetera | `GET /billetera/me` | pasajero | |
+| Billetera | `GET /billetera/me/movimientos?limite=` (desde la base `billetera`) | pasajero | |
 | Billetera | `POST /billetera/webhooks/cargas` | proveedor de pagos (firma HMAC) | no: deduplica por `eventoExternoId` |
 | Operador | `GET /operador/viajes?estado=activos` | operador | |
 | Operador | `POST /operador/viajes/:viajeId/cancelar` (motivo obligatorio) | operador | **sí** |
 | Operador | `POST /operador/viajes/:viajeId/reintentar-cobro` | operador | **sí** |
 | Administración | `PATCH /admin/choferes/:choferId/habilitacion` | administrador | |
 
-**Pendientes** (se agregan al OpenAPI cuando existan): estimación sin crear el viaje, historiales, movimientos de la billetera y SSE.
+**Pendientes** (se agregan al OpenAPI cuando existan): estimación sin crear el viaje, historial del chofer y SSE.
 
 ## Convenciones
 

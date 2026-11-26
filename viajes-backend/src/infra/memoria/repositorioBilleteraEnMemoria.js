@@ -49,7 +49,7 @@ export function crearRepositorioBilleteraEnMemoria() {
     async registrarCargaDesdeWebhook({ eventoExternoId, pasajeroId, importeCentavos }) {
       return conCandado(pasajeroId, () => {
         if (eventosWebhook.has(eventoExternoId)) return { procesado: false, duplicado: true, estado: 'procesado' };
-        buscar(pasajeroId).movimientos.push({ tipo: TipoMovimientoBilletera.CARGA, importeCentavos, referenciaExterna: eventoExternoId });
+        buscar(pasajeroId).movimientos.push({ id: crypto.randomUUID(), tipo: TipoMovimientoBilletera.CARGA, importeCentavos, referenciaExterna: eventoExternoId, creadoAt: new Date() });
         eventosWebhook.add(eventoExternoId);
         eventos.push({ id: crypto.randomUUID(), tipo: 'MovimientoRegistrado', datos: { pasajeroId, tipo: 'carga', importeCentavos } });
         return { procesado: true, duplicado: false };
@@ -58,6 +58,11 @@ export function crearRepositorioBilleteraEnMemoria() {
 
     async consultarSaldoPorPasajero(pasajeroId) {
       return { saldoCentavos: calcularSaldo(buscar(pasajeroId).movimientos) };
+    },
+
+    async listarMovimientosPorPasajero(pasajeroId, { limite }) {
+      return buscar(pasajeroId).movimientos.slice().reverse().slice(0, limite)
+        .map(({ id, tipo, importeCentavos, viajeId, creadoAt }) => ({ id, tipo, importeCentavos, viajeId: viajeId ?? null, creadoAt }));
     },
 
     async cobrar({ pasajeroId, viajeId, importeCentavos }) {
@@ -69,7 +74,7 @@ export function crearRepositorioBilleteraEnMemoria() {
         }
         const decision = decidirCobro({ saldoCentavos: calcularSaldo(billetera.movimientos), importeCentavos });
         if (decision.generaConsumo) {
-          billetera.movimientos.push({ tipo: TipoMovimientoBilletera.CONSUMO, importeCentavos, viajeId });
+          billetera.movimientos.push({ id: crypto.randomUUID(), tipo: TipoMovimientoBilletera.CONSUMO, importeCentavos, viajeId, creadoAt: new Date() });
           eventos.push({ id: crypto.randomUUID(), tipo: 'MovimientoRegistrado', datos: { pasajeroId, tipo: 'consumo', importeCentavos, viajeId } });
         }
         return { cobrado: decision.cobrado };
