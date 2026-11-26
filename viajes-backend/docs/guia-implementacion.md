@@ -43,9 +43,9 @@ HTTP / Express
 
 | Base | Rol | Tablas | La usa |
 |---|---|---|---|
-| `viajes` | `viajes_app` | `usuarios`, `perfiles_chofer`, `viajes`, `ofertas_viaje`, `eventos_viaje`, `ubicaciones_actuales_chofer`, `historial_ubicaciones_chofer`, `parametros_tarifa`, `claves_idempotencia`, `outbox_viajes` | Viajes, usuarios, choferes, idempotencia |
+| `viajes` | `viajes_app` | `usuarios`, `perfiles_chofer`, `viajes`, `ofertas_viaje`, `eventos_viaje`, `ubicaciones_actuales_chofer`, `historial_ubicaciones_chofer`, `parametros_tarifa`, `claves_idempotencia`, `outbox_viajes` (con `ViajeCambiado` del trigger de la `006`) | Viajes, usuarios, choferes, idempotencia |
 | `billetera` | `billetera_app` | `billeteras`, `movimientos_billetera`, `eventos_webhook_pago`, `eventos_consumidos`, `outbox_billetera` | Billetera |
-| `lectura` | `lectura_app` | `saldos`, `eventos_aplicados` | Proyector de saldos y `GET /billetera/me` |
+| `lectura` | `lectura_app` | `saldos`, `eventos_aplicados`, `historial_viajes` | Proyectores de saldos e historial; `GET /billetera/me` y `GET /viajes` |
 
 Ninguna base consulta a otra. Se comunican por:
 - el puerto `billetera.cobrar` (síncrono, dentro del proceso);
@@ -108,11 +108,13 @@ Garantías:
 | `src/infra/externos/verificadorWebhookHmac.js` | Calcula el HMAC y compara con `timingSafeEqual`. |
 | `src/infra/externos/cargaDemoWebhook.js` | La contraparte: firma una carga para el script de demo. |
 | `src/aplicacion/billetera/procesarCargaWebhook.js` | Verifica la firma y delega la carga. |
-| `src/infra/db/repositorioBilleterasPostgres.js` | Carga con dedupe, `cobrar`, creación por evento (con dedupe en `eventos_consumidos`). Usa su propio pool. |
+| `src/infra/db/repositorioBilleterasPostgres.js` | Carga con dedupe, `cobrar`, creación por evento (con dedupe en `eventos_consumidos`) y `listarMovimientosPorPasajero`. Usa su propio pool. |
 | `src/infra/db/proyectorSaldosPostgres.js` | Aplica los eventos a `saldos` en `lectura`, con dedupe en `eventos_aplicados`. |
-| `src/infra/http/rutasBilletera.js` | `POST /billetera/webhooks/cargas` y `GET /billetera/me` (lee la proyección). |
+| `src/infra/db/proyectorHistorialPostgres.js` | Aplica los `ViajeCambiado` a `historial_viajes` sólo si traen una versión más nueva; `listarPorPasajero` para `GET /viajes`. |
+| `src/infra/db/migraciones/006-outbox-viaje-cambiado.sql` | Triggers sobre `viajes`: la versión sube siempre y cada cambio deja la foto de la fila en `outbox_viajes`. |
+| `src/infra/http/rutasBilletera.js` | `POST /billetera/webhooks/cargas`, `GET /billetera/me` (lee la proyección) y `GET /billetera/me/movimientos` (lee la base `billetera`). |
 | `scripts/cargarSaldo.js` | `npm run cargar-saldo`: carga de demo por el webhook real. |
-| `scripts/reconstruirProyecciones.js` | `npm run proyecciones:reconstruir`: vacía `lectura` y la rearma desde el outbox. |
+| `scripts/reconstruirProyecciones.js` | `npm run proyecciones:reconstruir`: vacía `saldos` e `historial_viajes` y los rearma desde los dos outbox. |
 | `scripts/demoPropiedadDatos.js` | `npm run demo:propiedad-datos`: Viajes recibe `permission denied` sobre `billetera`. |
 
 El body parser de `src/infra/http/app.js` guarda `req.cuerpoCrudo`: volver a serializar el JSON puede cambiar los bytes y romper una firma válida.

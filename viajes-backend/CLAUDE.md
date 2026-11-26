@@ -59,7 +59,7 @@ src/
 - **Dinero:** siempre centavos enteros (`INTEGER`), nunca floats.
 - **Billetera:** no existe saldo guardado en el modelo de escritura. El saldo es la suma de `movimientos_billetera` (`carga` suma, `consumo` resta). Los movimientos son inmutables (trigger); las correcciones se registran como movimientos nuevos.
 - **Transacciones:** `pool.connect()` → `BEGIN` → `SELECT ... FOR UPDATE` → `COMMIT` / `ROLLBACK` en `catch` → `release()` en `finally`. Orden de bloqueo usado: viaje → ofertas del viaje (`ORDER BY id`) → perfil de chofer, y viaje → billetera (la billetera en su propia base, con el viaje bloqueado; ADR 008). Mantenerlo para no generar interbloqueos.
-- **Eventos:** cada cambio de estado de un viaje inserta una fila en `eventos_viaje` en la misma transacción. Es la base del SSE y será el outbox del proyector CQRS.
+- **Eventos:** cada cambio de estado de un viaje inserta una fila en `eventos_viaje` en la misma transacción (auditoría y base del SSE). Además, un trigger (migración `006`) deja la foto de la fila en `outbox_viajes` (`ViajeCambiado`) en cada `INSERT`/`UPDATE` de `viajes`: no hace falta emitirlo a mano, pero cada `UPDATE` tiene que seguir subiendo `version` (si no, lo sube el trigger).
 - **PostGIS:** puntos como `geography(Point, 4326)`; ojo, `ST_MakePoint(longitud, latitud)`.
 - **Migraciones:** nuevos archivos en `src/infra/db/migraciones/` con prefijo numérico; se ejecutan en orden alfabético. No editar migraciones ya aplicadas.
 - **Librerías:** el enunciado exige poder explicar qué garantiza cada librería y qué pasaría sin ella. No sumar dependencias que nadie del grupo pueda defender.
@@ -90,7 +90,7 @@ Hilo conductor: **"La billetera es un servicio dueño de sus datos (12); como ya
 - **Nivel 2 (como en la exposición): bases separadas sincronizadas por eventos.**
   - Escritura: `viajes` (con `eventos_viaje`) y `billetera` (con su propio outbox de movimientos).
   - Lectura: base `lectura` con proyecciones desnormalizadas:
-    - `historial_viajes`: viaje + nombre del pasajero + nombre del chofer + tarifa + estado de cobro. Es el equivalente a "pedidos con el nombre del cliente" de la exposición: combina datos de dos bases que ya no admiten JOIN. Alimenta requisitos obligatorios del enunciado: historial del pasajero, historial del chofer y panel del operador.
+    - `historial_viajes` (**hecho, rama 10**: lo alimenta el trigger de la migración `006` con `ViajeCambiado`, ordenado por `version`; todavía sin nombres, porque `usuarios` no tiene `nombre`): viaje + nombre del pasajero + nombre del chofer + tarifa + estado de cobro. Es el equivalente a "pedidos con el nombre del cliente" de la exposición: combina datos de dos bases que ya no admiten JOIN. Alimenta requisitos obligatorios del enunciado: historial del pasajero, historial del chofer y panel del operador.
     - `saldos`: saldo y últimos movimientos para mostrar en `GET /billetera/me`.
   - Proyector: proceso dentro del backend que lee los outbox, aplica cada evento a `lectura` y registra lo procesado.
 - **Regla para la defensa:** la proyección de saldos es sólo para mostrar. **El cobro decide siempre sobre el modelo de escritura** (suma de movimientos con `FOR UPDATE`). La consistencia eventual en la pantalla se acepta; en el dinero, no.
@@ -113,14 +113,14 @@ Hilo conductor: **"La billetera es un servicio dueño de sus datos (12); como ya
 
 ## Estado actual
 
-Al 26/11/2026 (`main` en `8e48189`, con el #21 y el #22). El contrato completo está en `docs/openapi.yaml` (0.5.0).
+Al 26/11/2026 (`main` en `579a1cc`, más la rama 10). El contrato completo está en `docs/openapi.yaml` (0.7.0).
 
 | Área | Endpoints | Estado |
 |---|---|---|
 | Salud | `GET /health`, `GET /ready` (verifica las tres bases) | Hecho (`/ready` no verifica migraciones) |
 | Autenticación | `POST /auth/register` (pasajero/chofer), `POST /auth/login`, `GET /auth/me` | Hecho (sin refresh ni revocación) |
-| Billetera | `POST /billetera/webhooks/cargas` (HMAC + dedupe), `GET /billetera/me` (lee la proyección de `lectura`) | Hecho, en su propia base (ADR 008 y 009) |
-| Viajes | `POST /viajes`, `GET /viajes/:viajeId` (sólo el pasajero dueño), `POST /viajes/:viajeId/reintentar-cobro` | Hecho |
+| Billetera | `POST /billetera/webhooks/cargas` (HMAC + dedupe), `GET /billetera/me` (lee la proyección de `lectura`), `GET /billetera/me/movimientos` (lee la base `billetera`) | Hecho, en su propia base (ADR 008 y 009) |
+| Viajes | `POST /viajes`, `GET /viajes` (historial desde la proyección `historial_viajes`), `GET /viajes/:viajeId` (sólo el pasajero dueño), `POST /viajes/:viajeId/reintentar-cobro`, `POST /viajes/:viajeId/cancelar` | Hecho |
 | Ofertas | `POST /viajes/:viajeId/ofertas` (chofer más cercano a ≤5 km), `POST /ofertas/:ofertaId/aceptar`, `POST /ofertas/:ofertaId/rechazar` | Hecho, con vencimiento automático en el servidor (#22) |
 | Chofer | `PUT /choferes/me/disponibilidad`, `PUT /choferes/me/ubicacion`, `GET /choferes/me/ofertas`, `GET /choferes/me/viaje-actual`, `POST /choferes/viajes/:viajeId/estado`, `POST /choferes/viajes/:viajeId/finalizar` | Hecho |
 | Admin | `PATCH /admin/choferes/:choferId/habilitacion` | Hecho |
@@ -180,7 +180,7 @@ Prioridad: lo que pide el **control 3** de Puljiz (carrera con test concurrente 
 - [ ] Asignación automática al crear el viaje (hoy el pasajero llama a mano a `/ofertas`).
 - [ ] Tiempo real por SSE con `Last-Event-ID` (estado del viaje + posición del chofer). `EventSource` no permite el header `Authorization`: ticket corto de un solo uso, nunca el JWT en la URL.
 - [ ] Test: la ubicación del chofer no se expone a quien no es su pasajero actual (ni la del pasajero a quien no es su chofer).
-- [ ] Historiales (pasajero y chofer) y panel del operador: salen de las proyecciones del tema 13.
+- [~] Historiales (pasajero y chofer) y panel del operador: salen de las proyecciones del tema 13. Hecho: el del pasajero (`GET /viajes`, rama 10) y los movimientos de la billetera. Falta el del chofer y que el panel del operador lea la proyección.
 - [ ] Administración de tarifas, zonas y parámetros.
 - [ ] Campo `nombre` en `usuarios` (migración nueva) y pedirlo en `POST /auth/register`. Hoy sólo hay email, y la proyección `historial_viajes` (tema 13) y las pantallas muestran nombre de pasajero y chofer.
 - [ ] Usuario operador en el seed (el rol existe en el `CHECK` pero no hay ningún usuario) y endpoints del operador: `GET /operador/viajes?estado=activos`, cancelar con motivo, reintentar cobro de un `pago_pendiente`.
@@ -209,7 +209,7 @@ Prioridad: lo que pide el **control 3** de Puljiz (carrera con test concurrente 
 Además de lo de Puljiz. Códigos RF/RNF del Word. El alcance exacto de cada entrega lo fija el Acta de Alcance: esto es el máximo posible, no todo es obligatorio para TP1.
 
 ### TP1 · Contrato ejecutable
-- [~] **OpenAPI** versionado (hecho: `docs/openapi.yaml` 0.5.0, + Swagger UI en el compose con `--profile docs`; falta validar las respuestas en los tests) (`docs/openapi.yaml`) con parámetros, esquemas, validaciones, ejemplos, respuestas de éxito y error (`{ error: { codigo, requestId } }`) y esquema de seguridad Bearer; visualización local (p. ej. Swagger UI en `GET /docs`, deshabilitada en producción). Los esquemas Zod y el contrato no pueden divergir.
+- [~] **OpenAPI** versionado (hecho: `docs/openapi.yaml` 0.7.0, + Swagger UI en el compose con `--profile docs`; falta validar las respuestas en los tests) (`docs/openapi.yaml`) con parámetros, esquemas, validaciones, ejemplos, respuestas de éxito y error (`{ error: { codigo, requestId } }`) y esquema de seguridad Bearer; visualización local (p. ej. Swagger UI en `GET /docs`, deshabilitada en producción). Los esquemas Zod y el contrato no pueden divergir.
 - [ ] Tests de integración que validen las respuestas contra el OpenAPI.
 - [ ] Mocks/stubs de las dependencias de otros módulos hechos desde **sus** OpenAPI, con casos de éxito, error y demora. Encajan como adaptadores en memoria de los puertos (también cumplen el bloque 2 de Puljiz).
 - [ ] **Dockerfile** del backend (multi-stage, usuario no root, `HEALTHCHECK` contra `/health`) y servicio `api` en `docker-compose.yml`. La secuencia de clon limpio de Puljiz tiene que seguir funcionando igual.
