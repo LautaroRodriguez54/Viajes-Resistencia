@@ -17,7 +17,9 @@ cp .env.example .env
 npm install
 docker compose up -d
 npm run setup     # bases y roles (viajes, billetera, lectura), migraciones y seed (ADR 008)
-npm test          # node --test (hoy sólo unitarios, no requieren DB)
+npm run setup:test  # bases *_test para los tests de integración
+npm test          # node --test: sin DATABASE_URL corren sólo los que no usan base; con DATABASE_URL=.../viajes_test, todos
+npm run lint      # ESLint con reglas de seguridad
 npm run dev       # node --watch src/servidor.js
 ```
 
@@ -56,7 +58,7 @@ src/
 - **Autorización:** `requiereAutenticacion(tokens)` deja `req.autenticacion = { usuarioId, rol }`; el rol se verifica en cada ruta (`soloPasajero`, `soloChofer`, etc.). La propiedad del recurso se verifica en la consulta (p. ej. `buscarPorIdDelPasajero`), nunca confiando en el id que manda el cliente.
 - **Dinero:** siempre centavos enteros (`INTEGER`), nunca floats.
 - **Billetera:** no existe saldo guardado en el modelo de escritura. El saldo es la suma de `movimientos_billetera` (`carga` suma, `consumo` resta). Los movimientos son inmutables (trigger); las correcciones se registran como movimientos nuevos.
-- **Transacciones:** `pool.connect()` → `BEGIN` → `SELECT ... FOR UPDATE` → `COMMIT` / `ROLLBACK` en `catch` → `release()` en `finally`. Orden de bloqueo usado: oferta → viaje → perfil de chofer; viaje → billetera. Mantenerlo para no generar interbloqueos.
+- **Transacciones:** `pool.connect()` → `BEGIN` → `SELECT ... FOR UPDATE` → `COMMIT` / `ROLLBACK` en `catch` → `release()` en `finally`. Orden de bloqueo usado: viaje → ofertas del viaje (`ORDER BY id`) → perfil de chofer, y viaje → billetera (la billetera en su propia base, con el viaje bloqueado; ADR 008). Mantenerlo para no generar interbloqueos.
 - **Eventos:** cada cambio de estado de un viaje inserta una fila en `eventos_viaje` en la misma transacción. Es la base del SSE y será el outbox del proyector CQRS.
 - **PostGIS:** puntos como `geography(Point, 4326)`; ojo, `ST_MakePoint(longitud, latitud)`.
 - **Migraciones:** nuevos archivos en `src/infra/db/migraciones/` con prefijo numérico; se ejecutan en orden alfabético. No editar migraciones ya aplicadas.
@@ -78,9 +80,7 @@ Hilo conductor: **"La billetera es un servicio dueño de sus datos (12); como ya
 ### Tema 12 · Base de datos por servicio y propiedad de datos
 - **Pregunta guía:** ¿por qué un servicio no debería consultar directamente las tablas internas de otro?
 - **El problema hoy, en nuestro código:**
-  - **Hecho (rama 7, ADR 008):** la billetera está en la base `billetera` con el rol `billetera_app`; Viajes recibe `permission denied` (`npm run demo:propiedad-datos`). La billetera se crea por el evento `UsuarioRegistrado`. La migración `004` borró las tablas de billetera de `viajes`.
-  - `repositorioUsuariosPostgres.js` crea la fila de `billeteras` dentro del registro de usuario.
-  - FKs cruzadas: `billeteras.pasajero_id → usuarios`, `movimientos_billetera.viaje_id → viajes`.
+  - **Hecho (rama 7, ADR 008):** la billetera está en la base `billetera` con el rol `billetera_app`; Viajes recibe `permission denied` (`npm run demo:propiedad-datos`). La billetera se crea por el evento `UsuarioRegistrado`. La migración `004` borró las tablas de billetera de `viajes`, y con ellas las FKs cruzadas que había antes (`billeteras.pasajero_id → usuarios`, `movimientos_billetera.viaje_id → viajes`).
 - **Diseño propuesto:** monolito modular con **dos bases en el mismo contenedor Postgres**: `viajes` (usuarios, choferes, viajes, ofertas, ubicaciones, tarifas) y `billetera` (billeteras, movimientos, webhooks). Cada módulo tiene su propio pool y su propio usuario de base, sin permisos sobre la otra. Viajes cobra sólo a través del puerto `servicioBilletera.cobrar({ viajeId, pasajeroId, importeCentavos })`, con adaptador real y adaptador en memoria (sirve también para el bloque 2). La billetera se crea al primer uso o por el evento `UsuarioRegistrado`, no desde el repositorio de usuarios.
 - **Lo que se pierde (está en la diapositiva "Lo que se pierde al separar las bases") y cómo se resuelve:** ya no hay transacción única "finalizar + cobrar". Flujo nuevo: Viajes registra la tarifa final y deja el viaje en `pago_pendiente` → llama a `cobrar` con clave `viajeId` → aprobado: `finalizado`; saldo insuficiente: sigue `pago_pendiente` con motivo; error o timeout: sigue `pago_pendiente` y un reintentador lo vuelve a intentar (seguro gracias al tema 3). El cobro nunca queda a medias. La carrera de la variante D (dos cobros contra un saldo) **sigue resuelta dentro de una sola base** (`billetera`, `FOR UPDATE` sobre la billetera). El ADR 004 queda parcialmente reemplazado.
 - **Demo (PDF):** los dos módulos con almacenes separados intercambian datos por API/evento; cambiar el esquema interno de `billetera` (p. ej. renombrar una columna) sin tocar ni romper Viajes. Mostrar que el usuario de base de Viajes recibe "permission denied" si intenta leer `billetera`.
@@ -101,7 +101,7 @@ Hilo conductor: **"La billetera es un servicio dueño de sus datos (12); como ya
 ### Tema 3 · Idempotencia y deduplicación
 - **Pregunta guía:** ¿cómo permitir reintentos sin cobrar, registrar o procesar dos veces?
 - **Tres niveles en el sistema:**
-  1. **HTTP:** middleware `Idempotency-Key` sobre `claves_idempotencia` (ya existe, sin usar): `(actor_id, ambito, clave)` único + `request_sha256`. Primera vez: `INSERT ... ON CONFLICT DO NOTHING` con estado `procesando`, ejecutar y guardar status y cuerpo. Repetida y completada: devolver la respuesta guardada sin ejecutar nada. Repetida en curso: 409. Misma clave con otro cuerpo: 422. Aplicar en `POST /viajes`, aceptar oferta, finalizar/cobrar y carga demo. El enunciado lo exige en "todas las operaciones que crean, cobran o disparan un efecto externo".
+  1. **HTTP (hecho, ADR 010):** middleware `Idempotency-Key` sobre `claves_idempotencia`: `(actor_id, ambito, clave)` único + `request_sha256`. Primera vez: `INSERT ... ON CONFLICT DO NOTHING` con estado `procesando`, ejecutar y guardar status y cuerpo. Repetida y completada: devolver la respuesta guardada sin ejecutar nada. Repetida en curso: 409. Misma clave con otro cuerpo: 422. Aplicar en `POST /viajes`, aceptar oferta, finalizar/cobrar y carga demo. El enunciado lo exige en "todas las operaciones que crean, cobran o disparan un efecto externo".
   2. **Entre servicios:** `cobrar` usa `viajeId` como clave natural (`ux_un_consumo_por_viaje`); un reintento devuelve el resultado del primer cobro.
   3. **Eventos:** webhook deduplicado por `proveedor_evento_id` (hecho); proyector deduplicado por id de evento.
 - **Demo (PDF):** repetir una solicitud con la misma `Idempotency-Key` y demostrar una única operación persistida. Es también el test obligatorio del bloque 6.
@@ -113,26 +113,29 @@ Hilo conductor: **"La billetera es un servicio dueño de sus datos (12); como ya
 
 ## Estado actual
 
-Funciona el flujo mínimo de punta a punta:
+Al 26/11/2026 (`main` en `3feece7`, con los PR #21 y #22 aprobados y pendientes de fusionar). El contrato completo está en `docs/openapi.yaml` (0.4.0 en `main`, 0.5.0 con el #22).
 
 | Área | Endpoints | Estado |
 |---|---|---|
-| Salud | `GET /health`, `GET /ready` | Hecho (`/ready` no verifica migraciones) |
+| Salud | `GET /health`, `GET /ready` (verifica las tres bases) | Hecho (`/ready` no verifica migraciones) |
 | Autenticación | `POST /auth/register` (pasajero/chofer), `POST /auth/login`, `GET /auth/me` | Hecho (sin refresh ni revocación) |
-| Billetera | `POST /billetera/webhooks/cargas` (HMAC + dedupe), `GET /billetera/me` | Hecho |
-| Viajes | `POST /viajes`, `GET /viajes/:viajeId` (sólo pasajero dueño) | Hecho |
-| Ofertas | `POST /viajes/:viajeId/ofertas` (chofer más cercano a ≤5 km, oferta de 30 s), `POST /ofertas/:ofertaId/aceptar` | Hecho (sin vencimiento automático) |
-| Chofer | `PUT /choferes/me/disponibilidad`, `PUT /choferes/me/ubicacion`, `POST /choferes/viajes/:viajeId/estado`, `POST /choferes/viajes/:viajeId/finalizar` | Hecho |
+| Billetera | `POST /billetera/webhooks/cargas` (HMAC + dedupe), `GET /billetera/me` (lee la proyección de `lectura`) | Hecho, en su propia base (ADR 008 y 009) |
+| Viajes | `POST /viajes`, `GET /viajes/:viajeId` (sólo el pasajero dueño), `POST /viajes/:viajeId/reintentar-cobro` | Hecho |
+| Ofertas | `POST /viajes/:viajeId/ofertas` (chofer más cercano a ≤5 km), `POST /ofertas/:ofertaId/aceptar`, `POST /ofertas/:ofertaId/rechazar` (#22) | Hecho; vencimiento automático en el servidor con el #22 |
+| Chofer | `PUT /choferes/me/disponibilidad`, `PUT /choferes/me/ubicacion`, `GET /choferes/me/ofertas`, `GET /choferes/me/viaje-actual`, `POST /choferes/viajes/:viajeId/estado`, `POST /choferes/viajes/:viajeId/finalizar` | Hecho |
 | Admin | `PATCH /admin/choferes/:choferId/habilitacion` | Hecho |
 
-Tests: 7 unitarios (billetera, roles, tarifa, JWT, HMAC), todos pasan. **No hay tests de integración, seguridad ni concurrencia.** ADR 001–007 existen; 004 y 005 siguen "propuesto" y todos tienen "Participantes: TODO".
+- Los 5 endpoints que crean o cobran exigen `Idempotency-Key` (ADR 010).
+- **Tests**: 201 en `main` y 214 con el #22, en `tests/dominio`, `aplicacion`, `infra`, `integracion`, `seguridad` y `concurrencia`. Un solo comando: `npm test` con `DATABASE_URL` apuntando a `viajes_test`.
+- **Lint**: ESLint con `eslint-plugin-security`, 0 errores. **CI** en GitHub Actions: lint, tests, auditoría, Semgrep y un job de Playwright que se saltea hasta que exista `e2e/package.json`.
+- **ADR**: 001 a 011. El 004 y el 005 siguen "propuesto" (son de Lucas) y el 008 reemplaza en parte al 004.
 
 ## Lo que falta (por bloque del enunciado)
 
 Prioridad: lo que pide el **control 3** de Puljiz (carrera con test concurrente + tarea pesada medida) y los temas de Fernández; después lo del TP1 de Fernández (OpenAPI, Dockerfile, trazabilidad). La web va al final.
 
 ### Bloque 1 — Proyecto y arranque
-- [ ] `npm run lint` real (ESLint); hoy sólo hace `node --check` de dos archivos.
+- [x] `npm run lint` real (ESLint con reglas de seguridad).
 - [ ] README: sacar "Estado inicial / flujos pendientes", agregar tabla de roles con permisos, usuarios de prueba con credenciales (operador incluido) e índice de `docs/`.
 - [ ] Probar la secuencia de clon limpio en otra máquina.
 
@@ -146,31 +149,31 @@ Prioridad: lo que pide el **control 3** de Puljiz (carrera con test concurrente 
 - [ ] Demo: SIGTERM durante un pedido lento y el pedido termina antes de salir.
 
 ### Bloque 4 — Errores y observabilidad
-- [ ] Loguear los 4xx esperados con nivel menor que `error` en `errores.js`.
+- [x] Loguear los 4xx esperados con nivel menor que `error` en `errores.js` (`warn`, PR #10).
 
 ### Bloque 5 — Seguridad
-- [ ] Reemplazar `z...parse()` por `safeParse` en `rutasChoferes.js` (hoy da 500 ante entrada inválida).
-- [ ] Rate limiting con 429 y encabezados informativos (login, webhook, ubicación, endpoints costosos), con test.
-- [ ] Tests: recurso ajeno → 403/404, prototype pollution (`__proto__` y `constructor.prototype` en distintas posiciones, sin lista negra), inyección SQL.
-- [ ] `npm audit` sin altas ni críticas, o justificadas en el README.
+- [x] Reemplazar `z...parse()` por `safeParse` en `rutasChoferes.js` (PR #10).
+- [x] Rate limiting con 429 y encabezados `RateLimit-*` (login, webhook, ubicación), con test (PR #10).
+- [x] Tests: recurso ajeno → 403/404, prototype pollution, inyección SQL, CORS y headers (`tests/seguridad`, PR #13).
+- [~] `npm audit` lo corre la CI; falta justificar en el README lo que quede.
 
 ### Bloque 6 y problema central (6.3) — Concurrencia e idempotencia
 - [x] Idempotencia HTTP (tema 3) con test (ADR 010, `tests/integracion/idempotenciaHttp.test.js`).
-- [ ] Test: 50 aceptaciones simultáneas sobre el mismo viaje, exactamente una gana y las demás reciben un rechazo claro.
+- [x] Test: 50 aceptaciones simultáneas sobre el mismo viaje, exactamente una gana (`tests/concurrencia/aceptacionOfertas.test.js`).
 - [ ] Cancelaciones (pasajero, chofer, operador con motivo) y test de cancelación simultánea a la aceptación, con los dos resultados posibles documentados.
-- [ ] Test: un chofer con viaje activo no puede aceptar otro.
-- [ ] Vencimiento de ofertas en el servidor (aunque el chofer cierre la app), pasar al siguiente candidato, `sin_choferes_disponibles` al agotar la lista.
-- [ ] Evitar ofertas duplicadas para el mismo viaje y excluir choferes con oferta pendiente; evaluar `FOR UPDATE SKIP LOCKED`.
-- [ ] Rechazo explícito de oferta por el chofer.
+- [x] Test: un chofer con viaje activo no puede aceptar otro.
+- [~] Vencimiento de ofertas en el servidor, siguiente candidato y `sin_choferes_disponibles` al agotar la lista: PR #22 (aprobado).
+- [~] Ofertas duplicadas y choferes con oferta pendiente con `FOR UPDATE SKIP LOCKED` + revalidación después del bloqueo: PR #21 (aprobado; arregla el test intermitente).
+- [~] Rechazo explícito de oferta por el chofer: PR #22 (aprobado).
 - [ ] ADR 004 completo: qué se bloquea, en qué orden, por qué no hay doble asignación ni interbloqueo.
 
 ### Variante D — Billetera
 - [x] Separación en base propia (tema 12, ADR 008) y proyección de saldos (tema 13, ADR 009).
-- [ ] Test de la carrera: dos viajes del mismo pasajero cobran a la vez contra un saldo que alcanza para uno.
-- [ ] Test que muestre por qué no se usa float para dinero.
-- [ ] Salida de `pago_pendiente`: reintento de cobro o saldo de deuda tras una carga.
-- [ ] Viaje con estimación 0: el `INSERT` del consumo viola `importe_centavos > 0`.
-- [ ] Carga de saldo para la demo sin exponer el secreto HMAC (`POST /billetera/demo/cargas` deshabilitado en producción, o `npm run cargar-saldo`).
+- [x] Test de la carrera: dos viajes del mismo pasajero cobran a la vez contra un saldo que alcanza para uno (con Postgres y en memoria).
+- [x] Test que muestre por qué no se usa float para dinero (`tests/dominio/billetera.test.js`).
+- [x] Salida de `pago_pendiente`: `POST /viajes/:viajeId/reintentar-cobro`, del pasajero dueño.
+- [x] Viaje con estimación 0: finaliza sin movimiento.
+- [x] Carga de saldo para la demo sin exponer el secreto HMAC: `npm run cargar-saldo`.
 
 ### 6.2, 6.4 y 6.5 — Alcance funcional
 - [ ] Estimación previa sin crear el viaje (`POST /viajes/estimacion`) y tarifa final desde recorrido y duración reales con la misma función. Tests de tarifa con distancia cero y con máximo permitido.
@@ -191,10 +194,10 @@ Prioridad: lo que pide el **control 3** de Puljiz (carrera con test concurrente 
 - [ ] Declarar el tiempo de asignación objetivo del grupo.
 
 ### Bloque 8 — Tests
-- [ ] Tres niveles con un solo comando: `tests/dominio`, `tests/integracion` (Postgres real en Docker, estado conocido por test), `tests/seguridad` y `tests/concurrencia`.
+- [x] Tres niveles con un solo comando: `tests/dominio`, `tests/aplicacion`, `tests/integracion` (Postgres real en Docker, estado conocido por test), `tests/seguridad` y `tests/concurrencia`.
 
 ### Documentación y proceso
-- [ ] ADR: completar "Participantes" y fecha en todos, cerrar 004 y 005, escribir 008–010.
+- [~] ADR: participantes y fecha completos en 001–003 y 006–011 (rama 8); 008–011 escritos. Falta cerrar el 004 y el 005 (Lucas).
 - [ ] `docs/mediciones.md`: hipótesis con número antes de medir, entorno, comando exacto, tabla ingenua vs final, conclusión.
 - [ ] `docs/ataque.md`: bitácora (número, hipótesis, petición exacta, esperado, obtenido, veredicto, severidad, impacto) y respuesta del defensor (causa raíz, commit, test que falla antes y pasa después).
 - [x] `docs/api.md` como índice del OpenAPI (rama `docs/api-openapi`). Quedan prefijo/versión de API y eventos SSE.
@@ -206,12 +209,12 @@ Prioridad: lo que pide el **control 3** de Puljiz (carrera con test concurrente 
 Además de lo de Puljiz. Códigos RF/RNF del Word. El alcance exacto de cada entrega lo fija el Acta de Alcance: esto es el máximo posible, no todo es obligatorio para TP1.
 
 ### TP1 · Contrato ejecutable
-- [~] **OpenAPI** versionado (hecho: `docs/openapi.yaml` 0.2.0 + Swagger UI en el compose con `--profile docs`; falta validar las respuestas en los tests) (`docs/openapi.yaml`) con parámetros, esquemas, validaciones, ejemplos, respuestas de éxito y error (`{ error: { codigo, requestId } }`) y esquema de seguridad Bearer; visualización local (p. ej. Swagger UI en `GET /docs`, deshabilitada en producción). Los esquemas Zod y el contrato no pueden divergir.
+- [~] **OpenAPI** versionado (hecho: `docs/openapi.yaml`, 0.4.0 en `main` y 0.5.0 con el #22, + Swagger UI en el compose con `--profile docs`; falta validar las respuestas en los tests) (`docs/openapi.yaml`) con parámetros, esquemas, validaciones, ejemplos, respuestas de éxito y error (`{ error: { codigo, requestId } }`) y esquema de seguridad Bearer; visualización local (p. ej. Swagger UI en `GET /docs`, deshabilitada en producción). Los esquemas Zod y el contrato no pueden divergir.
 - [ ] Tests de integración que validen las respuestas contra el OpenAPI.
 - [ ] Mocks/stubs de las dependencias de otros módulos hechos desde **sus** OpenAPI, con casos de éxito, error y demora. Encajan como adaptadores en memoria de los puertos (también cumplen el bloque 2 de Puljiz).
 - [ ] **Dockerfile** del backend (multi-stage, usuario no root, `HEALTHCHECK` contra `/health`) y servicio `api` en `docker-compose.yml`. La secuencia de clon limpio de Puljiz tiene que seguir funcionando igual.
 - [ ] Matriz de trazabilidad `docs/trazabilidad.md`: RF → operación OpenAPI → regla/archivo → test.
-- [ ] Formateador (Prettier) y ESLint reales; CI en GitHub Actions con lint + tests en cada PR (RNF-17).
+- [~] ESLint y CI en GitHub Actions con lint + tests en cada PR hacia `main` (hechos, RNF-17). Falta el formateador (Prettier).
 - [ ] Versión semántica en `package.json` y tag/release `tp1`.
 
 ### TP2 · Integración con otros grupos
