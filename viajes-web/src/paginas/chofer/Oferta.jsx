@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 import Mapa from '../../componentes/Mapa.jsx';
 import { api } from '../../api/cliente.js';
 import { distanciaMetros, nombreDe, posicionChoferDemo } from '../../datos/lugares.js';
@@ -63,12 +63,18 @@ export default function Oferta() {
     return () => clearInterval(temporizador);
   }, [disponible]);
 
-  // Reloj de la cuenta regresiva.
-  useEffect(() => {
-    if (!oferta) return undefined;
+  // Reloj de la cuenta regresiva. Sólo corre mientras hay oferta, así que al llegar una nueva `ahora`
+  // tiene la hora de la oferta anterior (o de cuando se abrió la página). Si se dibujara con esa hora,
+  // la cuenta daría mucho más de 30 s y la barra saldría más ancha que la pantalla antes de acomodarse.
+  // useLayoutEffect lo pone en hora antes de que el navegador pinte la oferta nueva.
+  // Depende del id (no del objeto), porque la consulta cada 2 s trae un objeto nuevo de la misma oferta.
+  const ofertaId = oferta?.ofertaId;
+  useLayoutEffect(() => {
+    if (!ofertaId) return undefined;
+    setAhora(Date.now());
     const temporizador = setInterval(() => setAhora(Date.now()), 250);
     return () => clearInterval(temporizador);
-  }, [oferta]);
+  }, [ofertaId]);
 
   const segundos = oferta ? Math.max(0, Math.ceil((new Date(oferta.venceAt).getTime() - ahora) / 1000)) : 0;
   const visible = Boolean(oferta) && (segundos > 0 || carreraPerdida);
@@ -182,7 +188,8 @@ export default function Oferta() {
           <div className="oferta__barra" aria-hidden="true">
             <div
               className={urgente ? 'oferta__progreso oferta__progreso--urgente' : 'oferta__progreso'}
-              style={{ width: `${(segundos / duracionOferta) * 100}%` }}
+              // Entre 0 y 100 %: si el reloj de la PC está atrasado respecto del servidor, la cuenta puede dar más de 30 s.
+              style={{ width: `${Math.min(100, Math.max(0, (segundos / duracionOferta) * 100))}%` }}
             />
           </div>
           {carreraPerdida && (
