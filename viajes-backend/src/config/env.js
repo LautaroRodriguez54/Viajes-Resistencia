@@ -15,6 +15,12 @@ const schema = z.object({
   CORS_ORIGINS: z.string().min(1).transform((value) => value.split(',').map((origin) => origin.trim())),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
+  RATE_LIMIT_LOGIN_VENTANA_MS: z.coerce.number().int().positive().default(900_000),
+  RATE_LIMIT_LOGIN_MAX: z.coerce.number().int().positive().default(10),
+  RATE_LIMIT_WEBHOOK_VENTANA_MS: z.coerce.number().int().positive().default(60_000),
+  RATE_LIMIT_WEBHOOK_MAX: z.coerce.number().int().positive().default(60),
+  RATE_LIMIT_UBICACION_VENTANA_MS: z.coerce.number().int().positive().default(60_000),
+  RATE_LIMIT_UBICACION_MAX: z.coerce.number().int().positive().default(60),
 });
 
 export function leerConfiguracion(environment = process.env) {

@@ -32,7 +32,13 @@ function validar(schema, body) {
   return resultado.data;
 }
 
-export function crearRutasAutenticacion({ registrarUsuario, iniciarSesion, buscarUsuarioPorId, tokens }) {
+export function crearRutasAutenticacion({
+  registrarUsuario,
+  iniciarSesion,
+  buscarUsuarioPorId,
+  tokens,
+  limitadorLogin = (_req, _res, next) => next(),
+}) {
   const router = express.Router();
 
   router.post('/register', async (req, res) => {
@@ -40,7 +46,7 @@ export function crearRutasAutenticacion({ registrarUsuario, iniciarSesion, busca
     res.status(201).json(resultado);
   });
 
-  router.post('/login', async (req, res) => {
+  router.post('/login', limitadorLogin, async (req, res) => {
     const resultado = await iniciarSesion(validar(credenciales, req.body));
     res.status(200).json(resultado);
   });
