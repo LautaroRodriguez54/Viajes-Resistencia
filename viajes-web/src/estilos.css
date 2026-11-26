@@ -446,6 +446,11 @@ h1 { margin: 0; font-weight: 600; }
   gap: 16px;
 }
 .columna .tarjeta { padding: 24px; }
+/* Tarjeta de estado vacío ("No tenés un viaje activo"): en columna, así la acción ocupa todo el ancho
+   en lugar de quedar un botón angosto del tamaño del texto. */
+.tarjeta--vacia { display: flex; flex-direction: column; gap: 12px; }
+.tarjeta--vacia h1 { font-size: 24px; }
+.tarjeta--vacia .boton { margin-top: 4px; }
 
 .billetera__saldo { display: flex; flex-direction: column; gap: 14px; }
 .billetera__monto { font-size: 40px; font-weight: 600; line-height: 1; }

@@ -84,11 +84,11 @@ export default function MiViaje() {
   if (!guardado || error?.codigo === 'RECURSO_NO_ENCONTRADO') {
     return (
       <div className="columna">
-        <section className="tarjeta" data-testid="mi-viaje-vacio">
+        <section className="tarjeta tarjeta--vacia" data-testid="mi-viaje-vacio">
           <h1>No tenés un viaje activo</h1>
           <p className="pedir__detalle">Pedí uno desde la pantalla Pedir. Los anteriores están en Billetera, en "Mis viajes".</p>
           {errorUltimo && <p role="alert" className="aviso aviso--peligro">{errorUltimo.message}</p>}
-          <Link to="/pasajero/pedir" className="boton boton--principal">Pedir un viaje</Link>
+          <Link to="/pasajero/pedir" className="boton boton--principal boton--grande">Pedir un viaje</Link>
         </section>
       </div>
     );
