@@ -277,9 +277,9 @@ test('aceptarOferta asigna el viaje, ocupa al chofer y registra el evento', asyn
     const choferId = await crearChofer(pool);
     const viajeId = await crearViaje(pool, pasajeroId);
     const ofertaId = await crearOferta(pool, viajeId, choferId);
-    const repositorio = crearRepositorioViajesPostgres(pool);
+    const { aceptarOferta } = crearCasosDeUsoViajesPostgres(pool);
 
-    const resultado = await repositorio.aceptarOferta(ofertaId, choferId);
+    const resultado = await aceptarOferta({ ofertaId, choferId });
 
     assert.deepEqual(resultado, {
       viajeId,
@@ -321,10 +321,10 @@ test('aceptarOferta rechaza una oferta perteneciente a otro chofer', async (t) =
     const otroChoferId = await crearChofer(pool);
     const viajeId = await crearViaje(pool, pasajeroId);
     const ofertaId = await crearOferta(pool, viajeId, choferId);
-    const repositorio = crearRepositorioViajesPostgres(pool);
+    const { aceptarOferta } = crearCasosDeUsoViajesPostgres(pool);
 
     await assert.rejects(
-      repositorio.aceptarOferta(ofertaId, otroChoferId),
+      aceptarOferta({ ofertaId, choferId: otroChoferId }),
     );
 
     const oferta = await pool.query(

@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import { crearPoolPostgres } from '../../src/infra/db/postgres.js';
 import { crearRepositorioUsuariosPostgres } from '../../src/infra/db/repositorioUsuariosPostgres.js';
 import { crearRepositorioViajesPostgres } from '../../src/infra/db/repositorioViajesPostgres.js';
+import { crearCasosDeUsoViajesPostgres } from '../ayudas/casosDeUsoViajesPostgres.js';
 import { crearRepositorioBilleterasPostgres } from '../../src/infra/db/repositorioBilleterasPostgres.js';
 import { crearRepositorioChoferesPostgres } from '../../src/infra/db/repositorioChoferesPostgres.js';
 import { urlsDePrueba } from '../ayudas/basesDePrueba.js';
@@ -87,13 +88,14 @@ test('SQL Injection - búsqueda de usuarios', async (t) => {
 test('SQL Injection - consultas y operaciones de viajes', async (t) => {
   await conBaseDePrueba(t, async (pool) => {
     const repositorio = crearRepositorioViajesPostgres(pool);
+    const { aceptarOferta } = crearCasosDeUsoViajesPostgres(pool);
 
     await comprobarRechazoUuid(t, (payload) =>
       repositorio.buscarPorIdDelPasajero(payload, UUID_VALIDO),
     );
 
     await comprobarRechazoUuid(t, (payload) =>
-      repositorio.aceptarOferta(payload, UUID_VALIDO),
+      aceptarOferta({ ofertaId: payload, choferId: UUID_VALIDO }),
     );
 
     await comprobarRechazoUuid(t, (payload) =>

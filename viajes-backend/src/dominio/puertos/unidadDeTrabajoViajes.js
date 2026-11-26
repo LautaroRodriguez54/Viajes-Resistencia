@@ -13,6 +13,10 @@
 // - registrarCancelacionViaje(viajeId, { nuevoEstado, actorId, motivo })
 //     -> { viajeId, estado, canceladoAt, motivo }
 // - registrarEventoViaje(viajeId, tipo, datos)
+// - buscarReferenciaOferta(ofertaId) -> { id, viajeId, choferId } | null
+// - bloquearOfertasDelViaje(viajeId, ofertaId?) -> [{ id, viajeId, choferId, estado, vencida }]
+// - bloquearChofer(choferId) -> { habilitado, disponible, tieneViajeActivo } | null
+// - registrarAceptacionOferta({ viajeId, ofertaId, choferId })
 export const unidadDeTrabajoViajes = Object.freeze({
   ejecutar: 'ejecutar',
 });

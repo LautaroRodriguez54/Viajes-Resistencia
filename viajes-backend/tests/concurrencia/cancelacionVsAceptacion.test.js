@@ -65,8 +65,7 @@ async function crearViaje(pool, pasajeroId, { choferId = null, estado = 'solicit
 
 test('carrera cancelación pasajero vs aceptación simultánea mantiene invariantes sin deadlocks', async (t) => {
   await conBaseDePrueba(t, async (pool) => {
-    const repo = crearRepositorioViajesPostgres(pool);
-    const { cancelarViaje } = crearCasosDeUsoViajesPostgres(pool);
+    const { aceptarOferta, cancelarViaje } = crearCasosDeUsoViajesPostgres(pool);
 
     for (let ronda = 0; ronda < 8; ronda += 1) {
       const pasajeroId = await crearUsuario(pool, 'pasajero');
@@ -80,7 +79,7 @@ test('carrera cancelación pasajero vs aceptación simultánea mantiene invarian
 
       const [resCancelar, resAceptar] = await Promise.allSettled([
         cancelarViaje({ viajeId, actorId: pasajeroId, rol: Rol.PASAJERO, motivo: 'Cambio de planes' }),
-        repo.aceptarOferta(ofertaId, choferId),
+        aceptarOferta({ ofertaId, choferId }),
       ]);
 
       assert.equal(resCancelar.status, 'fulfilled');
