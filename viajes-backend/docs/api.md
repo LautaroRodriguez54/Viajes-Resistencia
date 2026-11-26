@@ -30,9 +30,12 @@
 | Billetera | `POST /viajes/:viajeId/reintentar-cobro` | pasajero dueño | **sí** |
 | Billetera | `GET /billetera/me` | pasajero | |
 | Billetera | `POST /billetera/webhooks/cargas` | proveedor de pagos (firma HMAC) | no: deduplica por `eventoExternoId` |
+| Operador | `GET /operador/viajes?estado=activos` | operador | |
+| Operador | `POST /operador/viajes/:viajeId/cancelar` (motivo obligatorio) | operador | **sí** |
+| Operador | `POST /operador/viajes/:viajeId/reintentar-cobro` | operador | **sí** |
 | Administración | `PATCH /admin/choferes/:choferId/habilitacion` | administrador | |
 
-**Pendientes** (se agregan al OpenAPI cuando existan): estimación sin crear el viaje, cancelaciones con motivo, endpoints del operador, historiales, movimientos de la billetera y SSE.
+**Pendientes** (se agregan al OpenAPI cuando existan): estimación sin crear el viaje, historiales, movimientos de la billetera y SSE.
 
 ## Convenciones
 

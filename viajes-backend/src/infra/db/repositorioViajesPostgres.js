@@ -1,5 +1,5 @@
 import { ErrorDeDominio } from '../../dominio/errores.js';
-import { decidirCancelacion } from '../../dominio/viajes/estadosViaje.js';
+import { decidirCancelacion, ESTADOS_ACTIVOS_OPERADOR } from '../../dominio/viajes/estadosViaje.js';
 import { Rol } from '../../dominio/usuarios/roles.js';
 
 function mapearViaje(row) {
@@ -545,6 +545,31 @@ export function crearRepositorioViajesPostgres(pool, opciones = {}) {
       const fila = rows[0];
       if (!fila) return null;
       return { id: fila.id, estado: fila.estado, estimacionCentavos: fila.estimacion_centavos, ...mapearRecorrido(fila) };
+    },
+    async listarViajesActivos() {
+      const { rows } = await pool.query(
+        `SELECT v.id, v.estado, v.pasajero_id, v.chofer_id, p.patente,
+                v.estimacion_centavos, v.tarifa_final_centavos, v.solicitado_at,
+                ST_Y(v.origen::geometry) AS origen_latitud, ST_X(v.origen::geometry) AS origen_longitud,
+                ST_Y(v.destino::geometry) AS destino_latitud, ST_X(v.destino::geometry) AS destino_longitud
+         FROM viajes v
+         LEFT JOIN perfiles_chofer p ON p.usuario_id = v.chofer_id
+         WHERE v.estado = ANY($1::text[])
+         ORDER BY v.solicitado_at DESC
+         LIMIT 100`,
+        [ESTADOS_ACTIVOS_OPERADOR],
+      );
+      return rows.map((fila) => ({
+        id: fila.id,
+        estado: fila.estado,
+        pasajeroId: fila.pasajero_id,
+        choferId: fila.chofer_id,
+        patente: fila.patente ?? null,
+        estimacionCentavos: fila.estimacion_centavos,
+        tarifaFinalCentavos: fila.tarifa_final_centavos,
+        solicitadoAt: fila.solicitado_at,
+        ...mapearRecorrido(fila),
+      }));
     },
   };
 }
