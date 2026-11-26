@@ -11,9 +11,9 @@ function soloPasajero(req) {
   if (req.autenticacion.rol !== Rol.PASAJERO) throw new ErrorDeDominio('RECURSO_PROHIBIDO', 'Sólo un pasajero puede solicitar viajes.');
 }
 
-export function crearRutasViajes({ solicitarViaje, buscarViajePropio, ofrecerAlChoferCercano, reintentarCobro, tokens }) {
+export function crearRutasViajes({ solicitarViaje, buscarViajePropio, ofrecerAlChoferCercano, reintentarCobro, tokens, idempotente }) {
   const router = express.Router();
-  router.post('/', requiereAutenticacion(tokens), async (req, res) => {
+  router.post('/', requiereAutenticacion(tokens), idempotente('viajes.solicitar'), async (req, res) => {
     soloPasajero(req);
     const validacion = solicitud.safeParse(req.body);
     if (!validacion.success) throw new ErrorDeDominio('ENTRADA_INVALIDA', 'Origen o destino inválidos.');
@@ -28,12 +28,12 @@ export function crearRutasViajes({ solicitarViaje, buscarViajePropio, ofrecerAlC
     if (!viaje) throw new ErrorDeDominio('RECURSO_NO_ENCONTRADO', 'El viaje no existe o no pertenece al pasajero.');
     res.status(200).json({ viaje });
   });
-  router.post('/:viajeId/ofertas', requiereAutenticacion(tokens), async (req, res) => {
+  router.post('/:viajeId/ofertas', requiereAutenticacion(tokens), idempotente('viajes.ofrecer'), async (req, res) => {
     soloPasajero(req);
     if (!z.string().uuid().safeParse(req.params.viajeId).success) throw new ErrorDeDominio('ENTRADA_INVALIDA', 'Identificador de viaje inválido.');
     res.status(201).json(await ofrecerAlChoferCercano(req.params.viajeId, req.autenticacion.usuarioId));
   });
-  router.post('/:viajeId/reintentar-cobro', requiereAutenticacion(tokens), async (req, res) => {
+  router.post('/:viajeId/reintentar-cobro', requiereAutenticacion(tokens), idempotente('viajes.reintentar_cobro'), async (req, res) => {
     soloPasajero(req);
     if (!z.string().uuid().safeParse(req.params.viajeId).success) throw new ErrorDeDominio('ENTRADA_INVALIDA', 'Identificador de viaje inválido.');
     res.status(200).json(await reintentarCobro(req.params.viajeId, req.autenticacion.usuarioId));

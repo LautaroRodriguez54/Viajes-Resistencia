@@ -21,6 +21,7 @@ const schema = z.object({
   RATE_LIMIT_WEBHOOK_MAX: z.coerce.number().int().positive().default(60),
   RATE_LIMIT_UBICACION_VENTANA_MS: z.coerce.number().int().positive().default(60_000),
   RATE_LIMIT_UBICACION_MAX: z.coerce.number().int().positive().default(60),
+  IDEMPOTENCIA_TTL_SEGUNDOS: z.coerce.number().int().positive().default(86_400),
 });
 
 export function leerConfiguracion(environment = process.env) {

@@ -5,6 +5,7 @@ import { crearRepositorioUsuariosPostgres } from './infra/db/repositorioUsuarios
 import { crearRepositorioBilleterasPostgres } from './infra/db/repositorioBilleterasPostgres.js';
 import { crearRepositorioViajesPostgres } from './infra/db/repositorioViajesPostgres.js';
 import { crearRepositorioChoferesPostgres } from './infra/db/repositorioChoferesPostgres.js';
+import { crearRepositorioIdempotenciaPostgres } from './infra/db/repositorioIdempotenciaPostgres.js';
 import { crearHasheadorArgon2 } from './infra/autenticacion/contrasenasArgon2.js';
 import { crearServicioJwt } from './infra/autenticacion/tokensJwt.js';
 import { crearApp } from './infra/http/app.js';
@@ -41,7 +42,7 @@ export function componerAplicacion() {
   const ofertasHttp = { aceptarOferta: viajes.aceptarOferta, tokens };
   const choferesHttp = { cambiarDisponibilidad: choferes.cambiarDisponibilidad, registrarUbicacion: choferes.registrarUbicacion, avanzarEstado: viajes.avanzarEstado, finalizarYCobrar: viajes.finalizarYCobrar, tokens };
   const administracion = { establecerHabilitacion: choferes.establecerHabilitacion, tokens };
-  const app = crearApp({ config, logger, verificarDisponibilidad: () => verificarPostgres(pool), autenticacion, billetera, viajes: viajesHttp, ofertas: ofertasHttp, choferes: choferesHttp, administracion });
+  const app = crearApp({ config, logger, verificarDisponibilidad: () => verificarPostgres(pool), autenticacion, billetera, viajes: viajesHttp, ofertas: ofertasHttp, choferes: choferesHttp, administracion, idempotencia: crearRepositorioIdempotenciaPostgres(pool) });
   return { app, config, logger, cerrar: () => pool.end() };
 }
 

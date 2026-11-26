@@ -20,7 +20,7 @@ El contrato detallado se publica antes del congelamiento. Toda entrada se valida
 
 ## Convenciones confirmadas
 
-- Las operaciones que crean, cobran o producen efectos externos requerirán `Idempotency-Key`.
+- Las operaciones que crean, cobran o producen efectos externos requieren el header `Idempotency-Key` (un UUID por intención): `POST /viajes`, `POST /viajes/:viajeId/ofertas`, `POST /viajes/:viajeId/reintentar-cobro`, `POST /ofertas/:ofertaId/aceptar` y `POST /choferes/viajes/:viajeId/finalizar`. Sin header: 400 `CLAVE_IDEMPOTENCIA_REQUERIDA`; misma clave con otro pedido: 422 `CLAVE_IDEMPOTENCIA_REUTILIZADA`; repetida mientras la primera está en curso: 409 `PEDIDO_EN_CURSO`; repetida ya completada: la misma respuesta con `Idempotency-Replayed: true`. Detalle en el ADR 010.
 - Los errores no exponen stack traces; incluirán `codigo` y `requestId`.
 - El webhook verificará HMAC sobre el cuerpo crudo antes de procesarlo.
 
