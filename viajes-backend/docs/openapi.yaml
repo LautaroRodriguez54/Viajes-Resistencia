@@ -328,7 +328,7 @@ paths:
     get:
       tags: [Choferes]
       summary: Oferta pendiente y vigente del chofer
-      description: Devuelve la oferta que el chofer puede aceptar ahora (pendiente, sin vencer y de un viaje todavía `solicitado`), o `oferta: null`. Sin SSE, la web la consulta cada 2 s; por eso "no hay" es 200 y no 404.
+      description: 'Devuelve la oferta que el chofer puede aceptar ahora (pendiente, sin vencer y de un viaje todavía `solicitado`), o `oferta: null`. Sin SSE, la web la consulta cada 2 s; por eso "no hay" es 200 y no 404.'
       operationId: consultarOfertaPendiente
       responses:
         '200':
@@ -358,7 +358,7 @@ paths:
     get:
       tags: [Choferes]
       summary: Viaje activo del chofer (asignado, en camino o en curso)
-      description: Devuelve el viaje que el chofer tiene que avanzar o finalizar, o `viaje: null`. Un chofer tiene como máximo uno (`ux_chofer_un_viaje_activo`).
+      description: 'Devuelve el viaje que el chofer tiene que avanzar o finalizar, o `viaje: null`. Un chofer tiene como máximo uno (`ux_chofer_un_viaje_activo`).'
       operationId: consultarViajeActualChofer
       responses:
         '200':
