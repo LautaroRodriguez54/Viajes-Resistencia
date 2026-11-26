@@ -23,6 +23,7 @@ export function crearRutasViajes({ solicitarViaje, buscarViajePropio, ofrecerAlC
   });
   router.get('/:viajeId', requiereAutenticacion(tokens), async (req, res) => {
     soloPasajero(req);
+    if (!z.string().uuid().safeParse(req.params.viajeId).success) throw new ErrorDeDominio('ENTRADA_INVALIDA', 'Identificador de viaje inválido.');
     const viaje = await buscarViajePropio(req.params.viajeId, req.autenticacion.usuarioId);
     if (!viaje) throw new ErrorDeDominio('RECURSO_NO_ENCONTRADO', 'El viaje no existe o no pertenece al pasajero.');
     res.status(200).json({ viaje });
