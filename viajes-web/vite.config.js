@@ -1,12 +1,12 @@
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 
-// Orígenes del mapa real (src/mapas/config.js): sólo imágenes de los mosaicos de OpenStreetMap y
-// búsquedas a Photon. Ningún script de terceros. Con VITE_MAPA=simulado no se agregan y la política
+// Orígenes del mapa real (src/mapas/config.js): sólo imágenes de los mosaicos de OpenStreetMap,
+// búsquedas a Photon y rutas a OSRM. Ningún script de terceros. Con VITE_MAPA=simulado no se agregan y la política
 // queda tan estricta como antes.
 const MAPA_REAL = {
   img: ['https://tile.openstreetmap.org'],
-  connect: ['https://photon.komoot.io'],
+  connect: ['https://photon.komoot.io', 'https://router.project-osrm.org'],
 };
 
 /**

@@ -2,13 +2,15 @@ import { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { ATRIBUCION, centroResistencia, URL_MOSAICOS } from '../mapas/config.js';
+import { buscarRuta } from '../mapas/rutas.js';
 
 // Mapa real con Leaflet y OpenStreetMap. Recibe los mismos hijos que MapaSimulado (las tarjetas
 // flotantes) y los puntos en el formato del backend: { latitud, longitud }.
 // - origen: punto de retiro (círculo negro, como en el diseño);
 // - destino: pin rojo;
 // - posicion: "Vos" (el chofer en su pantalla), punto azul.
-// No dibuja la ruta: sin un servicio de rutas (etapa 3, desde el backend) sería una línea recta engañosa.
+// La ruta por calles sale de OSRM (src/mapas/rutas.js); si no responde, quedan sólo los marcadores
+// (nunca una línea recta, que sería engañosa).
 // tarjeta: dónde está la tarjeta que tapa el mapa, para encuadrar los puntos en la parte visible:
 //   'lateral' → a la izquierda en la computadora y como hoja inferior en el celular;
 //   'arriba'  → la notificación de oferta del chofer.
@@ -22,10 +24,36 @@ const iconos = {
 };
 const titulos = { origen: 'Retiro', destino: 'Destino', posicion: 'Vos' };
 
+// Líneas como en el diseño: el viaje en el azul de los mapas con un borde blanco para que se lea sobre
+// las calles; el tramo del chofer hasta el retiro, punteado y oscuro.
+const estilos = {
+  borde: { color: '#FFFFFF', weight: 9, opacity: 0.9, interactive: false },
+  viaje: { color: '#1A73E8', weight: 5, opacity: 1, interactive: false },
+  alRetiro: { color: '#202124', weight: 4, opacity: 0.85, dashArray: '2 9', lineCap: 'round', interactive: false },
+};
+
+// Encuadra los puntos dejando libre lo que tapa la tarjeta. Con un solo punto, lo centra.
+function encuadrar(m, latlngs, tarjeta) {
+  if (latlngs.length === 1) m.setView(latlngs[0], 15);
+  if (latlngs.length < 2) return;
+  const alto = m.getSize().y;
+  const celular = globalThis.matchMedia?.('(max-width: 600px)').matches;
+  let margen;
+  if (tarjeta === 'arriba') margen = { arriba: celular ? 280 : 320, abajo: 90, izquierda: 50, derecha: 50 };
+  else if (celular) margen = { arriba: 50, abajo: Math.round(alto * 0.55), izquierda: 40, derecha: 40 };
+  else margen = { arriba: 60, abajo: 60, izquierda: 440, derecha: 80 };
+  m.fitBounds(L.latLngBounds(latlngs), {
+    paddingTopLeft: [margen.izquierda, margen.arriba],
+    paddingBottomRight: [margen.derecha, margen.abajo],
+    maxZoom: 16,
+  });
+}
+
 export default function MapaReal({ origen, destino, posicion, tarjeta = 'lateral', chofer = false, alFallar, children }) {
   const contenedor = useRef(null);
   const mapa = useRef(null);
   const marcadores = useRef({});
+  const lineas = useRef(null);
   const atribucion = useRef(null);
   const alFallarRef = useRef(alFallar);
   alFallarRef.current = alFallar;
@@ -46,7 +74,7 @@ export default function MapaReal({ origen, destino, posicion, tarjeta = 'lateral
       })
       .addTo(m);
     mapa.current = m;
-    return () => { m.remove(); mapa.current = null; marcadores.current = {}; };
+    return () => { m.remove(); mapa.current = null; marcadores.current = {}; lineas.current = null; };
   }, []);
 
   // La atribución de OSM es obligatoria y tiene que verse: va en la esquina que la tarjeta no tapa
@@ -74,22 +102,34 @@ export default function MapaReal({ origen, destino, posicion, tarjeta = 'lateral
         marcadores.current[tipo] = L.marker(aLatLng(punto), { icon: iconos[tipo], title: titulos[tipo], keyboard: false }).addTo(m);
       }
     }
-    const visibles = Object.values(puntos).filter(Boolean).map(aLatLng);
-    if (visibles.length === 1) m.setView(visibles[0], 15);
-    if (visibles.length > 1) {
-      const alto = m.getSize().y;
-      const celular = globalThis.matchMedia?.('(max-width: 600px)').matches;
-      let margen;
-      if (tarjeta === 'arriba') margen = { arriba: celular ? 280 : 320, abajo: 90, izquierda: 50, derecha: 50 };
-      else if (celular) margen = { arriba: 50, abajo: Math.round(alto * 0.55), izquierda: 40, derecha: 40 };
-      else margen = { arriba: 60, abajo: 60, izquierda: 440, derecha: 80 };
-      m.fitBounds(L.latLngBounds(visibles), {
-        paddingTopLeft: [margen.izquierda, margen.arriba],
-        paddingBottomRight: [margen.derecha, margen.abajo],
-        maxZoom: 16,
-      });
-    }
+    encuadrar(m, Object.values(puntos).filter(Boolean).map(aLatLng), tarjeta);
   }, [firma, tarjeta]); // `firma` resume los tres puntos
+
+  // Rutas por calles (OSRM): la del viaje (origen → destino) en azul y, en la pantalla del chofer,
+  // el tramo hasta el retiro (posicion → origen) punteado. Si OSRM no responde, no se dibuja nada.
+  // Al llegar, el mapa se reencuadra para que entre la ruta completa (puede salirse del rectángulo de los marcadores).
+  useEffect(() => {
+    const m = mapa.current;
+    if (!m) return undefined;
+    lineas.current?.remove();
+    lineas.current = L.layerGroup().addTo(m);
+    const cancelar = new AbortController();
+    (async () => {
+      const [alRetiro, viaje] = await Promise.all([
+        posicion && origen ? buscarRuta(posicion, origen, { signal: cancelar.signal }) : null,
+        origen && destino ? buscarRuta(origen, destino, { signal: cancelar.signal }) : null,
+      ]);
+      if (cancelar.signal.aborted || !lineas.current) return;
+      if (alRetiro) L.polyline(alRetiro, estilos.alRetiro).addTo(lineas.current);
+      if (viaje) {
+        L.polyline(viaje, estilos.borde).addTo(lineas.current);
+        L.polyline(viaje, estilos.viaje).addTo(lineas.current);
+      }
+      const todos = [...(alRetiro ?? []), ...(viaje ?? []), ...[posicion, origen, destino].filter(Boolean).map(aLatLng)];
+      if (alRetiro || viaje) encuadrar(m, todos, tarjeta);
+    })();
+    return () => cancelar.abort();
+  }, [firma, tarjeta]);
 
   return (
     <main className={chofer ? 'mapa mapa--chofer' : 'mapa'}>

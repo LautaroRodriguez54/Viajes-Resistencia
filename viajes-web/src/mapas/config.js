@@ -16,6 +16,10 @@ export const usarMapaReal = entorno.VITE_MAPA !== 'simulado';
 export const URL_MOSAICOS = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 export const ATRIBUCION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
 export const URL_PHOTON = 'https://photon.komoot.io/api/';
+// Rutas por calles: OSRM (motor libre sobre OSM), servidor público de demostración. Pide como mucho una
+// consulta por segundo: la web la pide sólo cuando cambian los puntos y guarda el resultado en memoria.
+// La ruta es sólo visual: la tarifa la sigue calculando el backend.
+export const URL_OSRM = 'https://router.project-osrm.org/route/v1/driving/';
 
 // Centro de la demo (Plaza 25 de Mayo) y rectángulo de Resistencia y alrededores para las búsquedas:
 // el backend busca choferes a ≤ 5 km del origen, así que no tiene sentido sugerir lugares lejos.
