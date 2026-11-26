@@ -60,7 +60,7 @@ async function conApp(pool, fn) {
       tokens,
     },
     ofertas: { aceptarOferta: viajes.aceptarOferta, tokens },
-    choferes: { cambiarDisponibilidad: noUsado, registrarUbicacion: noUsado, avanzarEstado: viajes.avanzarEstado, finalizarYCobrar: viajes.finalizarYCobrar, tokens },
+    choferes: { cambiarDisponibilidad: noUsado, registrarUbicacion: noUsado, avanzarEstado: viajes.avanzarEstado, finalizarYCobrar: viajes.finalizarYCobrar, buscarOfertaPendiente: viajes.buscarOfertaPendienteDelChofer, buscarViajeActual: viajes.buscarViajeActualDelChofer, tokens },
     administracion: { establecerHabilitacion: noUsado, tokens },
     idempotencia: crearRepositorioIdempotenciaPostgres(pool),
   });
@@ -240,5 +240,33 @@ test('repositorioIdempotenciaPostgres: una clave vencida o liberada se puede res
 
     await pool.query("UPDATE claves_idempotencia SET created_at = now() - interval '61 seconds' WHERE id = $1", [trasLiberar.id]);
     assert.equal((await repo.reservar(pedido)).nueva, true);
+  });
+});
+
+test('GET /choferes/me/viaje-actual y /me/ofertas: el chofer ve su viaje; el pasajero recibe 403', async (t) => {
+  await conBaseDePrueba(t, async (pool) => {
+    const { pasajeroId } = await crearPasajero(pool);
+    const { choferId, viajeId } = await crearViajeEnCurso(pool, pasajeroId, 1500);
+    await conApp(pool, async (baseUrl, tokens) => {
+      const tokenChofer = tokens.crearTokenDeAcceso({ usuarioId: choferId, rol: Rol.CHOFER });
+      const tokenPasajero = tokens.crearTokenDeAcceso({ usuarioId: pasajeroId, rol: Rol.PASAJERO });
+      const pedir = (ruta, token) => fetch(`${baseUrl}${ruta}`, { headers: { authorization: `Bearer ${token}` } });
+
+      const actual = await pedir('/choferes/me/viaje-actual', tokenChofer);
+      assert.equal(actual.status, 200);
+      const { viaje } = await actual.json();
+      assert.equal(viaje.id, viajeId);
+      assert.equal(viaje.estado, 'en_curso');
+
+      const ofertas = await pedir('/choferes/me/ofertas', tokenChofer);
+      assert.equal(ofertas.status, 200);
+      assert.deepEqual(await ofertas.json(), { oferta: null });
+
+      for (const ruta of ['/choferes/me/viaje-actual', '/choferes/me/ofertas']) {
+        const prohibido = await pedir(ruta, tokenPasajero);
+        assert.equal(prohibido.status, 403);
+        assert.equal((await prohibido.json()).error.codigo, 'RECURSO_PROHIBIDO');
+      }
+    });
   });
 });

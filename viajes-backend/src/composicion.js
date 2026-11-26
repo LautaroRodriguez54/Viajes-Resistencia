@@ -40,7 +40,7 @@ export function componerAplicacion() {
   };
   const viajesHttp = { solicitarViaje: crearSolicitarViaje({ viajes }), buscarViajePropio: viajes.buscarPorIdDelPasajero, ofrecerAlChoferCercano: viajes.ofrecerAlChoferCercano, reintentarCobro: viajes.reintentarCobro, tokens };
   const ofertasHttp = { aceptarOferta: viajes.aceptarOferta, tokens };
-  const choferesHttp = { cambiarDisponibilidad: choferes.cambiarDisponibilidad, registrarUbicacion: choferes.registrarUbicacion, avanzarEstado: viajes.avanzarEstado, finalizarYCobrar: viajes.finalizarYCobrar, tokens };
+  const choferesHttp = { cambiarDisponibilidad: choferes.cambiarDisponibilidad, registrarUbicacion: choferes.registrarUbicacion, avanzarEstado: viajes.avanzarEstado, finalizarYCobrar: viajes.finalizarYCobrar, buscarOfertaPendiente: viajes.buscarOfertaPendienteDelChofer, buscarViajeActual: viajes.buscarViajeActualDelChofer, tokens };
   const administracion = { establecerHabilitacion: choferes.establecerHabilitacion, tokens };
   const app = crearApp({ config, logger, verificarDisponibilidad: () => verificarPostgres(pool), autenticacion, billetera, viajes: viajesHttp, ofertas: ofertasHttp, choferes: choferesHttp, administracion, idempotencia: crearRepositorioIdempotenciaPostgres(pool) });
   return { app, config, logger, cerrar: () => pool.end() };

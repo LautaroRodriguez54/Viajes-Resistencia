@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Viajes Resistencia · API del backend
-  version: 0.2.0
+  version: 0.3.0
   summary: Viajes a demanda con billetera y pagos (grupo 4, variante D).
   description: |
     Contrato HTTP del backend. Es la **fuente de verdad** de la API: `docs/api.md` sólo lo resume.
@@ -324,6 +324,65 @@ paths:
               example: { error: { codigo: OFERTA_NO_DISPONIBLE, requestId: 6f1c2d4e-8a0b-4c3d-9e2f-1a2b3c4d5e6f } }
         '422': { $ref: '#/components/responses/ClaveReutilizada' }
 
+  /choferes/me/ofertas:
+    get:
+      tags: [Choferes]
+      summary: Oferta pendiente y vigente del chofer
+      description: Devuelve la oferta que el chofer puede aceptar ahora (pendiente, sin vencer y de un viaje todavía `solicitado`), o `oferta: null`. Sin SSE, la web la consulta cada 2 s; por eso "no hay" es 200 y no 404.
+      operationId: consultarOfertaPendiente
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [oferta]
+                properties:
+                  oferta:
+                    oneOf:
+                      - { $ref: '#/components/schemas/OfertaPendiente' }
+                      - { type: 'null' }
+              example:
+                oferta:
+                  ofertaId: 6f1c2b8e-2f4a-4c1d-9a7e-1b2c3d4e5f60
+                  viajeId: 0b7e6a4c-5d3f-4e2a-8c1b-9f0e1d2c3b4a
+                  venceAt: '2026-11-26T18:30:30.000Z'
+                  estimacionCentavos: 1300
+                  origen: { latitud: -27.4514, longitud: -58.9867 }
+                  destino: { latitud: -27.44, longitud: -58.98 }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+  /choferes/me/viaje-actual:
+    get:
+      tags: [Choferes]
+      summary: Viaje activo del chofer (asignado, en camino o en curso)
+      description: Devuelve el viaje que el chofer tiene que avanzar o finalizar, o `viaje: null`. Un chofer tiene como máximo uno (`ux_chofer_un_viaje_activo`).
+      operationId: consultarViajeActualChofer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [viaje]
+                properties:
+                  viaje:
+                    oneOf:
+                      - { $ref: '#/components/schemas/ViajeDelChofer' }
+                      - { type: 'null' }
+              example:
+                viaje:
+                  id: 0b7e6a4c-5d3f-4e2a-8c1b-9f0e1d2c3b4a
+                  estado: asignado
+                  estimacionCentavos: 1300
+                  origen: { latitud: -27.4514, longitud: -58.9867 }
+                  destino: { latitud: -27.44, longitud: -58.98 }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
   /choferes/me/disponibilidad:
     put:
       tags: [Choferes]
@@ -824,6 +883,27 @@ components:
         ofertaId: { type: string, format: uuid }
         choferId: { type: string, format: uuid }
         venceAt: { type: string, format: date-time }
+    OfertaPendiente:
+      type: object
+      additionalProperties: false
+      required: [ofertaId, viajeId, venceAt, estimacionCentavos, origen, destino]
+      properties:
+        ofertaId: { type: string, format: uuid }
+        viajeId: { type: string, format: uuid }
+        venceAt: { type: string, format: date-time }
+        estimacionCentavos: { type: integer, minimum: 0 }
+        origen: { $ref: '#/components/schemas/Punto' }
+        destino: { $ref: '#/components/schemas/Punto' }
+    ViajeDelChofer:
+      type: object
+      additionalProperties: false
+      required: [id, estado, estimacionCentavos, origen, destino]
+      properties:
+        id: { type: string, format: uuid }
+        estado: { type: string, enum: [asignado, chofer_en_camino, en_curso] }
+        estimacionCentavos: { type: integer, minimum: 0 }
+        origen: { $ref: '#/components/schemas/Punto' }
+        destino: { $ref: '#/components/schemas/Punto' }
     ResultadoCobro:
       type: object
       additionalProperties: false

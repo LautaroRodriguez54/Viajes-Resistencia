@@ -210,6 +210,46 @@ export function crearRepositorioViajesPostgres(pool) {
         return { viajeId, estado: 'finalizado', importeCentavos: importe };
       } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
     },
+    // Lecturas del chofer (sin bloqueos): la web las consulta cada 2 s mientras no haya SSE.
+    // Sólo devuelve una oferta pendiente, vigente y de un viaje que todavía se puede asignar.
+    async buscarOfertaPendienteDelChofer(choferId) {
+      const { rows } = await pool.query(
+        `SELECT o.id AS oferta_id, o.viaje_id, o.vence_at, v.estimacion_centavos,
+                ST_Y(v.origen::geometry) AS origen_latitud, ST_X(v.origen::geometry) AS origen_longitud,
+                ST_Y(v.destino::geometry) AS destino_latitud, ST_X(v.destino::geometry) AS destino_longitud
+         FROM ofertas_viaje o JOIN viajes v ON v.id = o.viaje_id
+         WHERE o.chofer_id = $1 AND o.estado = 'pendiente' AND o.vence_at > now() AND v.estado = 'solicitado'
+         ORDER BY o.vence_at DESC LIMIT 1`,
+        [choferId],
+      );
+      const fila = rows[0];
+      if (!fila) return null;
+      return {
+        ofertaId: fila.oferta_id, viajeId: fila.viaje_id, venceAt: fila.vence_at,
+        estimacionCentavos: fila.estimacion_centavos, ...mapearRecorrido(fila),
+      };
+    },
+    async buscarViajeActualDelChofer(choferId) {
+      const { rows } = await pool.query(
+        `SELECT id, estado, estimacion_centavos,
+                ST_Y(origen::geometry) AS origen_latitud, ST_X(origen::geometry) AS origen_longitud,
+                ST_Y(destino::geometry) AS destino_latitud, ST_X(destino::geometry) AS destino_longitud
+         FROM viajes
+         WHERE chofer_id = $1 AND estado IN ('asignado', 'chofer_en_camino', 'en_curso')
+         LIMIT 1`,
+        [choferId],
+      );
+      const fila = rows[0];
+      if (!fila) return null;
+      return { id: fila.id, estado: fila.estado, estimacionCentavos: fila.estimacion_centavos, ...mapearRecorrido(fila) };
+    },
+  };
+}
+
+function mapearRecorrido(fila) {
+  return {
+    origen: { latitud: fila.origen_latitud, longitud: fila.origen_longitud },
+    destino: { latitud: fila.destino_latitud, longitud: fila.destino_longitud },
   };
 }
 

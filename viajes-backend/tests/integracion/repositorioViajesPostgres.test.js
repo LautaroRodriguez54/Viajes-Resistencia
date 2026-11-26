@@ -672,3 +672,49 @@ test('dos reintentos de cobro simultáneos del mismo viaje cobran una sola vez',
     assert.equal(await saldoDe(pool, billeteraId), 15000);
   });
 });
+
+test('buscarOfertaPendienteDelChofer devuelve sólo la oferta vigente del propio chofer', async (t) => {
+  await conBaseDePrueba(t, async (pool) => {
+    const { pasajeroId } = await crearPasajero(pool);
+    const choferId = await crearChofer(pool);
+    const otroChoferId = await crearChofer(pool);
+    const viajeId = await crearViaje(pool, pasajeroId);
+    const repositorio = crearRepositorioViajesPostgres(pool);
+
+    assert.equal(await repositorio.buscarOfertaPendienteDelChofer(choferId), null);
+
+    const ofertaId = await crearOferta(pool, viajeId, choferId);
+    const oferta = await repositorio.buscarOfertaPendienteDelChofer(choferId);
+    assert.equal(oferta.ofertaId, ofertaId);
+    assert.equal(oferta.viajeId, viajeId);
+    assert.equal(oferta.estimacionCentavos, 5000);
+    assert.ok(Math.abs(oferta.origen.latitud - -27.4514) < 1e-6);
+    assert.ok(Math.abs(oferta.origen.longitud - -58.9867) < 1e-6);
+    assert.ok(Math.abs(oferta.destino.latitud - -27.44) < 1e-6);
+    assert.equal(await repositorio.buscarOfertaPendienteDelChofer(otroChoferId), null);
+
+    // Vencida: ya no se muestra aunque siga en estado 'pendiente'.
+    await pool.query("UPDATE ofertas_viaje SET vence_at = now() - interval '1 second' WHERE id = $1", [ofertaId]);
+    assert.equal(await repositorio.buscarOfertaPendienteDelChofer(choferId), null);
+  });
+});
+
+test('buscarViajeActualDelChofer devuelve el viaje activo y null al finalizar', async (t) => {
+  await conBaseDePrueba(t, async (pool) => {
+    const { pasajeroId } = await crearPasajero(pool);
+    const choferId = await crearChofer(pool, false);
+    const repositorio = crearRepositorioViajesPostgres(pool);
+
+    assert.equal(await repositorio.buscarViajeActualDelChofer(choferId), null);
+
+    const viajeId = await crearViaje(pool, pasajeroId, { choferId, estado: 'en_curso', importe: 0 });
+    const viaje = await repositorio.buscarViajeActualDelChofer(choferId);
+    assert.equal(viaje.id, viajeId);
+    assert.equal(viaje.estado, 'en_curso');
+    assert.equal(viaje.estimacionCentavos, 0);
+    assert.ok(Math.abs(viaje.destino.longitud - -58.98) < 1e-6);
+
+    await repositorio.finalizarYCobrar(viajeId, choferId);
+    assert.equal(await repositorio.buscarViajeActualDelChofer(choferId), null);
+  });
+});
