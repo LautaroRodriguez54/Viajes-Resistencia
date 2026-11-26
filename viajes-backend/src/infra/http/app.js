@@ -11,8 +11,9 @@ import { crearRutasViajes } from './rutasViajes.js';
 import { crearRutasChoferes } from './rutasChoferes.js';
 import { crearRutasAdministracion } from './rutasAdministracion.js';
 import { crearRutasOfertas } from './rutasOfertas.js';
+import { crearRutasOperador } from './rutasOperador.js';
 
-export function crearApp({ config, logger, verificarDisponibilidad, autenticacion, billetera, viajes, ofertas, choferes, administracion, idempotencia }) {
+export function crearApp({ config, logger, verificarDisponibilidad, autenticacion, billetera, viajes, ofertas, choferes, administracion, operador, idempotencia }) {
   const app = express();
   const limitadores = crearLimitadores(config);
   const idempotente = crearIdempotencia({ repositorio: idempotencia, ttlSegundos: config.IDEMPOTENCIA_TTL_SEGUNDOS, logger });
@@ -35,6 +36,7 @@ export function crearApp({ config, logger, verificarDisponibilidad, autenticacio
   app.use('/ofertas', crearRutasOfertas({ ...ofertas, idempotente }));
   app.use('/choferes', crearRutasChoferes({ ...choferes, idempotente, limitadorUbicacion: limitadores.ubicacion }));
   app.use('/admin', crearRutasAdministracion(administracion));
+  app.use('/operador', crearRutasOperador({ tokens: administracion?.tokens ?? autenticacion?.tokens, ...operador, idempotente }));
   // TODO: montar rutas de habilitación, ofertas, asignación, SSE y finalización/cobro.
   app.use((_req, res) => {
     const requestId = contexto.getStore()?.requestId;
