@@ -71,7 +71,7 @@ Cómo está armado:
 
 **Fernández, TP integrador** (`CONSIGNA FERNANDEZ.docx`, TP3 y RNF-15): "cliente web responsivo común o conjunto coherente de interfaces que permita ejecutar los recorridos críticos **sin invocar manualmente cada API**". Puede ser una web común del consorcio; si no, ésta tiene que cubrir lo siguiente. Lo que exija nuestro módulo lo fija el Acta de Alcance.
 
-- [ ] **Responsiva:** que se use en el celular (el pasajero y el chofer la van a abrir ahí). Hoy las tarjetas flotan sobre el mapa pensadas para escritorio.
+- [x] **Responsiva** (rama 11): las 7 pantallas se usan en un celular, sólo con CSS (`src/estilos.css`, al final). Probado a 390 × 844 y a 360 × 640: nada más ancho que la pantalla, todo lo que se toca mide al menos 44 px y los inputs tienen letra de 16 px (con menos, el iPhone hace zoom). En las pantallas con mapa, la tarjeta pasa a ser una hoja inferior y el dibujo se corre para que la ruta (pasajero) o "Vos" y el retiro (chofer) queden a la vista. El encabezado ocupa dos renglones, con el email cortado y pestañas a lo ancho. En la computadora no cambia nada.
 - [ ] **Estados claros** en cada acción (RNF-15): espera (cargando, buscando chofer), confirmación, rechazo, cancelación, error y **recuperación** (reintentar, volver a un estado válido). Los mensajes salen de `error.codigo` vía `src/api/cliente.js`.
 - [ ] **Recorrido de viaje inmediato completo** desde la interfaz: ingresar → pedir → asignación → arribo → inicio → viaje → tarifa → pago → comprobante o aviso.
   - Pedir: elegir **tipo de vehículo auto/moto** (RF-5.1, 7.1).
