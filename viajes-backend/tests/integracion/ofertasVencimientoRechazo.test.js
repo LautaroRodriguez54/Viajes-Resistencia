@@ -44,7 +44,7 @@ async function conApp(pool, fn) {
   };
   const tokens = crearServicioJwt(config);
   const viajes = crearRepositorioViajesPostgres(pool);
-  const { avanzarEstado, aceptarOferta } = crearCasosDeUsoViajesPostgres(pool);
+  const { avanzarEstado, aceptarOferta, ofrecerAlChoferCercano, rechazarOferta } = crearCasosDeUsoViajesPostgres(pool);
   const noUsado = async () => { throw new Error('no usado en este test'); };
   const app = crearApp({
     config,
@@ -55,11 +55,11 @@ async function conApp(pool, fn) {
     viajes: {
       solicitarViaje: noUsado,
       buscarViajePropio: viajes.buscarPorIdDelPasajero,
-      ofrecerAlChoferCercano: viajes.ofrecerAlChoferCercano,
+      ofrecerAlChoferCercano,
       reintentarCobro: noUsado,
       tokens,
     },
-    ofertas: { aceptarOferta, rechazarOferta: viajes.rechazarOferta, tokens },
+    ofertas: { aceptarOferta, rechazarOferta, tokens },
     choferes: {
       cambiarDisponibilidad: noUsado,
       registrarUbicacion: noUsado,
@@ -128,8 +128,9 @@ test('POST /ofertas/:ofertaId/rechazar re-ofrece al siguiente chofer, soporta id
     const chofer2 = await crearChofer(pool);
     const viajeId = await crearViaje(pool, pasajeroId);
 
-    await conApp(pool, async (baseUrl, tokens, viajes) => {
-      const primeraOferta = await viajes.ofrecerAlChoferCercano(viajeId, pasajeroId);
+    await conApp(pool, async (baseUrl, tokens) => {
+      const { ofrecerAlChoferCercano } = crearCasosDeUsoViajesPostgres(pool);
+      const primeraOferta = await ofrecerAlChoferCercano({ viajeId, pasajeroId });
       const primero = primeraOferta.choferId;
       const segundo = primero === chofer1 ? chofer2 : chofer1;
 
@@ -218,14 +219,14 @@ test('ofrecerAlChoferCercano distingue rechazada vs vencida y limpia filas fanta
     const pasajeroId = await crearUsuario(pool, 'pasajero');
     const choferId = await crearChofer(pool);
     const viajeId = await crearViaje(pool, pasajeroId);
-    const repo = crearRepositorioViajesPostgres(pool);
+    const { ofrecerAlChoferCercano } = crearCasosDeUsoViajesPostgres(pool);
 
-    const oferta1 = await repo.ofrecerAlChoferCercano(viajeId, pasajeroId);
+    const oferta1 = await ofrecerAlChoferCercano({ viajeId, pasajeroId });
     // Simula vencimiento antes de que corra el despachador (fila fantasma pendiente con vence_at <= now()).
     await pool.query("UPDATE ofertas_viaje SET vence_at = now() - interval '5 seconds' WHERE id = $1", [oferta1.ofertaId]);
 
     // Al volver a ofrecer, limpia la fila fantasma a 'vencida' y puede emitir nueva oferta al único chofer.
-    const oferta2 = await repo.ofrecerAlChoferCercano(viajeId, pasajeroId);
+    const oferta2 = await ofrecerAlChoferCercano({ viajeId, pasajeroId });
     assert.notEqual(oferta2.ofertaId, oferta1.ofertaId);
     assert.equal(oferta2.choferId, choferId);
 
@@ -235,7 +236,7 @@ test('ofrecerAlChoferCercano distingue rechazada vs vencida y limpia filas fanta
     // Si rechaza la oferta2, no vuelve a ser candidato en ofrecerAlChoferCercano.
     await pool.query("UPDATE ofertas_viaje SET estado = 'rechazada', respondida_at = now() WHERE id = $1", [oferta2.ofertaId]);
     await assert.rejects(
-      repo.ofrecerAlChoferCercano(viajeId, pasajeroId),
+      ofrecerAlChoferCercano({ viajeId, pasajeroId }),
       (err) => err.codigo === 'SIN_CHOFERES_CERCANOS',
     );
   });
@@ -247,14 +248,14 @@ test('UBICACION_TTL_SEGUNDOS filtra choferes con ubicación vieja cuando está c
     const choferViejo = await crearChofer(pool, { antiguedadUbicacion: '180 seconds' });
     const viajeId = await crearViaje(pool, pasajeroId);
 
-    const repoConTtl = crearRepositorioViajesPostgres(pool, { ubicacionTtlSegundos: 60 });
+    const { ofrecerAlChoferCercano: ofrecerConTtl } = crearCasosDeUsoViajesPostgres(pool, { ubicacionTtlSegundos: 60 });
     await assert.rejects(
-      repoConTtl.ofrecerAlChoferCercano(viajeId, pasajeroId),
+      ofrecerConTtl({ viajeId, pasajeroId }),
       (err) => err.codigo === 'SIN_CHOFERES_CERCANOS',
     );
 
-    const repoSinTtl = crearRepositorioViajesPostgres(pool);
-    const oferta = await repoSinTtl.ofrecerAlChoferCercano(viajeId, pasajeroId);
+    const { ofrecerAlChoferCercano: ofrecerSinTtl } = crearCasosDeUsoViajesPostgres(pool);
+    const oferta = await ofrecerSinTtl({ viajeId, pasajeroId });
     assert.equal(oferta.choferId, choferViejo);
   });
 });
@@ -265,13 +266,13 @@ test('procesarOfertasVencidas y despachador automático vencen ofertas, re-ofrec
     const chofer1 = await crearChofer(pool);
     const chofer2 = await crearChofer(pool);
     const viajeId = await crearViaje(pool, pasajeroId);
-    const repo = crearRepositorioViajesPostgres(pool, { ofertaTtlSegundos: 30 });
+    const { ofrecerAlChoferCercano, procesarOfertasVencidas } = crearCasosDeUsoViajesPostgres(pool, { ofertaTtlSegundos: 30 });
 
-    const oferta1 = await repo.ofrecerAlChoferCercano(viajeId, pasajeroId);
+    const oferta1 = await ofrecerAlChoferCercano({ viajeId, pasajeroId });
     await pool.query("UPDATE ofertas_viaje SET vence_at = now() - interval '2 seconds' WHERE id = $1", [oferta1.ofertaId]);
 
     const despachador = crearDespachadorVencimientoOfertas({
-      procesarOfertasVencidas: repo.procesarOfertasVencidas,
+      procesarOfertasVencidas,
       logger: loggerMudo,
       intervaloMs: 25,
     });
@@ -298,7 +299,7 @@ test('procesarOfertasVencidas y despachador automático vencen ofertas, re-ofrec
 
     // Vence la segunda oferta y verifica transición final a sin_choferes_disponibles sin re-ofrecer a los ya vencidos.
     await pool.query("UPDATE ofertas_viaje SET vence_at = now() - interval '2 seconds' WHERE id = $1", [segunda.id]);
-    const procesadas = await repo.procesarOfertasVencidas();
+    const procesadas = await procesarOfertasVencidas();
     assert.equal(procesadas.length, 1);
     assert.equal(procesadas[0].viajeEstado, 'sin_choferes_disponibles');
     assert.equal(procesadas[0].reofrecida, false);

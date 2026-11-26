@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { crearRepositorioViajesPostgres } from '../../src/infra/db/repositorioViajesPostgres.js';
 import { crearRepositorioChoferesPostgres } from '../../src/infra/db/repositorioChoferesPostgres.js';
 import { crearDespachadorVencimientoOfertas } from '../../src/infra/db/despachadorVencimientoOfertas.js';
 import { crearUnidadDeTrabajoViajesPostgres } from '../../src/infra/db/unidadDeTrabajoViajesPostgres.js';
 import { crearAceptarOferta } from '../../src/aplicacion/viajes/aceptarOferta.js';
+import { crearOfrecerAlChoferCercano } from '../../src/aplicacion/viajes/ofrecerAlChoferCercano.js';
+import { crearRechazarOferta } from '../../src/aplicacion/viajes/rechazarOferta.js';
 
 function crearPoolSimulado(manejador) {
   const consultas = [];
@@ -124,8 +125,8 @@ test('ofrecerAlChoferCercano usa FOR UPDATE OF p SKIP LOCKED y revalida elegibil
     return { rows: [] };
   });
 
-  const repo = crearRepositorioViajesPostgres(pool);
-  const res = await repo.ofrecerAlChoferCercano('v-1', 'p-1');
+  const ofrecerAlChoferCercano = crearOfrecerAlChoferCercano({ unidadDeTrabajo: crearUnidadDeTrabajoViajesPostgres(pool) });
+  const res = await ofrecerAlChoferCercano({ viajeId: 'v-1', pasajeroId: 'p-1' });
   assert.equal(res.ofertaId, 'of-1');
 
   const queryCandidato = pool.consultas.find((c) => c.sql.includes('FOR UPDATE OF p SKIP LOCKED'));
@@ -191,7 +192,7 @@ test('rechazarOferta respeta orden de bloqueos y re-ofrece al siguiente candidat
     if (sql.startsWith('SELECT id, viaje_id, chofer_id FROM ofertas_viaje')) {
       return { rows: [{ id: 'of-1', viaje_id: 'v-1', chofer_id: 'ch-1' }] };
     }
-    if (sql.startsWith('SELECT id, estado, origen FROM viajes WHERE id = $1 FOR UPDATE')) {
+    if (sql.startsWith('SELECT id, estado') && sql.includes('FROM viajes WHERE id = $1 FOR UPDATE')) {
       return { rows: [{ id: 'v-1', estado: 'solicitado', origen: 'POINT(0 0)' }] };
     }
     if (sql.includes('FROM ofertas_viaje') && sql.includes('ORDER BY id FOR UPDATE')) {
@@ -205,8 +206,8 @@ test('rechazarOferta respeta orden de bloqueos y re-ofrece al siguiente candidat
     return { rows: [] };
   });
 
-  const repoReofrece = crearRepositorioViajesPostgres(poolReofrece);
-  const resReofrece = await repoReofrece.rechazarOferta('of-1', 'ch-1');
+  const rechazarReofrece = crearRechazarOferta({ unidadDeTrabajo: crearUnidadDeTrabajoViajesPostgres(poolReofrece) });
+  const resReofrece = await rechazarReofrece({ ofertaId: 'of-1', choferId: 'ch-1' });
   assert.deepEqual(resReofrece, {
     viajeId: 'v-1',
     ofertaId: 'of-1',
@@ -225,7 +226,7 @@ test('rechazarOferta respeta orden de bloqueos y re-ofrece al siguiente candidat
     if (sql.startsWith('SELECT id, viaje_id, chofer_id FROM ofertas_viaje')) {
       return { rows: [{ id: 'of-1', viaje_id: 'v-1', chofer_id: 'ch-1' }] };
     }
-    if (sql.startsWith('SELECT id, estado, origen FROM viajes WHERE id = $1 FOR UPDATE')) {
+    if (sql.startsWith('SELECT id, estado') && sql.includes('FROM viajes WHERE id = $1 FOR UPDATE')) {
       return { rows: [{ id: 'v-1', estado: 'solicitado', origen: 'POINT(0 0)' }] };
     }
     if (sql.includes('FROM ofertas_viaje') && sql.includes('ORDER BY id FOR UPDATE')) {
@@ -234,8 +235,8 @@ test('rechazarOferta respeta orden de bloqueos y re-ofrece al siguiente candidat
     return { rows: [] };
   });
 
-  const repoSinCandidato = crearRepositorioViajesPostgres(poolSinCandidato);
-  const resSinCandidato = await repoSinCandidato.rechazarOferta('of-1', 'ch-1');
+  const rechazarSinCandidato = crearRechazarOferta({ unidadDeTrabajo: crearUnidadDeTrabajoViajesPostgres(poolSinCandidato) });
+  const resSinCandidato = await rechazarSinCandidato({ ofertaId: 'of-1', choferId: 'ch-1' });
   assert.deepEqual(resSinCandidato, {
     viajeId: 'v-1',
     ofertaId: 'of-1',

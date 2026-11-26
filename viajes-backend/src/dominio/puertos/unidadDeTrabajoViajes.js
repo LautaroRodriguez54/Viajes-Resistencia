@@ -17,6 +17,14 @@
 // - bloquearOfertasDelViaje(viajeId, ofertaId?) -> [{ id, viajeId, choferId, estado, vencida }]
 // - bloquearChofer(choferId) -> { habilitado, disponible, tieneViajeActivo } | null
 // - registrarAceptacionOferta({ viajeId, ofertaId, choferId })
+// - bloquearViajeSolicitadoDelPasajero(viajeId, pasajeroId) -> { id, origen } | null
+// - vencerOfertasExpiradasDelViaje(viajeId) -> [{ id, choferId }]
+// - seleccionarYCrearOferta({ viajeId, origen, estadosExcluidos })
+//     -> { ofertaId, choferId, venceAt } | null
+// - marcarOfertaRechazada({ viajeId, ofertaId, choferId })
+// - marcarOfertasVencidas(viajeId, ofertasVencidas)
+// - marcarViajeSinChoferesDisponibles(viajeId, datosEvento)
+// - bloquearSiguienteViajeConOfertaVencida() -> { id, estado, origen } | null
 export const unidadDeTrabajoViajes = Object.freeze({
   ejecutar: 'ejecutar',
 });

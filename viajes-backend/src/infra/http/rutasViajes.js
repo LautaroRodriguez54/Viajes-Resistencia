@@ -35,7 +35,7 @@ export function crearRutasViajes({ solicitarViaje, buscarViajePropio, ofrecerAlC
   });
   router.post('/:viajeId/ofertas', requiereAutenticacion(tokens), soloPasajero, idempotente('viajes.ofrecer'), async (req, res) => {
     if (!z.string().uuid().safeParse(req.params.viajeId).success) throw new ErrorDeDominio('ENTRADA_INVALIDA', 'Identificador de viaje inválido.');
-    res.status(201).json(await ofrecerAlChoferCercano(req.params.viajeId, req.autenticacion.usuarioId));
+    res.status(201).json(await ofrecerAlChoferCercano({ viajeId: req.params.viajeId, pasajeroId: req.autenticacion.usuarioId }));
   });
   router.post('/:viajeId/reintentar-cobro', requiereAutenticacion(tokens), soloPasajero, idempotente('viajes.reintentar_cobro'), async (req, res) => {
     if (!z.string().uuid().safeParse(req.params.viajeId).success) throw new ErrorDeDominio('ENTRADA_INVALIDA', 'Identificador de viaje inválido.');

@@ -219,12 +219,12 @@ test('ofrecerAlChoferCercano selecciona un chofer disponible y registra la ofert
     const { pasajeroId } = await crearPasajero(pool);
     const choferId = await crearChofer(pool);
     const viajeId = await crearViaje(pool, pasajeroId);
-    const repositorio = crearRepositorioViajesPostgres(pool);
+    const { ofrecerAlChoferCercano } = crearCasosDeUsoViajesPostgres(pool);
 
-    const oferta = await repositorio.ofrecerAlChoferCercano(
+    const oferta = await ofrecerAlChoferCercano({
       viajeId,
       pasajeroId,
-    );
+    });
 
     assert.ok(oferta.ofertaId);
     assert.equal(oferta.choferId, choferId);
@@ -250,10 +250,10 @@ test('ofrecerAlChoferCercano no modifica el viaje si no hay choferes disponibles
 
     const { pasajeroId } = await crearPasajero(pool);
     const viajeId = await crearViaje(pool, pasajeroId);
-    const repositorio = crearRepositorioViajesPostgres(pool);
+    const { ofrecerAlChoferCercano } = crearCasosDeUsoViajesPostgres(pool);
 
     await assert.rejects(
-      repositorio.ofrecerAlChoferCercano(viajeId, pasajeroId),
+      ofrecerAlChoferCercano({ viajeId, pasajeroId }),
     );
 
     const viaje = await pool.query(

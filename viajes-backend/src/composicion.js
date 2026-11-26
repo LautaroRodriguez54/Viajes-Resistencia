@@ -25,6 +25,9 @@ import { crearReintentarCobroOperador } from './aplicacion/viajes/reintentarCobr
 import { crearAvanzarEstadoViaje } from './aplicacion/viajes/avanzarEstadoViaje.js';
 import { crearCancelarViaje } from './aplicacion/viajes/cancelarViaje.js';
 import { crearAceptarOferta } from './aplicacion/viajes/aceptarOferta.js';
+import { crearOfrecerAlChoferCercano } from './aplicacion/viajes/ofrecerAlChoferCercano.js';
+import { crearRechazarOferta } from './aplicacion/viajes/rechazarOferta.js';
+import { crearProcesarOfertasVencidas } from './aplicacion/viajes/procesarOfertasVencidas.js';
 import { crearVerificadorWebhookHmac } from './infra/externos/verificadorWebhookHmac.js';
 
 export function componerAplicacion() {
@@ -38,10 +41,7 @@ export function componerAplicacion() {
   const proyectorHistorial = crearProyectorHistorialPostgres(poolLectura);
   const usuarios = crearRepositorioUsuariosPostgres(pool);
   const billeteras = crearRepositorioBilleterasPostgres(poolBilletera);
-  const viajes = crearRepositorioViajesPostgres(pool, {
-    ofertaTtlSegundos: config.OFERTA_TTL_SEGUNDOS,
-    ubicacionTtlSegundos: config.UBICACION_TTL_SEGUNDOS,
-  });
+  const viajes = crearRepositorioViajesPostgres(pool);
   const choferes = crearRepositorioChoferesPostgres(pool);
   const hasheador = crearHasheadorArgon2(config);
   const tokens = crearServicioJwt(config);
@@ -72,8 +72,11 @@ export function componerAplicacion() {
   const avanzarEstado = crearAvanzarEstadoViaje({ unidadDeTrabajo: unidadDeTrabajoViajes });
   const cancelarViaje = crearCancelarViaje({ unidadDeTrabajo: unidadDeTrabajoViajes });
   const aceptarOferta = crearAceptarOferta({ unidadDeTrabajo: unidadDeTrabajoViajes });
-  const viajesHttp = { solicitarViaje: crearSolicitarViaje({ viajes }), buscarViajePropio: viajes.buscarPorIdDelPasajero, ofrecerAlChoferCercano: viajes.ofrecerAlChoferCercano, reintentarCobro, cancelarViaje, listarHistorial: proyectorHistorial.listarPorPasajero, tokens };
-  const ofertasHttp = { aceptarOferta, rechazarOferta: viajes.rechazarOferta, tokens };
+  const ofrecerAlChoferCercano = crearOfrecerAlChoferCercano({ unidadDeTrabajo: unidadDeTrabajoViajes });
+  const rechazarOferta = crearRechazarOferta({ unidadDeTrabajo: unidadDeTrabajoViajes });
+  const procesarOfertasVencidas = crearProcesarOfertasVencidas({ unidadDeTrabajo: unidadDeTrabajoViajes });
+  const viajesHttp = { solicitarViaje: crearSolicitarViaje({ viajes }), buscarViajePropio: viajes.buscarPorIdDelPasajero, ofrecerAlChoferCercano, reintentarCobro, cancelarViaje, listarHistorial: proyectorHistorial.listarPorPasajero, tokens };
+  const ofertasHttp = { aceptarOferta, rechazarOferta, tokens };
   const choferesHttp = { cambiarDisponibilidad: choferes.cambiarDisponibilidad, registrarUbicacion: choferes.registrarUbicacion, avanzarEstado, finalizarYCobrar, cancelarViaje, buscarOfertaPendiente: viajes.buscarOfertaPendienteDelChofer, buscarViajeActual: viajes.buscarViajeActualDelChofer, tokens };
   const administracion = { establecerHabilitacion: choferes.establecerHabilitacion, tokens };
   const operadorHttp = { listarViajesActivos: viajes.listarViajesActivos, cancelarViaje, reintentarCobro: crearReintentarCobroOperador(dependenciasCobro), tokens };
@@ -98,7 +101,7 @@ export function componerAplicacion() {
     }),
   ];
   const despachadorVencimiento = crearDespachadorVencimientoOfertas({
-    procesarOfertasVencidas: viajes.procesarOfertasVencidas,
+    procesarOfertasVencidas,
     logger,
     intervaloMs: config.OFERTA_VERIFICACION_MS,
   });
