@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Viajes Resistencia · API del backend
-  version: 0.5.0
+  version: 0.6.0
   summary: Viajes a demanda con billetera y pagos (grupo 4, variante D).
   description: |
     Contrato HTTP del backend. Es la **fuente de verdad** de la API: `docs/api.md` sólo lo resume.
@@ -25,7 +25,7 @@ info:
     | `eventos_viaje` | auditoría del ciclo de vida (M6) |
 
     ## Pendiente (no implementado todavía)
-    Estimación sin crear el viaje, cancelaciones (pasajero, chofer, operador), endpoints del operador, historiales, movimientos de billetera y tiempo real por SSE. Se agregan acá cuando existan.
+    Estimación sin crear el viaje, historiales, movimientos de billetera y tiempo real por SSE. Se agregan acá cuando existan.
   contact:
     name: Grupo 4 · Escobar Lucas, Valussi Agustín, Rodríguez Lautaro
 servers:
@@ -40,6 +40,8 @@ tags:
   - name: Choferes
     description: Disponibilidad, ubicación y el viaje asignado al chofer.
   - name: Billetera
+  - name: Operador
+    description: Seguimiento de viajes activos, cancelación con motivo y reintento de cobro.
   - name: Administración
 
 paths:
@@ -279,6 +281,42 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
               example: { error: { codigo: SALDO_INSUFICIENTE, requestId: 6f1c2d4e-8a0b-4c3d-9e2f-1a2b3c4d5e6f } }
+        '422': { $ref: '#/components/responses/ClaveReutilizada' }
+
+  /viajes/{viajeId}/cancelar:
+    post:
+      tags: [Viajes]
+      summary: Cancelar un viaje propio (pasajero)
+      description: Cancela viajes en `solicitado`, `asignado` o `chofer_en_camino`, cierra ofertas pendientes y libera al chofer si ya había asignación.
+      operationId: cancelarViajePasajero
+      parameters:
+        - $ref: '#/components/parameters/ViajeId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SolicitudCancelacionOpcional' }
+      responses:
+        '200':
+          description: Viaje cancelado.
+          headers: { Idempotency-Replayed: { $ref: '#/components/headers/IdempotencyReplayed' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ViajeCancelado' }
+        '400': { $ref: '#/components/responses/EntradaOClaveInvalida' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+        '404':
+          description: '`RECURSO_NO_ENCONTRADO` (no existe o es de otro pasajero).'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: '`TRANSICION_INVALIDA` o `PEDIDO_EN_CURSO`.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '422': { $ref: '#/components/responses/ClaveReutilizada' }
 
   /ofertas/{ofertaId}/aceptar:
@@ -587,6 +625,42 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
         '422': { $ref: '#/components/responses/ClaveReutilizada' }
 
+  /choferes/viajes/{viajeId}/cancelar:
+    post:
+      tags: [Choferes]
+      summary: Cancelar un viaje asignado (chofer)
+      description: Cancela viajes en `asignado` o `chofer_en_camino`. El chofer permanece no disponible hasta volver a activarse.
+      operationId: cancelarViajeChofer
+      parameters:
+        - $ref: '#/components/parameters/ViajeId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SolicitudCancelacionOpcional' }
+      responses:
+        '200':
+          description: Viaje cancelado por el chofer.
+          headers: { Idempotency-Replayed: { $ref: '#/components/headers/IdempotencyReplayed' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ViajeCancelado' }
+        '400': { $ref: '#/components/responses/EntradaOClaveInvalida' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+        '404':
+          description: '`RECURSO_NO_ENCONTRADO` (no existe o no pertenece al chofer).'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: '`TRANSICION_INVALIDA` o `PEDIDO_EN_CURSO`.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/ClaveReutilizada' }
+
   /billetera/me:
     get:
       tags: [Billetera]
@@ -706,6 +780,96 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+
+  /operador/viajes:
+    get:
+      tags: [Operador]
+      summary: Listar viajes activos (operador)
+      operationId: listarViajesActivosOperador
+      parameters:
+        - name: estado
+          in: query
+          required: false
+          schema: { type: string, enum: [activos], default: activos }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [viajes]
+                properties:
+                  viajes:
+                    type: array
+                    items: { $ref: '#/components/schemas/ViajeActivoOperador' }
+        '400': { $ref: '#/components/responses/EntradaInvalida' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+  /operador/viajes/{viajeId}/cancelar:
+    post:
+      tags: [Operador]
+      summary: Cancelar un viaje con motivo obligatorio (operador)
+      operationId: cancelarViajeOperador
+      parameters:
+        - $ref: '#/components/parameters/ViajeId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SolicitudCancelacionOperador' }
+      responses:
+        '200':
+          description: Viaje cancelado por el operador.
+          headers: { Idempotency-Replayed: { $ref: '#/components/headers/IdempotencyReplayed' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ViajeCancelado' }
+        '400': { $ref: '#/components/responses/EntradaOClaveInvalida' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+        '404':
+          description: '`RECURSO_NO_ENCONTRADO`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: '`TRANSICION_INVALIDA` o `PEDIDO_EN_CURSO`.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/ClaveReutilizada' }
+  /operador/viajes/{viajeId}/reintentar-cobro:
+    post:
+      tags: [Operador, Billetera]
+      summary: Reintentar el cobro de un viaje en pago_pendiente (operador)
+      operationId: reintentarCobroOperador
+      parameters:
+        - $ref: '#/components/parameters/ViajeId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Cobrado; el viaje pasa a `finalizado`.
+          headers: { Idempotency-Replayed: { $ref: '#/components/headers/IdempotencyReplayed' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultadoCobro' }
+        '400': { $ref: '#/components/responses/EntradaOClaveInvalida' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+        '404':
+          description: '`RECURSO_NO_ENCONTRADO` o `BILLETERA_NO_ENCONTRADA`.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: '`SALDO_INSUFICIENTE`, `TRANSICION_INVALIDA` o `PEDIDO_EN_CURSO`.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/ClaveReutilizada' }
 
 security:
   - bearer: []
@@ -886,7 +1050,7 @@ components:
         destino: { $ref: '#/components/schemas/Punto' }
     EstadoViaje:
       type: string
-      enum: [solicitado, asignado, chofer_en_camino, en_curso, finalizado, pago_pendiente, cancelado_pasajero, cancelado_chofer, sin_choferes_disponibles]
+      enum: [solicitado, asignado, chofer_en_camino, en_curso, finalizado, pago_pendiente, cancelado_pasajero, cancelado_chofer, cancelado_operador, sin_choferes_disponibles]
     Viaje:
       type: object
       additionalProperties: false
@@ -975,3 +1139,38 @@ components:
         procesado: { type: boolean }
         duplicado: { type: boolean }
         estado: { type: string, enum: [recibido, procesado, rechazado], description: Sólo en duplicados. }
+    SolicitudCancelacionOpcional:
+      type: object
+      additionalProperties: false
+      properties:
+        motivo: { type: string, minLength: 1, maxLength: 200 }
+    ViajeCancelado:
+      type: object
+      additionalProperties: false
+      required: [viajeId, estado, canceladoAt, motivo]
+      properties:
+        viajeId: { type: string, format: uuid }
+        estado: { type: string, enum: [cancelado_pasajero, cancelado_chofer, cancelado_operador] }
+        canceladoAt: { type: string, format: date-time }
+        motivo: { type: [string, 'null'] }
+    SolicitudCancelacionOperador:
+      type: object
+      additionalProperties: false
+      required: [motivo]
+      properties:
+        motivo: { type: string, minLength: 3, maxLength: 200 }
+    ViajeActivoOperador:
+      type: object
+      additionalProperties: false
+      required: [id, estado, pasajeroId, choferId, patente, estimacionCentavos, tarifaFinalCentavos, solicitadoAt, origen, destino]
+      properties:
+        id: { type: string, format: uuid }
+        estado: { type: string, enum: [solicitado, asignado, chofer_en_camino, en_curso, pago_pendiente] }
+        pasajeroId: { type: string, format: uuid }
+        choferId: { type: [string, 'null'], format: uuid }
+        patente: { type: [string, 'null'] }
+        estimacionCentavos: { type: integer, minimum: 0 }
+        tarifaFinalCentavos: { type: [integer, 'null'], minimum: 0 }
+        solicitadoAt: { type: string, format: date-time }
+        origen: { $ref: '#/components/schemas/Punto' }
+        destino: { $ref: '#/components/schemas/Punto' }

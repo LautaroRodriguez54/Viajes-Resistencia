@@ -19,6 +19,7 @@ import { crearProcesarCargaWebhook } from './aplicacion/billetera/procesarCargaW
 import { crearSolicitarViaje } from './aplicacion/viajes/solicitarViaje.js';
 import { crearFinalizarViajeYCobrar } from './aplicacion/viajes/finalizarViajeYCobrar.js';
 import { crearReintentarCobro } from './aplicacion/viajes/reintentarCobro.js';
+import { crearReintentarCobroOperador } from './aplicacion/viajes/reintentarCobroOperador.js';
 import { crearVerificadorWebhookHmac } from './infra/externos/verificadorWebhookHmac.js';
 
 export function componerAplicacion() {
@@ -56,11 +57,12 @@ export function componerAplicacion() {
   const dependenciasCobro = { unidadDeTrabajo: crearUnidadDeTrabajoCobroPostgres(pool), billetera: billeteras, logger };
   const finalizarYCobrar = crearFinalizarViajeYCobrar(dependenciasCobro);
   const reintentarCobro = crearReintentarCobro(dependenciasCobro);
-  const viajesHttp = { solicitarViaje: crearSolicitarViaje({ viajes }), buscarViajePropio: viajes.buscarPorIdDelPasajero, ofrecerAlChoferCercano: viajes.ofrecerAlChoferCercano, reintentarCobro, tokens };
+  const viajesHttp = { solicitarViaje: crearSolicitarViaje({ viajes }), buscarViajePropio: viajes.buscarPorIdDelPasajero, ofrecerAlChoferCercano: viajes.ofrecerAlChoferCercano, reintentarCobro, cancelarViaje: viajes.cancelarViaje, tokens };
   const ofertasHttp = { aceptarOferta: viajes.aceptarOferta, rechazarOferta: viajes.rechazarOferta, tokens };
-  const choferesHttp = { cambiarDisponibilidad: choferes.cambiarDisponibilidad, registrarUbicacion: choferes.registrarUbicacion, avanzarEstado: viajes.avanzarEstado, finalizarYCobrar, buscarOfertaPendiente: viajes.buscarOfertaPendienteDelChofer, buscarViajeActual: viajes.buscarViajeActualDelChofer, tokens };
+  const choferesHttp = { cambiarDisponibilidad: choferes.cambiarDisponibilidad, registrarUbicacion: choferes.registrarUbicacion, avanzarEstado: viajes.avanzarEstado, finalizarYCobrar, cancelarViaje: viajes.cancelarViaje, buscarOfertaPendiente: viajes.buscarOfertaPendienteDelChofer, buscarViajeActual: viajes.buscarViajeActualDelChofer, tokens };
   const administracion = { establecerHabilitacion: choferes.establecerHabilitacion, tokens };
-  const app = crearApp({ config, logger, verificarDisponibilidad: () => Promise.all([pool, poolBilletera, poolLectura].map(verificarPostgres)), autenticacion, billetera, viajes: viajesHttp, ofertas: ofertasHttp, choferes: choferesHttp, administracion, idempotencia: crearRepositorioIdempotenciaPostgres(pool) });
+  const operadorHttp = { listarViajesActivos: viajes.listarViajesActivos, cancelarViaje: viajes.cancelarViaje, reintentarCobro: crearReintentarCobroOperador(dependenciasCobro), tokens };
+  const app = crearApp({ config, logger, verificarDisponibilidad: () => Promise.all([pool, poolBilletera, poolLectura].map(verificarPostgres)), autenticacion, billetera, viajes: viajesHttp, ofertas: ofertasHttp, choferes: choferesHttp, administracion, operador: operadorHttp, idempotencia: crearRepositorioIdempotenciaPostgres(pool) });
   // Outbox de Viajes → Billetera: cada UsuarioRegistrado de un pasajero crea su billetera.
   const despachadores = [
     crearDespachadorOutbox({

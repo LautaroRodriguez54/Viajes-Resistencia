@@ -12,12 +12,18 @@ try {
      VALUES (500, 250, 100, 100000, 30)
      ON CONFLICT DO NOTHING`,
   );
-  const hash = await crearHasheadorArgon2(config).hashear('AdminDemo123!');
+  const hasheador = crearHasheadorArgon2(config);
+  const hashAdmin = await hasheador.hashear('AdminDemo123!');
   await pool.query(
     `INSERT INTO usuarios (email, password_hash, rol) VALUES ('admin@demo.local', $1, 'administrador')
-     ON CONFLICT DO NOTHING`, [hash],
+     ON CONFLICT DO NOTHING`, [hashAdmin],
   );
-  console.log('Parámetros de tarifa de desarrollo cargados.');
+  const hashOperador = await hasheador.hashear('OperadorDemo123!');
+  await pool.query(
+    `INSERT INTO usuarios (email, password_hash, rol) VALUES ('operador@demo.local', $1, 'operador')
+     ON CONFLICT DO NOTHING`, [hashOperador],
+  );
+  console.log('Parámetros de tarifa y usuarios de desarrollo cargados.');
 } finally {
   await pool.end();
 }

@@ -2,7 +2,8 @@
 
 - Estado: aceptado
 - Fecha: 2026-10-29
-- Participantes: TODO
+- Participantes: Lucas Escobar, Agustín Valussi y Lautaro Rodríguez (decisión del grupo); redacción: Lautaro Rodríguez
+- Reemplazado en parte por: ADR 011. El SSE todavía no está hecho y, por ahora, la web consulta cada 2 s. El webhook con HMAC sigue igual
 
 ## Contexto
 
