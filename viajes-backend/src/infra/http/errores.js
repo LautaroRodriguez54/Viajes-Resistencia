@@ -20,6 +20,7 @@ export function manejadorDeErrores(logger) {
       SIN_CHOFERES_CERCANOS: 409,
       OFERTA_NO_ENCONTRADA: 404,
       OFERTA_NO_DISPONIBLE: 409,
+      SALDO_INSUFICIENTE: 409,
     };
     const status = error instanceof ErrorDeDominio ? (statusPorCodigo[error.codigo] ?? 422) : 500;
     logger.error({ err: error, requestId }, 'error no controlado');
