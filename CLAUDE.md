@@ -126,4 +126,15 @@ Si nos asignan M7: la separación de la billetera en su propia base (tema 12) es
 - `.gitignore` en la raíz (`node_modules/`, `dist/`, `coverage/`, `.env`) además de los de cada proyecto. Si en una rama vieja aparecen cientos de archivos de `viajes-web/node_modules`, **no hacerles `git add`**: `git pull` en `main` (o agregarlos a `.git/info/exclude`).
 - `core.autocrlf=true`: CRLF en el disco y LF en el repo. No mezclar finales de línea en un mismo archivo.
 - Los enunciados no van al repo (`CONSIGNA FERNANDEZ.docx` está sin seguimiento: no hacerle `git add`). Lo que se exige de ellos está resumido acá.
+- **`REVISION-EQUIPO.md`** (raíz, ignorado por Git): es el parte para el equipo cuando un integrante avanza solo. Tiene los PR en orden de revisión, los errores encontrados con su dueño, las decisiones tomadas (que se pueden objetar), las abiertas y las tareas de cada uno. Viaja por fuera del repo y se copia en la raíz del clon. Si existe, leerlo antes de revisar o fusionar PR, y anotar las observaciones en su sección 6. Quien avanza lo actualiza en cada PR o hallazgo.
+- Para hacer commits, nombrar los archivos uno por uno en `git add`. Nunca usar `git add -A` ni `git add .` desde la raíz: ahí conviven los documentos locales.
 - La terminal del usuario es Windows PowerShell 5.1: comandos una línea por vez o separados con `;` (no existe `&&`).
+
+## Estado de integración (actualizar en cada PR)
+
+Al 26/11/2026:
+- **`main` en rojo** desde el #12 (merge `3024492`: `errores.js` quedó con la tabla vieja). Lo arregla el **#14** `fix/errores-merge` (revisa Lucas).
+- **#15** `feat/idempotencia-http`, apilado sobre el #14 (revisa Lucas): `Idempotency-Key` obligatorio en 5 endpoints. **Rompe clientes**: los E2E y la web tienen que mandar el header. ADR 010.
+- Rama `docs/api-openapi`, apilada sobre el #15 (revisa Lautaro): `viajes-backend/docs/openapi.yaml`, Swagger UI (`docker compose --profile docs up -d docs` → :8080) y `docs/requests.http`.
+- Test intermitente de SKIP LOCKED en `tests/concurrencia/aceptacionOfertas.test.js:171` (Lucas): puede poner la CI en rojo de forma aleatoria.
+- Detalle completo en `REVISION-EQUIPO.md`.
