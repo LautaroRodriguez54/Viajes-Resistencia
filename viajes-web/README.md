@@ -61,8 +61,8 @@ Cómo está armado:
 - Estimación antes de pedir: el precio aparece al pedir.
 - Lugares con Places: hay una lista fija de lugares de Resistencia en `src/datos/lugares.js`, todos a menos de 5 km de la plaza.
 - Patente y vehículo en el viaje: no se muestran.
-- Cancelar con motivo: ya está en el backend (#25 y #26); falta el botón en Mi viaje y conectar el operador.
-- Vencimiento de la ubicación: existe desde el #22 (`UBICACION_TTL_SEGUNDOS`), pero está comentado en el `.env.example`. Sin él, un chofer que cierra la pestaña sin apagar "Disponible" sigue recibiendo ofertas.
+- Cancelar: hecho (rama 12). El pasajero cancela desde Mi viaje con confirmación en la tarjeta, mientras el viaje está pedido, asignado o con el chofer en camino. El operador cancela con un motivo obligatorio y reintenta el cobro de un `pago_pendiente` desde su pantalla, que ya usa `GET /operador/viajes?estado=activos` (#26). Falta la cancelación del chofer en la web.
+- Vencimiento de la ubicación: activo desde el #34 (`UBICACION_TTL_SEGUNDOS=60`). El chofer manda su ubicación cada 10 s, así que mientras tiene la pestaña abierta nunca vence.
 - Google Maps: el mapa sigue siendo el dibujo del diseño (`MapaSimulado.jsx`).
 
 ## Lo que piden las consignas
