@@ -485,3 +485,190 @@ test('dos finalizaciones simultáneas no generan dos cobros', async (t) => {
     assert.equal(saldo.rows[0].centavos, 5000);
   });
 });
+
+async function saldoDe(pool, billeteraId) {
+  const { rows } = await pool.query(
+    `SELECT COALESCE(SUM(
+       CASE WHEN tipo = 'carga' THEN importe_centavos
+            ELSE -importe_centavos END
+     ), 0)::int AS centavos
+     FROM movimientos_billetera
+     WHERE billetera_id = $1`,
+    [billeteraId],
+  );
+  return rows[0].centavos;
+}
+
+async function estadoDe(pool, viajeId) {
+  const { rows } = await pool.query('SELECT estado FROM viajes WHERE id = $1', [viajeId]);
+  return rows[0].estado;
+}
+
+async function contarConsumosDelViaje(pool, viajeId) {
+  const { rows } = await pool.query(
+    `SELECT COUNT(*)::int AS cantidad FROM movimientos_billetera
+     WHERE viaje_id = $1 AND tipo = 'consumo'`,
+    [viajeId],
+  );
+  return rows[0].cantidad;
+}
+
+async function crearViajeEnPagoPendiente(pool, pasajeroId, importe) {
+  const choferId = await crearChofer(pool);
+  const viajeId = await crearViaje(pool, pasajeroId, { choferId, estado: 'en_curso', importe });
+  const resultado = await crearRepositorioViajesPostgres(pool).finalizarYCobrar(viajeId, choferId);
+  assert.equal(resultado.estado, 'pago_pendiente');
+  return viajeId;
+}
+
+// Carrera de la variante D: dos viajes distintos del mismo pasajero se cobran a la vez
+// contra un saldo que alcanza para uno solo. El FOR UPDATE sobre la billetera serializa
+// los dos cobros: el segundo ve el consumo del primero y no gasta saldo que ya no existe.
+test('dos viajes distintos del mismo pasajero cobrados a la vez: sólo uno consume el saldo', async (t) => {
+  await conBaseDePrueba(t, async (pool) => {
+    const repositorio = crearRepositorioViajesPostgres(pool);
+
+    // Se repite con varios pasajeros para que la carrera ocurra de verdad y no por suerte del orden.
+    for (let intento = 0; intento < 10; intento += 1) {
+      const { pasajeroId, billeteraId } = await crearPasajero(pool);
+      const choferA = await crearChofer(pool);
+      const choferB = await crearChofer(pool);
+      const viajeA = await crearViaje(pool, pasajeroId, { choferId: choferA, estado: 'en_curso', importe: 5000 });
+      const viajeB = await crearViaje(pool, pasajeroId, { choferId: choferB, estado: 'en_curso', importe: 5000 });
+      await cargarSaldo(pool, billeteraId, 5000);
+
+      const resultados = await Promise.all([
+        repositorio.finalizarYCobrar(viajeA, choferA),
+        repositorio.finalizarYCobrar(viajeB, choferB),
+      ]);
+
+      assert.deepEqual(resultados.map((r) => r.estado).sort(), ['finalizado', 'pago_pendiente']);
+      assert.equal(
+        (await contarConsumosDelViaje(pool, viajeA)) + (await contarConsumosDelViaje(pool, viajeB)),
+        1,
+      );
+      assert.equal(await saldoDe(pool, billeteraId), 0);
+    }
+  });
+});
+
+test('finalizarYCobrar con estimación 0 finaliza sin generar movimiento', async (t) => {
+  await conBaseDePrueba(t, async (pool) => {
+    const { pasajeroId, billeteraId } = await crearPasajero(pool);
+    const choferId = await crearChofer(pool);
+    const viajeId = await crearViaje(pool, pasajeroId, { choferId, estado: 'en_curso', importe: 0 });
+    const repositorio = crearRepositorioViajesPostgres(pool);
+
+    const resultado = await repositorio.finalizarYCobrar(viajeId, choferId);
+
+    assert.equal(resultado.estado, 'finalizado');
+    assert.equal(resultado.importeCentavos, 0);
+    assert.equal(await contarConsumosDelViaje(pool, viajeId), 0);
+    assert.equal(await saldoDe(pool, billeteraId), 0);
+
+    const evento = await pool.query(
+      `SELECT COUNT(*)::int AS cantidad FROM eventos_viaje
+       WHERE viaje_id = $1 AND tipo = 'cobro_confirmado'`,
+      [viajeId],
+    );
+    assert.equal(evento.rows[0].cantidad, 1);
+  });
+});
+
+test('finalizarYCobrar sin billetera rechaza con BILLETERA_NO_ENCONTRADA y no cambia el viaje', async (t) => {
+  await conBaseDePrueba(t, async (pool) => {
+    const { pasajeroId } = await crearPasajero(pool, false);
+    const choferId = await crearChofer(pool);
+    const viajeId = await crearViaje(pool, pasajeroId, { choferId, estado: 'en_curso', importe: 5000 });
+    const repositorio = crearRepositorioViajesPostgres(pool);
+
+    await assert.rejects(
+      repositorio.finalizarYCobrar(viajeId, choferId),
+      (error) => error.codigo === 'BILLETERA_NO_ENCONTRADA',
+    );
+    assert.equal(await estadoDe(pool, viajeId), 'en_curso');
+  });
+});
+
+test('reintentarCobro cobra un viaje en pago_pendiente después de una carga', async (t) => {
+  await conBaseDePrueba(t, async (pool) => {
+    const { pasajeroId, billeteraId } = await crearPasajero(pool);
+    const viajeId = await crearViajeEnPagoPendiente(pool, pasajeroId, 5000);
+    await cargarSaldo(pool, billeteraId, 8000);
+    const repositorio = crearRepositorioViajesPostgres(pool);
+
+    const resultado = await repositorio.reintentarCobro(viajeId, pasajeroId);
+
+    assert.deepEqual(resultado, { viajeId, estado: 'finalizado', importeCentavos: 5000 });
+    assert.equal(await estadoDe(pool, viajeId), 'finalizado');
+    assert.equal(await saldoDe(pool, billeteraId), 3000);
+
+    const eventos = await pool.query(
+      `SELECT tipo, datos FROM eventos_viaje
+       WHERE viaje_id = $1 AND tipo IN ('cobro_pendiente', 'cobro_confirmado')
+       ORDER BY id`,
+      [viajeId],
+    );
+    assert.deepEqual(eventos.rows.map((fila) => fila.tipo), ['cobro_pendiente', 'cobro_confirmado']);
+    assert.equal(eventos.rows[1].datos.reintento, true);
+  });
+});
+
+test('reintentarCobro con saldo insuficiente no debita y el viaje sigue en pago_pendiente', async (t) => {
+  await conBaseDePrueba(t, async (pool) => {
+    const { pasajeroId, billeteraId } = await crearPasajero(pool);
+    const viajeId = await crearViajeEnPagoPendiente(pool, pasajeroId, 5000);
+    await cargarSaldo(pool, billeteraId, 4999);
+    const repositorio = crearRepositorioViajesPostgres(pool);
+
+    await assert.rejects(
+      repositorio.reintentarCobro(viajeId, pasajeroId),
+      (error) => error.codigo === 'SALDO_INSUFICIENTE',
+    );
+    assert.equal(await estadoDe(pool, viajeId), 'pago_pendiente');
+    assert.equal(await saldoDe(pool, billeteraId), 4999);
+  });
+});
+
+test('reintentarCobro no cobra el viaje de otro pasajero ni un viaje sin deuda', async (t) => {
+  await conBaseDePrueba(t, async (pool) => {
+    const { pasajeroId, billeteraId } = await crearPasajero(pool);
+    const otro = await crearPasajero(pool);
+    const viajeId = await crearViajeEnPagoPendiente(pool, pasajeroId, 5000);
+    await cargarSaldo(pool, otro.billeteraId, 10000);
+    const repositorio = crearRepositorioViajesPostgres(pool);
+
+    await assert.rejects(
+      repositorio.reintentarCobro(viajeId, otro.pasajeroId),
+      (error) => error.codigo === 'RECURSO_NO_ENCONTRADO',
+    );
+    assert.equal(await saldoDe(pool, otro.billeteraId), 10000);
+
+    const enCurso = await crearViaje(pool, pasajeroId, { choferId: await crearChofer(pool), estado: 'en_curso' });
+    await cargarSaldo(pool, billeteraId, 10000);
+    await assert.rejects(
+      repositorio.reintentarCobro(enCurso, pasajeroId),
+      (error) => error.codigo === 'TRANSICION_INVALIDA',
+    );
+    assert.equal(await contarConsumosDelViaje(pool, enCurso), 0);
+  });
+});
+
+test('dos reintentos de cobro simultáneos del mismo viaje cobran una sola vez', async (t) => {
+  await conBaseDePrueba(t, async (pool) => {
+    const { pasajeroId, billeteraId } = await crearPasajero(pool);
+    const viajeId = await crearViajeEnPagoPendiente(pool, pasajeroId, 5000);
+    await cargarSaldo(pool, billeteraId, 20000);
+    const repositorio = crearRepositorioViajesPostgres(pool);
+
+    const resultados = await Promise.allSettled([
+      repositorio.reintentarCobro(viajeId, pasajeroId),
+      repositorio.reintentarCobro(viajeId, pasajeroId),
+    ]);
+
+    assert.equal(resultados.filter((r) => r.status === 'fulfilled').length, 1);
+    assert.equal(resultados.find((r) => r.status === 'rejected').reason.codigo, 'TRANSICION_INVALIDA');
+    assert.equal(await contarConsumosDelViaje(pool, viajeId), 1);
+    assert.equal(await saldoDe(pool, billeteraId), 15000);
+  });
+});

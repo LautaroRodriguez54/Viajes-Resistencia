@@ -11,7 +11,7 @@ function soloPasajero(req) {
   if (req.autenticacion.rol !== Rol.PASAJERO) throw new ErrorDeDominio('RECURSO_PROHIBIDO', 'Sólo un pasajero puede solicitar viajes.');
 }
 
-export function crearRutasViajes({ solicitarViaje, buscarViajePropio, ofrecerAlChoferCercano, tokens }) {
+export function crearRutasViajes({ solicitarViaje, buscarViajePropio, ofrecerAlChoferCercano, reintentarCobro, tokens }) {
   const router = express.Router();
   router.post('/', requiereAutenticacion(tokens), async (req, res) => {
     soloPasajero(req);
@@ -31,6 +31,11 @@ export function crearRutasViajes({ solicitarViaje, buscarViajePropio, ofrecerAlC
     soloPasajero(req);
     if (!z.string().uuid().safeParse(req.params.viajeId).success) throw new ErrorDeDominio('ENTRADA_INVALIDA', 'Identificador de viaje inválido.');
     res.status(201).json(await ofrecerAlChoferCercano(req.params.viajeId, req.autenticacion.usuarioId));
+  });
+  router.post('/:viajeId/reintentar-cobro', requiereAutenticacion(tokens), async (req, res) => {
+    soloPasajero(req);
+    if (!z.string().uuid().safeParse(req.params.viajeId).success) throw new ErrorDeDominio('ENTRADA_INVALIDA', 'Identificador de viaje inválido.');
+    res.status(200).json(await reintentarCobro(req.params.viajeId, req.autenticacion.usuarioId));
   });
   return router;
 }

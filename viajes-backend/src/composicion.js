@@ -37,7 +37,7 @@ export function componerAplicacion() {
     consultarSaldoPorPasajero: billeteras.consultarSaldoPorPasajero,
     tokens,
   };
-  const viajesHttp = { solicitarViaje: crearSolicitarViaje({ viajes }), buscarViajePropio: viajes.buscarPorIdDelPasajero, ofrecerAlChoferCercano: viajes.ofrecerAlChoferCercano, tokens };
+  const viajesHttp = { solicitarViaje: crearSolicitarViaje({ viajes }), buscarViajePropio: viajes.buscarPorIdDelPasajero, ofrecerAlChoferCercano: viajes.ofrecerAlChoferCercano, reintentarCobro: viajes.reintentarCobro, tokens };
   const ofertasHttp = { aceptarOferta: viajes.aceptarOferta, tokens };
   const choferesHttp = { cambiarDisponibilidad: choferes.cambiarDisponibilidad, registrarUbicacion: choferes.registrarUbicacion, avanzarEstado: viajes.avanzarEstado, finalizarYCobrar: viajes.finalizarYCobrar, tokens };
   const administracion = { establecerHabilitacion: choferes.establecerHabilitacion, tokens };
