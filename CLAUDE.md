@@ -136,5 +136,6 @@ Al 26/11/2026:
 - **`main` en rojo** desde el #12 (merge `3024492`: `errores.js` quedó con la tabla vieja). Lo arregla el **#14** `fix/errores-merge` (revisa Lucas).
 - **#15** `feat/idempotencia-http`, apilado sobre el #14 (revisa Lucas): `Idempotency-Key` obligatorio en 5 endpoints. **Rompe clientes**: los E2E y la web tienen que mandar el header. ADR 010.
 - **#16** `docs/api-openapi`, apilado sobre el #15 (revisa Lautaro): `viajes-backend/docs/openapi.yaml`, Swagger UI (`docker compose --profile docs up -d docs` → :8080) y `docs/requests.http`.
+- `feat/web-conexion-api`, apilada sobre el #16 (sin push todavía; revisa Lautaro la web y Lucas el backend). La web de pasajero y chofer quedó conectada (recorridos 1 a 5). Se sumaron `GET /choferes/me/ofertas` y `GET /choferes/me/viaje-actual` (OpenAPI 0.3.0, 86/86). Operador y admin siguen con datos de ejemplo. Los E2E de Lautaro se apilan acá.
 - Test intermitente de SKIP LOCKED en `tests/concurrencia/aceptacionOfertas.test.js:171` (Lucas): puede poner la CI en rojo de forma aleatoria.
 - Detalle completo en `REVISION-EQUIPO.md`.
