@@ -110,6 +110,9 @@ export const api = {
   ofertaPendiente: () => pedir('GET', '/choferes/me/ofertas'),
   viajeActualChofer: () => pedir('GET', '/choferes/me/viaje-actual'),
   aceptarOferta: (ofertaId, clave) => pedir('POST', `/ofertas/${ofertaId}/aceptar`, { clave }),
+  // Responde { viajeId, ofertaId, estado: 'rechazada', viajeEstado, reofrecida }: el backend
+  // le ofrece el viaje al siguiente chofer o lo deja en sin_choferes_disponibles.
+  rechazarOferta: (ofertaId, clave) => pedir('POST', `/ofertas/${ofertaId}/rechazar`, { clave }),
   avanzarEstado: (viajeId, estado) => pedir('POST', `/choferes/viajes/${viajeId}/estado`, { cuerpo: { estado } }),
   finalizar: (viajeId, clave) => pedir('POST', `/choferes/viajes/${viajeId}/finalizar`, { clave }),
 };

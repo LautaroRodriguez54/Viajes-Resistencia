@@ -27,6 +27,7 @@ const terminales = {
   sin_choferes_disponibles: { chip: 'Sin choferes', clase: 'chip--neutro', titulo: 'No encontramos chofer' },
   cancelado_pasajero: { chip: 'Cancelado', clase: 'chip--peligro', titulo: 'Cancelaste el viaje' },
   cancelado_chofer: { chip: 'Cancelado', clase: 'chip--peligro', titulo: 'El chofer canceló el viaje' },
+  cancelado_operador: { chip: 'Cancelado', clase: 'chip--peligro', titulo: 'El operador canceló el viaje' },
 };
 
 export default function MiViaje() {
@@ -54,7 +55,10 @@ export default function MiViaje() {
     navegar('/pasajero/pedir');
   }
 
-  // Si nadie aceptó en 30 s (la oferta vence) o no había choferes, se busca otro.
+  // Sólo cuando el primer POST /viajes/:id/ofertas no encontró chofer (el viaje sigue
+  // solicitado y sin oferta). Si la oferta vence o el chofer la rechaza, el backend se
+  // la ofrece solo al siguiente; si no queda ninguno, el viaje pasa a
+  // sin_choferes_disponibles (terminal) y se ofrece "Pedir otro viaje".
   async function buscarDeNuevo() {
     setBuscando(true);
     try {
@@ -127,12 +131,16 @@ export default function MiViaje() {
                 {busqueda && busqueda !== 'sin_choferes' && busqueda !== 'ofrecido' && (
                   <p role="alert" className="aviso aviso--peligro">{busqueda}</p>
                 )}
-                {busqueda === 'ofrecido' && (
-                  <p className="ayuda">Le ofrecimos el viaje al chofer más cercano. Tiene 30 s para aceptar.</p>
+                {busqueda === 'ofrecido' ? (
+                  <p className="ayuda" data-testid="mi-viaje-ofrecido">
+                    Le ofrecimos el viaje al chofer más cercano. Si no acepta en 30 s o lo rechaza,
+                    {' '}se lo ofrecemos al siguiente.
+                  </p>
+                ) : (
+                  <button type="button" className="boton boton--secundario" onClick={buscarDeNuevo} disabled={buscando} data-testid="mi-viaje-buscar">
+                    {buscando ? 'Buscando…' : 'Buscar chofer de nuevo'}
+                  </button>
                 )}
-                <button type="button" className="boton boton--secundario" onClick={buscarDeNuevo} disabled={buscando} data-testid="mi-viaje-buscar">
-                  {buscando ? 'Buscando…' : 'Buscar chofer de nuevo'}
-                </button>
               </>
             )}
           </>
@@ -146,6 +154,11 @@ export default function MiViaje() {
             {viaje.estado === 'finalizado' && (
               <p className="aviso" data-testid="mi-viaje-cobro">
                 Se cobraron <strong>{formatearPesos(viaje.tarifaFinalCentavos ?? viaje.estimacionCentavos)}</strong> de tu billetera.
+              </p>
+            )}
+            {viaje.estado === 'sin_choferes_disponibles' && (
+              <p className="aviso aviso--advertencia" data-testid="mi-viaje-sin-choferes-final">
+                Se lo ofrecimos a los choferes cercanos y ninguno lo aceptó. No se cobró nada.
               </p>
             )}
             {viaje.estado === 'pago_pendiente' && (

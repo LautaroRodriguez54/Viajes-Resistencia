@@ -31,6 +31,8 @@ npm run dev                      # http://localhost:5173
 2. **Pasajero**: registrate como pasajero. Al entrar, la billetera está en 0.
 3. **Pedir**: elegí Desde y Hasta y tocá **Pedir viaje**. La web hace `POST /viajes` (el servidor calcula el precio) y `POST /viajes/:id/ofertas` (le ofrece el viaje al chofer más cercano), cada uno con su `Idempotency-Key`.
 4. **Chofer**: en menos de 2 s aparece la oferta con el monto y la cuenta regresiva de 30 s, que sale de `venceAt`. **Aceptar**. Si otro chofer la aceptó antes, aparece "Otro chofer lo aceptó primero".
+   - **Rechazar** (`POST /ofertas/:id/rechazar`): el backend se la ofrece al siguiente chofer cercano y a éste no se la vuelve a ofrecer. Si no queda ninguno, el viaje pasa a `sin_choferes_disponibles` y el pasajero ve "No encontramos chofer" con **Pedir otro viaje**.
+   - **Si nadie contesta**, la oferta vence sola a los 30 s (`OFERTA_TTL_SEGUNDOS`): el backend hace lo mismo que con un rechazo. Con un solo chofer en la demo, el viaje termina en `sin_choferes_disponibles`.
 5. **Chofer**: "Voy en camino" → "Pasajero a bordo: iniciar viaje" → "Finalizar y cobrar". El pasajero ve cada paso en **Mi viaje** (consulta cada 2 s).
 6. **Sin saldo**: el viaje termina en `pago_pendiente`, y el pasajero y el chofer ven que **no se cobró nada**. Cargá saldo con `npm run cargar-saldo -- <email> <centavos>` en `viajes-backend` (la billetera se actualiza sola cada 5 s) y tocá **Pagar ahora**.
 
@@ -41,10 +43,10 @@ npm run dev                      # http://localhost:5173
 | `/ingresar` | 1 · Ingresar | `POST /auth/login` |
 | `/registro` | Registro pasajero / chofer | `POST /auth/register` (entra directo) |
 | `/pasajero/pedir` | 2 · Pedir viaje | `POST /viajes`, `POST /viajes/:id/ofertas`, `GET /billetera/me` |
-| `/pasajero/viaje` | 3 · Mi viaje | `GET /viajes/:id` cada 2 s (el id llega desde Pedir; si se entra por el menú, sale de `GET /viajes?limite=1`); "Buscar chofer de nuevo" |
+| `/pasajero/viaje` | 3 · Mi viaje | `GET /viajes/:id` cada 2 s (el id llega desde Pedir; si se entra por el menú, sale de `GET /viajes?limite=1`); "Buscar chofer de nuevo" sólo si el primer `POST /viajes/:id/ofertas` no encontró chofer |
 | `/pasajero/billetera` | 4 · Billetera | `GET /billetera/me`, `GET /viajes` ("Mis viajes" y la deuda) y `GET /billetera/me/movimientos` cada 5 s; `POST /viajes/:id/reintentar-cobro` |
-| `/chofer` | 5 · Chofer | `PUT /choferes/me/disponibilidad`, `PUT /choferes/me/ubicacion`, `GET /choferes/me/ofertas`, `GET /choferes/me/viaje-actual`, `POST /ofertas/:id/aceptar`, `POST /choferes/viajes/:id/estado`, `POST /choferes/viajes/:id/finalizar` |
-| `/operador` | 6 · Operador | **Datos de ejemplo** (faltan los endpoints del operador) |
+| `/chofer` | 5 · Chofer | `PUT /choferes/me/disponibilidad`, `PUT /choferes/me/ubicacion`, `GET /choferes/me/ofertas`, `GET /choferes/me/viaje-actual`, `POST /ofertas/:id/aceptar`, `POST /ofertas/:id/rechazar`, `POST /choferes/viajes/:id/estado`, `POST /choferes/viajes/:id/finalizar` |
+| `/operador` | 6 · Operador | **Datos de ejemplo**: los endpoints ya están en `main` desde el #26 (`GET /operador/viajes?estado=activos`, cancelar con motivo, reintentar cobro); falta conectar la pantalla |
 | `/admin` | 7 · Admin | **Datos de ejemplo** (falta listar choferes y administrar tarifas) |
 
 Cómo está armado:
@@ -59,8 +61,8 @@ Cómo está armado:
 - Estimación antes de pedir: el precio aparece al pedir.
 - Lugares con Places: hay una lista fija de lugares de Resistencia en `src/datos/lugares.js`, todos a menos de 5 km de la plaza.
 - Patente y vehículo en el viaje: no se muestran.
-- Cancelar con motivo y rechazar la oferta: "Rechazar" sólo oculta la oferta en esa pestaña.
-- Vencimiento de la ubicación: un chofer que cierra la pestaña sin apagar "Disponible" sigue recibiendo ofertas.
+- Cancelar con motivo: ya está en el backend (#25 y #26); falta el botón en Mi viaje y conectar el operador.
+- Vencimiento de la ubicación: existe desde el #22 (`UBICACION_TTL_SEGUNDOS`), pero está comentado en el `.env.example`. Sin él, un chofer que cierra la pestaña sin apagar "Disponible" sigue recibiendo ofertas.
 - Google Maps: el mapa sigue siendo el dibujo del diseño (`MapaSimulado.jsx`).
 
 ## Lo que piden las consignas
