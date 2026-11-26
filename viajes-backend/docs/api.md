@@ -21,6 +21,7 @@
 | Ofertas | `POST /viajes/:viajeId/ofertas` | pasajero dueño | **sí** |
 | Ofertas | `POST /ofertas/:ofertaId/aceptar` | chofer de la oferta | **sí** |
 | Chofer | `PUT /choferes/me/disponibilidad`, `PUT /choferes/me/ubicacion` | chofer | |
+| Chofer | `GET /choferes/me/ofertas` (oferta vigente o `null`), `GET /choferes/me/viaje-actual` (viaje activo o `null`) | chofer | |
 | Chofer | `POST /choferes/viajes/:viajeId/estado` | chofer asignado | |
 | Chofer | `POST /choferes/viajes/:viajeId/finalizar` (finaliza y cobra) | chofer asignado | **sí** |
 | Billetera | `POST /viajes/:viajeId/reintentar-cobro` | pasajero dueño | **sí** |

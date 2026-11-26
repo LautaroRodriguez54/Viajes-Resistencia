@@ -1,4 +1,5 @@
-import { Link, NavLink } from 'react-router';
+import { Link, NavLink, useNavigate } from 'react-router';
+import { usarSesion } from '../sesion.jsx';
 
 const etiquetasRol = {
   pasajero: 'Pasajero',
@@ -8,20 +9,28 @@ const etiquetasRol = {
 };
 
 // enlaces: [{ a: '/pasajero/pedir', texto: 'Pedir' }, ...]
-// detalle: dato extra al lado del rol (la patente del chofer).
-export default function Encabezado({ rol, enlaces = [], plano = false, detalle }) {
+export default function Encabezado({ rol, enlaces = [], plano = false }) {
+  const { usuario, salir } = usarSesion();
+  const navegar = useNavigate();
+
+  function cerrarSesion() {
+    salir();
+    navegar('/ingresar');
+  }
+
   return (
     <header className={plano ? 'encabezado encabezado--plano' : 'encabezado'}>
       <Link to="/" className="marca">Viajes Resistencia</Link>
       {enlaces.length > 0 && (
         <nav aria-label={etiquetasRol[rol]}>
           {enlaces.map((enlace) => (
-            <NavLink key={enlace.a} to={enlace.a}>{enlace.texto}</NavLink>
+            <NavLink key={enlace.a} to={enlace.a} data-testid={`nav-${enlace.a.split('/').pop()}`}>{enlace.texto}</NavLink>
           ))}
         </nav>
       )}
       <span className="encabezado__usuario">
-        {etiquetasRol[rol]} · {detalle && <>{detalle} · </>}<Link to="/ingresar">Salir</Link>
+        <span data-testid="usuario-actual">{etiquetasRol[rol]} · {usuario?.email}</span> ·{' '}
+        <button type="button" className="enlace" onClick={cerrarSesion} data-testid="salir">Salir</button>
       </span>
     </header>
   );
