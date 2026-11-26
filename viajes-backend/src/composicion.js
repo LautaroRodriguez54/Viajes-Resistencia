@@ -10,6 +10,7 @@ import { crearUnidadDeTrabajoCobroPostgres } from './infra/db/unidadDeTrabajoCob
 import { crearDespachadorOutbox } from './infra/db/despachadorOutbox.js';
 import { crearDespachadorVencimientoOfertas } from './infra/db/despachadorVencimientoOfertas.js';
 import { crearProyectorSaldosPostgres } from './infra/db/proyectorSaldosPostgres.js';
+import { crearProyectorHistorialPostgres } from './infra/db/proyectorHistorialPostgres.js';
 import { crearHasheadorArgon2 } from './infra/autenticacion/contrasenasArgon2.js';
 import { crearServicioJwt } from './infra/autenticacion/tokensJwt.js';
 import { crearApp } from './infra/http/app.js';
@@ -30,6 +31,7 @@ export function componerAplicacion() {
   const poolBilletera = crearPoolPostgres({ ...config, DATABASE_URL: config.BILLETERA_DATABASE_URL });
   const poolLectura = crearPoolPostgres({ ...config, DATABASE_URL: config.LECTURA_DATABASE_URL });
   const proyectorSaldos = crearProyectorSaldosPostgres(poolLectura);
+  const proyectorHistorial = crearProyectorHistorialPostgres(poolLectura);
   const usuarios = crearRepositorioUsuariosPostgres(pool);
   const billeteras = crearRepositorioBilleterasPostgres(poolBilletera);
   const viajes = crearRepositorioViajesPostgres(pool, {
@@ -51,25 +53,30 @@ export function componerAplicacion() {
     }),
     // CQRS (tema 13): la pantalla lee la proyección; el cobro sigue sumando movimientos en `billetera`.
     consultarSaldoPorPasajero: proyectorSaldos.consultarSaldoPorPasajero,
+    // Los movimientos se leen de la base `billetera`, sin proyección (ADR 009).
+    listarMovimientosPorPasajero: billeteras.listarMovimientosPorPasajero,
     tokens,
   };
   // El cobro (finalizar y reintentar): el viaje se bloquea en la base de viajes y la billetera cobra en su base (ADR 008).
   const dependenciasCobro = { unidadDeTrabajo: crearUnidadDeTrabajoCobroPostgres(pool), billetera: billeteras, logger };
   const finalizarYCobrar = crearFinalizarViajeYCobrar(dependenciasCobro);
   const reintentarCobro = crearReintentarCobro(dependenciasCobro);
-  const viajesHttp = { solicitarViaje: crearSolicitarViaje({ viajes }), buscarViajePropio: viajes.buscarPorIdDelPasajero, ofrecerAlChoferCercano: viajes.ofrecerAlChoferCercano, reintentarCobro, cancelarViaje: viajes.cancelarViaje, tokens };
+  const viajesHttp = { solicitarViaje: crearSolicitarViaje({ viajes }), buscarViajePropio: viajes.buscarPorIdDelPasajero, ofrecerAlChoferCercano: viajes.ofrecerAlChoferCercano, reintentarCobro, cancelarViaje: viajes.cancelarViaje, listarHistorial: proyectorHistorial.listarPorPasajero, tokens };
   const ofertasHttp = { aceptarOferta: viajes.aceptarOferta, rechazarOferta: viajes.rechazarOferta, tokens };
   const choferesHttp = { cambiarDisponibilidad: choferes.cambiarDisponibilidad, registrarUbicacion: choferes.registrarUbicacion, avanzarEstado: viajes.avanzarEstado, finalizarYCobrar, cancelarViaje: viajes.cancelarViaje, buscarOfertaPendiente: viajes.buscarOfertaPendienteDelChofer, buscarViajeActual: viajes.buscarViajeActualDelChofer, tokens };
   const administracion = { establecerHabilitacion: choferes.establecerHabilitacion, tokens };
   const operadorHttp = { listarViajesActivos: viajes.listarViajesActivos, cancelarViaje: viajes.cancelarViaje, reintentarCobro: crearReintentarCobroOperador(dependenciasCobro), tokens };
   const app = crearApp({ config, logger, verificarDisponibilidad: () => Promise.all([pool, poolBilletera, poolLectura].map(verificarPostgres)), autenticacion, billetera, viajes: viajesHttp, ofertas: ofertasHttp, choferes: choferesHttp, administracion, operador: operadorHttp, idempotencia: crearRepositorioIdempotenciaPostgres(pool) });
-  // Outbox de Viajes → Billetera: cada UsuarioRegistrado de un pasajero crea su billetera.
+  // Outbox de Viajes: cada UsuarioRegistrado de un pasajero crea su billetera, y cada ViajeCambiado
+  // (lo deja el trigger de la migración 006) actualiza el historial en la base `lectura`.
   const despachadores = [
     crearDespachadorOutbox({
       pool, tabla: 'outbox_viajes', logger, intervaloMs: config.OUTBOX_INTERVALO_MS,
       manejar: async (evento) => {
         if (evento.tipo === 'UsuarioRegistrado' && evento.datos.rol === 'pasajero') {
           await billeteras.crearBilleteraPorEvento({ eventoId: evento.id, pasajeroId: evento.datos.usuarioId });
+        } else if (evento.tipo === 'ViajeCambiado') {
+          await proyectorHistorial.aplicar(evento);
         }
       },
     }),
