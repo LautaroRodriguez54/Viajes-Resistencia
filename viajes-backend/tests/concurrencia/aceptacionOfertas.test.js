@@ -218,3 +218,29 @@ test('aceptarOferta evalúa el vencimiento con now() de PostgreSQL y rechaza ofe
     );
   });
 });
+
+test('ofrecerAlChoferCercano bajo ráfaga concurrente asigna choferes distintos sin colisiones', async (t) => {
+  await conBaseDePrueba(t, async (pool) => {
+    const repoViajes = crearRepositorioViajesPostgres(pool);
+
+    for (let ronda = 0; ronda < 3; ronda += 1) {
+      await pool.query('UPDATE perfiles_chofer SET disponible = FALSE WHERE disponible = TRUE');
+      await pool.query("UPDATE ofertas_viaje SET estado = 'vencida' WHERE estado = 'pendiente'");
+
+      const cantidad = 8;
+      const pasajeros = await Promise.all(Array.from({ length: cantidad }, () => crearPasajero(pool)));
+      const choferes = await Promise.all(Array.from({ length: cantidad }, () => crearChofer(pool, true)));
+      const viajes = await Promise.all(pasajeros.map((pasajeroId) => crearViaje(pool, pasajeroId)));
+
+      const resultados = await Promise.all(
+        viajes.map((viajeId, indice) => repoViajes.ofrecerAlChoferCercano(viajeId, pasajeros[indice])),
+      );
+
+      const choferesAsignados = resultados.map((r) => r.choferId);
+      assert.equal(new Set(choferesAsignados).size, cantidad);
+      for (const choferId of choferesAsignados) {
+        assert.ok(choferes.includes(choferId));
+      }
+    }
+  });
+});
