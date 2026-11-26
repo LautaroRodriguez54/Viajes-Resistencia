@@ -18,18 +18,24 @@
 | Autenticación | `POST /auth/register`, `POST /auth/login`, `GET /auth/me` | — / cualquiera | |
 | Viajes | `POST /viajes` | pasajero | **sí** |
 | Viajes | `GET /viajes/:viajeId` | pasajero dueño | |
+| Viajes | `POST /viajes/:viajeId/cancelar` | pasajero dueño | **sí** |
 | Ofertas | `POST /viajes/:viajeId/ofertas` | pasajero dueño | **sí** |
 | Ofertas | `POST /ofertas/:ofertaId/aceptar` | chofer de la oferta | **sí** |
+| Ofertas | `POST /ofertas/:ofertaId/rechazar` | chofer de la oferta | **sí** |
 | Chofer | `PUT /choferes/me/disponibilidad`, `PUT /choferes/me/ubicacion` | chofer | |
 | Chofer | `GET /choferes/me/ofertas` (oferta vigente o `null`), `GET /choferes/me/viaje-actual` (viaje activo o `null`) | chofer | |
 | Chofer | `POST /choferes/viajes/:viajeId/estado` | chofer asignado | |
+| Chofer | `POST /choferes/viajes/:viajeId/cancelar` | chofer asignado | **sí** |
 | Chofer | `POST /choferes/viajes/:viajeId/finalizar` (finaliza y cobra) | chofer asignado | **sí** |
 | Billetera | `POST /viajes/:viajeId/reintentar-cobro` | pasajero dueño | **sí** |
 | Billetera | `GET /billetera/me` | pasajero | |
 | Billetera | `POST /billetera/webhooks/cargas` | proveedor de pagos (firma HMAC) | no: deduplica por `eventoExternoId` |
+| Operador | `GET /operador/viajes?estado=activos` | operador | |
+| Operador | `POST /operador/viajes/:viajeId/cancelar` (motivo obligatorio) | operador | **sí** |
+| Operador | `POST /operador/viajes/:viajeId/reintentar-cobro` | operador | **sí** |
 | Administración | `PATCH /admin/choferes/:choferId/habilitacion` | administrador | |
 
-**Pendientes** (se agregan al OpenAPI cuando existan): estimación sin crear el viaje, cancelaciones con motivo, rechazo de oferta, endpoints del operador, historiales, movimientos de la billetera y SSE.
+**Pendientes** (se agregan al OpenAPI cuando existan): estimación sin crear el viaje, historiales, movimientos de la billetera y SSE.
 
 ## Convenciones
 

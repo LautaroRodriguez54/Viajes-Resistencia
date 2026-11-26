@@ -2,7 +2,7 @@
 
 - Estado: aceptado
 - Fecha: 2026-10-29
-- Participantes: TODO
+- Participantes: Lucas Escobar, Agustín Valussi y Lautaro Rodríguez (decisión del grupo); redacción: Lautaro Rodríguez
 
 ## Contexto
 

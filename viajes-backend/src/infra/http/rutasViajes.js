@@ -6,12 +6,13 @@ import { requiereAutenticacion } from './autenticacion.js';
 
 const punto = z.object({ latitud: z.number().gte(-90).lte(90), longitud: z.number().gte(-180).lte(180) }).strict();
 const solicitud = z.object({ origen: punto, destino: punto }).strict();
+const cancelacionOpcional = z.object({ motivo: z.string().trim().min(1).max(200).optional() }).strict();
 
 function soloPasajero(req) {
   if (req.autenticacion.rol !== Rol.PASAJERO) throw new ErrorDeDominio('RECURSO_PROHIBIDO', 'Sólo un pasajero puede solicitar viajes.');
 }
 
-export function crearRutasViajes({ solicitarViaje, buscarViajePropio, ofrecerAlChoferCercano, reintentarCobro, tokens, idempotente }) {
+export function crearRutasViajes({ solicitarViaje, buscarViajePropio, ofrecerAlChoferCercano, reintentarCobro, cancelarViaje, tokens, idempotente }) {
   const router = express.Router();
   router.post('/', requiereAutenticacion(tokens), idempotente('viajes.solicitar'), async (req, res) => {
     soloPasajero(req);
@@ -37,6 +38,18 @@ export function crearRutasViajes({ solicitarViaje, buscarViajePropio, ofrecerAlC
     soloPasajero(req);
     if (!z.string().uuid().safeParse(req.params.viajeId).success) throw new ErrorDeDominio('ENTRADA_INVALIDA', 'Identificador de viaje inválido.');
     res.status(200).json(await reintentarCobro({ viajeId: req.params.viajeId, pasajeroId: req.autenticacion.usuarioId }));
+  });
+  router.post('/:viajeId/cancelar', requiereAutenticacion(tokens), idempotente('viajes.cancelar_pasajero'), async (req, res) => {
+    soloPasajero(req);
+    if (!z.string().uuid().safeParse(req.params.viajeId).success) throw new ErrorDeDominio('ENTRADA_INVALIDA', 'Identificador de viaje inválido.');
+    const cuerpo = cancelacionOpcional.safeParse(req.body ?? {});
+    if (!cuerpo.success) throw new ErrorDeDominio('ENTRADA_INVALIDA', 'Datos de cancelación inválidos.');
+    res.status(200).json(await cancelarViaje({
+      viajeId: req.params.viajeId,
+      actorId: req.autenticacion.usuarioId,
+      rol: Rol.PASAJERO,
+      motivo: cuerpo.data.motivo ?? null,
+    }));
   });
   return router;
 }

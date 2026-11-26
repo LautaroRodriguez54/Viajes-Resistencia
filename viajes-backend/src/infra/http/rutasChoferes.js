@@ -8,6 +8,7 @@ const disponibilidad = z.object({ disponible: z.boolean() }).strict();
 const ubicacion = z.object({ latitud: z.number().gte(-90).lte(90), longitud: z.number().gte(-180).lte(180) }).strict();
 const uuid = z.string().uuid();
 const cambioEstado = z.object({ estado: z.enum(['chofer_en_camino', 'en_curso']) }).strict();
+const cancelacionOpcional = z.object({ motivo: z.string().trim().min(1).max(200).optional() }).strict();
 
 function soloChofer(req) {
   if (req.autenticacion.rol !== Rol.CHOFER) throw new ErrorDeDominio('RECURSO_PROHIBIDO', 'Esta operación es exclusiva de choferes.');
@@ -22,6 +23,7 @@ export function crearRutasChoferes({
   registrarUbicacion,
   avanzarEstado,
   finalizarYCobrar,
+  cancelarViaje,
   buscarOfertaPendiente,
   buscarViajeActual,
   tokens,
@@ -56,6 +58,17 @@ export function crearRutasChoferes({
     soloChofer(req);
     const id = validar(uuid, req.params.viajeId);
     res.status(200).json(await finalizarYCobrar({ viajeId: id, choferId: req.autenticacion.usuarioId }));
+  });
+  router.post('/viajes/:viajeId/cancelar', requiereAutenticacion(tokens), idempotente('choferes.cancelar_viaje'), async (req, res) => {
+    soloChofer(req);
+    const id = validar(uuid, req.params.viajeId);
+    const { motivo } = validar(cancelacionOpcional, req.body ?? {});
+    res.status(200).json(await cancelarViaje({
+      viajeId: id,
+      actorId: req.autenticacion.usuarioId,
+      rol: Rol.CHOFER,
+      motivo: motivo ?? null,
+    }));
   });
   return router;
 }
