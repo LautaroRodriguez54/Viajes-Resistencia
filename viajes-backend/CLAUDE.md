@@ -113,7 +113,7 @@ Hilo conductor: **"La billetera es un servicio dueño de sus datos (12); como ya
 
 ## Estado actual
 
-Al 26/11/2026 (`main` en `3feece7`, con los PR #21 y #22 aprobados y pendientes de fusionar). El contrato completo está en `docs/openapi.yaml` (0.4.0 en `main`, 0.5.0 con el #22).
+Al 26/11/2026 (`main` en `8e48189`, con el #21 y el #22). El contrato completo está en `docs/openapi.yaml` (0.5.0).
 
 | Área | Endpoints | Estado |
 |---|---|---|
@@ -121,12 +121,12 @@ Al 26/11/2026 (`main` en `3feece7`, con los PR #21 y #22 aprobados y pendientes 
 | Autenticación | `POST /auth/register` (pasajero/chofer), `POST /auth/login`, `GET /auth/me` | Hecho (sin refresh ni revocación) |
 | Billetera | `POST /billetera/webhooks/cargas` (HMAC + dedupe), `GET /billetera/me` (lee la proyección de `lectura`) | Hecho, en su propia base (ADR 008 y 009) |
 | Viajes | `POST /viajes`, `GET /viajes/:viajeId` (sólo el pasajero dueño), `POST /viajes/:viajeId/reintentar-cobro` | Hecho |
-| Ofertas | `POST /viajes/:viajeId/ofertas` (chofer más cercano a ≤5 km), `POST /ofertas/:ofertaId/aceptar`, `POST /ofertas/:ofertaId/rechazar` (#22) | Hecho; vencimiento automático en el servidor con el #22 |
+| Ofertas | `POST /viajes/:viajeId/ofertas` (chofer más cercano a ≤5 km), `POST /ofertas/:ofertaId/aceptar`, `POST /ofertas/:ofertaId/rechazar` | Hecho, con vencimiento automático en el servidor (#22) |
 | Chofer | `PUT /choferes/me/disponibilidad`, `PUT /choferes/me/ubicacion`, `GET /choferes/me/ofertas`, `GET /choferes/me/viaje-actual`, `POST /choferes/viajes/:viajeId/estado`, `POST /choferes/viajes/:viajeId/finalizar` | Hecho |
 | Admin | `PATCH /admin/choferes/:choferId/habilitacion` | Hecho |
 
 - Los 5 endpoints que crean o cobran exigen `Idempotency-Key` (ADR 010).
-- **Tests**: 201 en `main` y 214 con el #22, en `tests/dominio`, `aplicacion`, `infra`, `integracion`, `seguridad` y `concurrencia`. Un solo comando: `npm test` con `DATABASE_URL` apuntando a `viajes_test`.
+- **Tests**: 214, en `tests/dominio`, `aplicacion`, `infra`, `integracion`, `seguridad` y `concurrencia`. Un solo comando: `npm test` con `DATABASE_URL` apuntando a `viajes_test`.
 - **Lint**: ESLint con `eslint-plugin-security`, 0 errores. **CI** en GitHub Actions: lint, tests, auditoría, Semgrep y un job de Playwright que se saltea hasta que exista `e2e/package.json`.
 - **ADR**: 001 a 011. El 004 y el 005 siguen "propuesto" (son de Lucas) y el 008 reemplaza en parte al 004.
 
@@ -162,9 +162,9 @@ Prioridad: lo que pide el **control 3** de Puljiz (carrera con test concurrente 
 - [x] Test: 50 aceptaciones simultáneas sobre el mismo viaje, exactamente una gana (`tests/concurrencia/aceptacionOfertas.test.js`).
 - [ ] Cancelaciones (pasajero, chofer, operador con motivo) y test de cancelación simultánea a la aceptación, con los dos resultados posibles documentados.
 - [x] Test: un chofer con viaje activo no puede aceptar otro.
-- [~] Vencimiento de ofertas en el servidor, siguiente candidato y `sin_choferes_disponibles` al agotar la lista: PR #22 (aprobado).
-- [~] Ofertas duplicadas y choferes con oferta pendiente con `FOR UPDATE SKIP LOCKED` + revalidación después del bloqueo: PR #21 (aprobado; arregla el test intermitente).
-- [~] Rechazo explícito de oferta por el chofer: PR #22 (aprobado).
+- [x] Vencimiento de ofertas en el servidor, siguiente candidato y `sin_choferes_disponibles` al agotar la lista (PR #22).
+- [x] Ofertas duplicadas y choferes con oferta pendiente con `FOR UPDATE SKIP LOCKED` + revalidación después del bloqueo (PR #21, que arregla el test intermitente).
+- [x] Rechazo explícito de oferta por el chofer (PR #22).
 - [ ] ADR 004 completo: qué se bloquea, en qué orden, por qué no hay doble asignación ni interbloqueo.
 
 ### Variante D — Billetera
@@ -209,7 +209,7 @@ Prioridad: lo que pide el **control 3** de Puljiz (carrera con test concurrente 
 Además de lo de Puljiz. Códigos RF/RNF del Word. El alcance exacto de cada entrega lo fija el Acta de Alcance: esto es el máximo posible, no todo es obligatorio para TP1.
 
 ### TP1 · Contrato ejecutable
-- [~] **OpenAPI** versionado (hecho: `docs/openapi.yaml`, 0.4.0 en `main` y 0.5.0 con el #22, + Swagger UI en el compose con `--profile docs`; falta validar las respuestas en los tests) (`docs/openapi.yaml`) con parámetros, esquemas, validaciones, ejemplos, respuestas de éxito y error (`{ error: { codigo, requestId } }`) y esquema de seguridad Bearer; visualización local (p. ej. Swagger UI en `GET /docs`, deshabilitada en producción). Los esquemas Zod y el contrato no pueden divergir.
+- [~] **OpenAPI** versionado (hecho: `docs/openapi.yaml` 0.5.0, + Swagger UI en el compose con `--profile docs`; falta validar las respuestas en los tests) (`docs/openapi.yaml`) con parámetros, esquemas, validaciones, ejemplos, respuestas de éxito y error (`{ error: { codigo, requestId } }`) y esquema de seguridad Bearer; visualización local (p. ej. Swagger UI en `GET /docs`, deshabilitada en producción). Los esquemas Zod y el contrato no pueden divergir.
 - [ ] Tests de integración que validen las respuestas contra el OpenAPI.
 - [ ] Mocks/stubs de las dependencias de otros módulos hechos desde **sus** OpenAPI, con casos de éxito, error y demora. Encajan como adaptadores en memoria de los puertos (también cumplen el bloque 2 de Puljiz).
 - [ ] **Dockerfile** del backend (multi-stage, usuario no root, `HEALTHCHECK` contra `/health`) y servicio `api` en `docker-compose.yml`. La secuencia de clon limpio de Puljiz tiene que seguir funcionando igual.

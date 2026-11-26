@@ -6,7 +6,7 @@ Mapa del backend archivo por archivo, para estudiar la defensa con el código ab
 - `adr/`: decisiones y alternativas descartadas (001 a 011).
 - `openapi.yaml`: el contrato de cada endpoint.
 
-Estado: `main` al 26/11/2026 (`3feece7`). Lo que suman los PR #21 y #22 (aprobados, pendientes de fusionar) está marcado como **(#22)**.
+Estado: `main` al 26/11/2026 (`8e48189`, con el #21 y el #22 ya fusionados).
 
 ## 1. Qué funciona hoy
 
@@ -16,7 +16,7 @@ recibe una carga firmada (HMAC) → la billetera acredita una sola vez por event
 chofer se registra              → el administrador lo habilita
 chofer se declara disponible y reporta ubicación
 pasajero solicita viaje         → se ofrece al chofer más cercano a ≤5 km (oferta de 30 s)
-chofer acepta (o rechaza (#22)) → si nadie responde, el servidor vence la oferta y busca otro (#22)
+chofer acepta o rechaza       → si nadie responde, el servidor vence la oferta y busca otro
 chofer marca "en camino" y "en curso"
 finaliza                        → pago_pendiente → la billetera cobra → finalizado, o queda pago_pendiente
 pasajero sin saldo              → carga y "reintentar cobro"
@@ -56,10 +56,10 @@ Ninguna base consulta a otra. Se comunican por:
 | Archivo | Responsabilidad |
 |---|---|
 | `package.json` | Node 22, dependencias y comandos: `dev`, `start`, `test`, `lint`, `migrate`, `seed`, `setup`, `setup:test`, `cargar-saldo`, `demo:propiedad-datos`, `proyecciones:reconstruir`. |
-| `.env.example` | Toda la configuración sin secretos reales: una URL por base, `ADMIN_DATABASE_URL` para las migraciones, TTL de idempotencia, de ofertas y de ubicación (#22), y límites de tasa. |
+| `.env.example` | Toda la configuración sin secretos reales: una URL por base, `ADMIN_DATABASE_URL` para las migraciones, TTL de idempotencia, de ofertas y de ubicación, y límites de tasa. |
 | `docker-compose.yml` | PostgreSQL 16 + PostGIS (puerto local 5433). Swagger UI aparte con `--profile docs` (puerto 8080). |
 | `src/servidor.js` | Arranca Express y los procesos de fondo; apagado ordenado ante `SIGTERM`/`SIGINT` (detiene los procesos antes de cerrar los pools). |
-| `src/composicion.js` | Un pool por base, repositorios, casos de uso, rutas, despachadores del outbox y vencimiento de ofertas (#22). |
+| `src/composicion.js` | Un pool por base, repositorios, casos de uso, rutas, despachadores del outbox y vencimiento de ofertas. |
 | `src/config/env.js` | Valida las variables con Zod: el proceso no arranca con configuración incompleta. |
 
 ## 4. Dominio
@@ -121,13 +121,13 @@ El body parser de `src/infra/http/app.js` guarda `req.cuerpoCrudo`: volver a ser
 
 **Solicitud.** `POST /viajes` exige un pasajero, valida las coordenadas, toma los parámetros de tarifa activos y crea el viaje en `solicitado` con su estimación.
 
-**Chofer y PostGIS.** Con `PUT /choferes/me/disponibilidad` y `PUT /choferes/me/ubicacion`, la posición actual va a `ubicaciones_actuales_chofer` (índice GiST) y el historial a otra tabla. Con `UBICACION_TTL_SEGUNDOS` (#22), un chofer que no reporta hace rato deja de ser candidato.
+**Chofer y PostGIS.** Con `PUT /choferes/me/disponibilidad` y `PUT /choferes/me/ubicacion`, la posición actual va a `ubicaciones_actuales_chofer` (índice GiST) y el historial a otra tabla. Con `UBICACION_TTL_SEGUNDOS`, un chofer que no reporta hace rato deja de ser candidato.
 
-**Oferta.** `POST /viajes/:viajeId/ofertas` busca con `ST_DWithin` el chofer habilitado, disponible y sin viaje activo más cercano a ≤5 km, con `FOR UPDATE OF p SKIP LOCKED`. Después de bloquearlo **revalida** que siga elegible con una sentencia nueva (#21): en READ COMMITTED, la primera vio una foto anterior al bloqueo. Por último crea una oferta de 30 s (configurable con `OFERTA_TTL_SEGUNDOS` desde el #22).
+**Oferta.** `POST /viajes/:viajeId/ofertas` busca con `ST_DWithin` el chofer habilitado, disponible y sin viaje activo más cercano a ≤5 km, con `FOR UPDATE OF p SKIP LOCKED`. Después de bloquearlo **revalida** que siga elegible con una sentencia nueva: en READ COMMITTED, la primera vio una foto anterior al bloqueo. Por último crea una oferta de 30 s (configurable con `OFERTA_TTL_SEGUNDOS`).
 
 **Aceptación.** `POST /ofertas/:ofertaId/aceptar` bloquea el viaje, sus ofertas (por id) y el perfil del chofer, en ese orden. Asigna el viaje y deja al chofer no disponible. Los índices `ux_una_oferta_aceptada_por_viaje` y `ux_chofer_un_viaje_activo` frenan cualquier doble asignación.
 
-**Rechazo y vencimiento (#22).**
+**Rechazo y vencimiento.**
 - `POST /ofertas/:ofertaId/rechazar` marca la oferta `rechazada` y ofrece el viaje al siguiente candidato.
 - `despachadorVencimientoOfertas.js` corre cada `OFERTA_VERIFICACION_MS` y marca `vencida` cada oferta que pasó su `vence_at`, también con el orden viaje → ofertas → chofer.
 - Si no queda ningún candidato, el viaje pasa a `sin_choferes_disponibles`.
@@ -137,10 +137,10 @@ El body parser de `src/infra/http/app.js` guarda `req.cuerpoCrudo`: volver a ser
 | Archivo | Responsabilidad |
 |---|---|
 | `src/aplicacion/viajes/solicitarViaje.js` | Caso de uso de la solicitud: tarifa y viaje. |
-| `src/infra/db/repositorioViajesPostgres.js` | SQL de viajes, búsqueda geográfica, ofertas, aceptación, rechazo y vencimiento (#22), estados, lecturas del chofer, y la parte de cobro de viajes (`crearCobroViajesPostgres`). |
+| `src/infra/db/repositorioViajesPostgres.js` | SQL de viajes, búsqueda geográfica, ofertas, aceptación, rechazo y vencimiento, estados, lecturas del chofer, y la parte de cobro de viajes (`crearCobroViajesPostgres`). |
 | `src/infra/db/repositorioChoferesPostgres.js` | Disponibilidad, habilitación y ubicación. |
 | `src/infra/http/rutasViajes.js` | Solicitar, consultar el viaje propio, ofrecer y reintentar el cobro. |
-| `src/infra/http/rutasOfertas.js` | Aceptar y rechazar (#22). |
+| `src/infra/http/rutasOfertas.js` | Aceptar y rechazar. |
 | `src/infra/http/rutasChoferes.js` | Disponibilidad, ubicación, lecturas, estado y finalización. |
 | `src/infra/http/rutasAdministracion.js` | Habilitar o deshabilitar choferes. |
 
@@ -182,7 +182,7 @@ La carrera de la variante D, dos viajes contra un saldo que alcanza para uno, se
 | `migraciones-billetera/001-billetera.sql` | Base `billetera`. |
 | `migraciones-lectura/001-lectura.sql` | Base `lectura`. |
 | `src/infra/db/despachadorOutbox.js` | Toma eventos con `FOR UPDATE SKIP LOCKED`, los entrega y los marca. |
-| `src/infra/db/despachadorVencimientoOfertas.js` | (#22) Vence ofertas y vuelve a ofrecer. |
+| `src/infra/db/despachadorVencimientoOfertas.js` | Vence ofertas y vuelve a ofrecer. |
 | `src/infra/db/repositorioIdempotenciaPostgres.js` | `reservar`, `completar` y `liberar` sobre `claves_idempotencia`. |
 
 ## 10. HTTP transversal
@@ -198,15 +198,15 @@ La carrera de la variante D, dos viajes contra un saldo que alcanza para uno, se
 
 ## 11. Tests
 
-`npm test` corre todo. Con `DATABASE_URL` apuntando a `viajes_test` corren también los que usan base (antes, `npm run setup:test`). Son 201 en `main` y 214 con el #22.
+`npm test` corre todo. Con `DATABASE_URL` apuntando a `viajes_test` corren también los que usan base (antes, `npm run setup:test`). Son 214.
 
 | Carpeta | Qué prueba |
 |---|---|
 | `tests/dominio` | Saldo derivado, por qué no float, `decidirCobro`, roles, tarifa. |
 | `tests/aplicacion` | Cobro sin Postgres: orden de bloqueo, caída entre bases, carrera de la variante D, dobles simultáneos. |
 | `tests/infra` | JWT, HMAC, carga de demo, idempotencia (middleware), cabeceras, SQL de ofertas con un pool simulado. |
-| `tests/integracion` | Con Postgres real: repositorios, idempotencia HTTP (10 pedidos simultáneos → 1 viaje), outbox, proyección, propiedad de datos, vencimiento y rechazo (#22). |
-| `tests/concurrencia` | 50 aceptaciones simultáneas (gana una), SKIP LOCKED en ráfaga (#21), carreras de vencimiento y rechazo (#22). |
+| `tests/integracion` | Con Postgres real: repositorios, idempotencia HTTP (10 pedidos simultáneos → 1 viaje), outbox, proyección, propiedad de datos, vencimiento y rechazo. |
+| `tests/concurrencia` | 50 aceptaciones simultáneas (gana una), SKIP LOCKED en ráfaga, carreras de vencimiento y rechazo. |
 | `tests/seguridad` | Autenticación, autorización por rol y recurso, validación, prototype pollution, inyección SQL, CORS, rate limiting. |
 
 ## 12. Pendiente
