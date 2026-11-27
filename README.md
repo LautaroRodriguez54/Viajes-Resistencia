@@ -36,8 +36,9 @@ Reglas que el sistema garantiza en la base de datos:
 |---|---|
 | [`viajes-backend/`](viajes-backend/) | API REST en Node.js 22 + Express 5, PostgreSQL 16 + PostGIS, SQL directo, JWT y Argon2id. Arquitectura hexagonal, con tres bases (`viajes`, `billetera`, `lectura`) en el mismo contenedor. |
 | [`viajes-web/`](viajes-web/) | Interfaz web en React + Vite, conectada al backend y responsiva para el celular. Mapa de OpenStreetMap (Leaflet), búsqueda de direcciones (Photon) y ruta por calles (OSRM), sin claves. |
-| [`e2e/`](e2e/) | Prueba de punta a punta con Playwright sobre la web y el backend reales (la corre la CI en cada PR). |
-| [`carga/`](carga/) | Script de k6 para medir la creación de viajes. La carga de 500 choferes del bloque 7 es `npm run carga:ubicaciones` en el backend. |
+| [`e2e/`](e2e/) | Suite de 6 pruebas de punta a punta con Playwright sobre la web y el backend reales (autenticación, viaje y cobro tras carga, ofertas y cancelación; corre en CI en cada PR). |
+| [`carga/`](carga/) | Scripts de k6 (`viajes.js` y rampa gradual `estres-viajes.js`) con corridas documentadas en [`RESULTADOS_PRUEBAS.md`](carga/RESULTADOS_PRUEBAS.md). La carga de 500 choferes del bloque 7 es `npm run carga:ubicaciones` en el backend. |
+| [`observabilidad/`](observabilidad/) | Colector de logs HTTP filtrados (`capturar-logs.mjs` + Grafana Alloy hacia Loki en Grafana Cloud) y tablero importable (`dashboard-backend.json`). |
 
 ## Cómo correrlo
 
@@ -120,8 +121,10 @@ El detalle de cada pantalla y sus endpoints está en el [README de la web](viaje
 ## Calidad
 
 - **Tests** (`node --test`) en cinco niveles: dominio, aplicación (con adaptadores en memoria, sin base), integración (Postgres real), seguridad y concurrencia.
-- **CI** en GitHub Actions en cada PR, obligatoria: lint, tests con PostGIS y auditoría del backend, build y auditoría de la web, análisis estático con Semgrep y la prueba de punta a punta con Playwright.
-- Errores con forma estable (`{ error: { codigo, requestId } }`), logs JSON con `requestId`, límites de tasa con `429` y cabeceras de seguridad.
+- **E2E y carga**: 6 casos en Playwright (`e2e/`) y rampa gradual en k6 (`carga/estres-viajes.js`).
+- **CI** en GitHub Actions en cada PR, obligatoria: lint, tests con PostGIS y auditoría del backend, build y auditoría de la web, análisis estático con Semgrep y los 6 E2E con Playwright.
+- **Observabilidad**: métricas de event loop y negocio en `GET /admin/metricas`, logs JSON con `requestId` y envío opcional a Grafana Cloud vía Alloy (`observabilidad/`).
+- Errores con forma estable (`{ error: { codigo, requestId } }`), límites de tasa con `429` y cabeceras de seguridad.
 
 ## Documentación
 

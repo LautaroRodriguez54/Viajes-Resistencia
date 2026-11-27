@@ -25,7 +25,7 @@ info:
     | `eventos_viaje` | auditoría del ciclo de vida (M6) |
 
     ## Pendiente (no implementado todavía)
-    Estimación sin crear el viaje, historial del chofer y tiempo real por SSE. Se agregan acá cuando existan.
+    Historial del chofer y tiempo real por SSE. Se agregan acá cuando existan.
   contact:
     name: Grupo 4 · Escobar Lucas, Valussi Agustín, Rodríguez Lautaro
 servers:
