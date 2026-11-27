@@ -30,9 +30,10 @@ const cancelablesPorChofer = new Set(['asignado', 'chofer_en_camino']);
 
 // Movimiento simulado del chofer de la demo: con "Voy en camino" avanza por la ruta de OSRM hasta el
 // retiro y, con el pasajero a bordo, hasta el destino. Cada paso se manda a PUT /choferes/me/ubicacion
-// (24 por minuto; el límite es 60) y el pasajero lo ve moverse en Mi viaje. ~70 m cada 2,5 s.
-const METROS_POR_PASO = 70;
-const INTERVALO_PASO_MS = 2500;
+// (40 por minuto; el límite es 60) y el pasajero lo ve moverse en Mi viaje. Es una demo: cada tramo dura
+// unos 20 s sin importar la distancia (14 pasos cada 1,5 s), para no esperar minutos a que llegue.
+const PASOS_POR_TRAMO = 14;
+const INTERVALO_PASO_MS = 1500;
 // Aviso sonoro de oferta nueva: dos tonos cortos con Web Audio (sin archivos). El navegador sólo deja sonar
 // después de un toque del usuario, por eso el contexto se crea al tocar "Disponible".
 function sonarAviso(contexto) {
@@ -129,7 +130,7 @@ export default function Oferta() {
       let recorrido = 0;
       const paso = () => {
         if (cancelado) return;
-        recorrido = Math.min(total, recorrido + METROS_POR_PASO);
+        recorrido = Math.min(total, recorrido + Math.max(30, total / PASOS_POR_TRAMO));
         const punto = puntoEnRuta(ruta, recorrido);
         posicionRef.current = punto;
         setPosicion(punto);
@@ -289,6 +290,7 @@ export default function Oferta() {
       // que avanza. Con el pasajero a bordo: sólo el auto sobre la ruta del viaje.
       posicion={!viaje ? posicion : viaje.estado === 'en_curso' ? null : (inicioTramo ?? posicion)}
       auto={tramo ? posicion : null}
+      consumir={tramo === 'destino' ? 'viaje' : tramo === 'retiro' ? 'retiro' : null}
       origen={(visible ? oferta : viaje)?.origen} destino={(visible ? oferta : viaje)?.destino}
       tarjeta={visible ? 'arriba' : 'lateral'}
     >

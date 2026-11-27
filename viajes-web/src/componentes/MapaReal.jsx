@@ -68,12 +68,30 @@ function encuadrar(m, latlngs, tarjeta) {
   });
 }
 
-export default function MapaReal({ origen, destino, posicion, auto, tarjeta = 'lateral', chofer = false, alFallar, children }) {
+// Deja dibujado sólo lo que falta de la ruta: desde el punto más cercano al auto hasta el final.
+function recortarRuta(ruta, [lat, lng]) {
+  if (!ruta) return;
+  let indice = 0;
+  let menor = Infinity;
+  ruta.puntos.forEach(([la, ln], i) => {
+    const d = (la - lat) ** 2 + (ln - lng) ** 2;
+    if (d < menor) { menor = d; indice = i; }
+  });
+  const resto = [[lat, lng], ...ruta.puntos.slice(indice + 1)];
+  ruta.lineas.forEach((linea) => linea.setLatLngs(resto));
+}
+
+// consumir: 'viaje' o 'retiro' → esa ruta se va recortando detrás del auto (sólo queda lo que falta).
+export default function MapaReal({ origen, destino, posicion, auto, consumir = null, tarjeta = 'lateral', chofer = false, alFallar, children }) {
   const contenedor = useRef(null);
   const mapa = useRef(null);
   const marcadores = useRef({});
   const lineas = useRef(null);
   const marcadorAuto = useRef(null);
+  // Rutas dibujadas (puntos y líneas), para recortarlas a medida que avanza el auto.
+  const rutas = useRef({ viaje: null, retiro: null });
+  const consumirRef = useRef(consumir);
+  consumirRef.current = consumir;
   // Última posición del auto, para sumarla a los encuadres (al aparecer y cuando llega la ruta).
   const autoRef = useRef(null);
   autoRef.current = auto?.latitud == null ? null : [auto.latitud, auto.longitud];
@@ -111,6 +129,7 @@ export default function MapaReal({ origen, destino, posicion, auto, tarjeta = 'l
       marcadorAuto.current = null;
     } else if (marcadorAuto.current) {
       marcadorAuto.current.setLatLng([autoLat, autoLng]);
+      recortarRuta(rutas.current[consumirRef.current], [autoLat, autoLng]);
     } else {
       marcadorAuto.current = L.marker([autoLat, autoLng], { icon: iconoAuto, title: 'Chofer', keyboard: false, zIndexOffset: 500 }).addTo(m);
       // Al aparecer, el auto entra en el encuadre (si no, podía quedar en el borde o afuera del mapa).
@@ -161,11 +180,15 @@ export default function MapaReal({ origen, destino, posicion, auto, tarjeta = 'l
         origen && destino ? buscarRuta(origen, destino, { signal: cancelar.signal }) : null,
       ]);
       if (cancelar.signal.aborted || !lineas.current) return;
-      if (alRetiro) L.polyline(alRetiro, estilos.alRetiro).addTo(lineas.current);
+      rutas.current = { viaje: null, retiro: null };
+      if (alRetiro) rutas.current.retiro = { puntos: alRetiro, lineas: [L.polyline(alRetiro, estilos.alRetiro).addTo(lineas.current)] };
       if (viaje) {
-        L.polyline(viaje, estilos.borde).addTo(lineas.current);
-        L.polyline(viaje, estilos.viaje).addTo(lineas.current);
+        rutas.current.viaje = {
+          puntos: viaje,
+          lineas: [L.polyline(viaje, estilos.borde).addTo(lineas.current), L.polyline(viaje, estilos.viaje).addTo(lineas.current)],
+        };
       }
+      if (autoRef.current) recortarRuta(rutas.current[consumirRef.current], autoRef.current);
       const todos = [...(alRetiro ?? []), ...(viaje ?? []), ...[posicion, origen, destino].filter(Boolean).map(aLatLng), ...(autoRef.current ? [autoRef.current] : [])];
       if (alRetiro || viaje) encuadrar(m, todos, tarjeta);
     })();
