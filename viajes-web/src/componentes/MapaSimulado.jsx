@@ -1,5 +1,5 @@
 // Dibujo fijo de Resistencia copiado del diseño (docs/diseno-web/02-pasajero-pedir.html).
-// Ocupa el lugar del mapa de Google hasta que se conecte @vis.gl/react-google-maps.
+// Respaldo del mapa real (MapaReal, Leaflet + OpenStreetMap): se usa con VITE_MAPA=simulado o si los mosaicos no cargan.
 const fuente = 'Outfit, Arial, sans-serif';
 const ruta = 'M710 350 V410 H830 V170 H1070';
 const avenidas = 'M0 410 H1280 M830 0 V800 M710 290 L1050 -50 M560 410 L130 840';

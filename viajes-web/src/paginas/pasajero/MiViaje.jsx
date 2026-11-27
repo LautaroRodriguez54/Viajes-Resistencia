@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
-import MapaSimulado from '../../componentes/MapaSimulado.jsx';
+import Mapa from '../../componentes/Mapa.jsx';
 import { api } from '../../api/cliente.js';
 import { nombreDelPunto } from '../../datos/lugares.js';
 import { conClave, usarClaveIdempotente, usarConsultaPeriodica } from '../../ganchos.js';
@@ -44,7 +44,13 @@ export default function MiViaje() {
   const ultimo = ultimos?.[0];
   const seguible = esSeguible(ultimo);
   const guardado = delPedido
-    ?? (seguible ? { viajeId: ultimo.viajeId, origen: nombreDelPunto(ultimo.origen), destino: nombreDelPunto(ultimo.destino) } : null);
+    ?? (seguible ? {
+      viajeId: ultimo.viajeId,
+      origen: nombreDelPunto(ultimo.origen),
+      destino: nombreDelPunto(ultimo.destino),
+      origenPunto: ultimo.origen,
+      destinoPunto: ultimo.destino,
+    } : null);
   const [busqueda, setBusqueda] = useState(state?.busqueda ?? null);
   const [buscando, setBuscando] = useState(false);
   const claveOferta = usarClaveIdempotente();
@@ -105,11 +111,11 @@ export default function MiViaje() {
   if (!guardado || error?.codigo === 'RECURSO_NO_ENCONTRADO') {
     return (
       <div className="columna">
-        <section className="tarjeta" data-testid="mi-viaje-vacio">
+        <section className="tarjeta tarjeta--vacia" data-testid="mi-viaje-vacio">
           <h1>No tenés un viaje activo</h1>
           <p className="pedir__detalle">Pedí uno desde la pantalla Pedir. Los anteriores están en Billetera, en "Mis viajes".</p>
           {errorUltimo && <p role="alert" className="aviso aviso--peligro">{errorUltimo.message}</p>}
-          <Link to="/pasajero/pedir" className="boton boton--principal">Pedir un viaje</Link>
+          <Link to="/pasajero/pedir" className="boton boton--principal boton--grande">Pedir un viaje</Link>
         </section>
       </div>
     );
@@ -123,7 +129,11 @@ export default function MiViaje() {
   const ofertaEnCurso = Boolean(viaje?.tieneOfertaVigente) || busqueda === 'ofrecido';
 
   return (
-    <MapaSimulado etiquetaDestino={guardado.destino} chofer={conChofer ? { etiqueta: 'Tu chofer' } : undefined}>
+    // La posición del chofer no llega al pasajero (no hay endpoint todavía): el mapa real muestra retiro y destino.
+    <Mapa
+      etiquetaDestino={guardado.destino} chofer={conChofer ? { etiqueta: 'Tu chofer' } : undefined}
+      origen={guardado.origenPunto} destino={guardado.destinoPunto}
+    >
       <section
         className="tarjeta tarjeta--flotante pedir mi-viaje montos" aria-labelledby="titulo-viaje"
         data-testid="mi-viaje" data-estado={viaje?.estado ?? 'cargando'}
@@ -228,6 +238,6 @@ export default function MiViaje() {
           </>
         )}
       </section>
-    </MapaSimulado>
+    </Mapa>
   );
 }

@@ -29,7 +29,7 @@ npm run dev                      # http://localhost:5173
 
 1. **Chofer**: registrate como chofer en `/registro`. Un admin lo habilita: con `admin@demo.local` / `AdminDemo123!`, `PATCH /admin/choferes/:choferId/habilitacion` desde `viajes-backend/docs/requests.http` (la pantalla Admin todavía no está conectada). Volvé a ingresar y prendé **Disponible**: la web manda la ubicación cada 10 s, junto a la Plaza 25 de Mayo.
 2. **Pasajero**: registrate como pasajero. Al entrar, la billetera está en 0.
-3. **Pedir**: elegí Desde y Hasta y tocá **Pedir viaje**. La web hace `POST /viajes` (el servidor calcula el precio) y `POST /viajes/:id/ofertas` (le ofrece el viaje al chofer más cercano), cada uno con su `Idempotency-Key`.
+3. **Pedir**: escribí Desde y Hasta (o elegí un lugar frecuente). Se marca la ruta y tocás **Pedir viaje**. La web hace `POST /viajes` (el servidor calcula el precio) y `POST /viajes/:id/ofertas` (le ofrece el viaje al chofer más cercano), cada uno con su `Idempotency-Key`.
 4. **Chofer**: en menos de 2 s aparece la oferta con el monto y la cuenta regresiva de 30 s, que sale de `venceAt`. **Aceptar**. Si otro chofer la aceptó antes, aparece "Otro chofer lo aceptó primero".
    - **Rechazar** (`POST /ofertas/:id/rechazar`): el backend se la ofrece al siguiente chofer cercano y a éste no se la vuelve a ofrecer. Si no queda ninguno, el viaje pasa a `sin_choferes_disponibles` y el pasajero ve "No encontramos chofer" con **Pedir otro viaje**.
    - **Si nadie contesta**, la oferta vence sola a los 30 s (`OFERTA_TTL_SEGUNDOS`): el backend hace lo mismo que con un rechazo. Con un solo chofer en la demo, el viaje termina en `sin_choferes_disponibles`.
@@ -43,10 +43,10 @@ npm run dev                      # http://localhost:5173
 | `/ingresar` | 1 · Ingresar | `POST /auth/login` |
 | `/registro` | Registro pasajero / chofer | `POST /auth/register` (entra directo) |
 | `/pasajero/pedir` | 2 · Pedir viaje | `POST /viajes`, `POST /viajes/:id/ofertas`, `GET /billetera/me` |
-| `/pasajero/viaje` | 3 · Mi viaje | `GET /viajes/:id` cada 2 s (el id llega desde Pedir; si se entra por el menú, sale de `GET /viajes?limite=1`); "Buscar chofer de nuevo" sólo si el primer `POST /viajes/:id/ofertas` no encontró chofer |
+| `/pasajero/viaje` | 3 · Mi viaje | `GET /viajes/:id` cada 2 s (el id llega desde Pedir; si se entra por el menú, sale de `GET /viajes?limite=1`); "Buscar chofer de nuevo" sólo si el viaje no tiene una oferta vigente (`tieneOfertaVigente`); "Cancelar viaje" con confirmación (`POST /viajes/:id/cancelar`) |
 | `/pasajero/billetera` | 4 · Billetera | `GET /billetera/me`, `GET /viajes` ("Mis viajes" y la deuda) y `GET /billetera/me/movimientos` cada 5 s; `POST /viajes/:id/reintentar-cobro` |
 | `/chofer` | 5 · Chofer | `PUT /choferes/me/disponibilidad`, `PUT /choferes/me/ubicacion`, `GET /choferes/me/ofertas`, `GET /choferes/me/viaje-actual`, `POST /ofertas/:id/aceptar`, `POST /ofertas/:id/rechazar`, `POST /choferes/viajes/:id/estado`, `POST /choferes/viajes/:id/finalizar` |
-| `/operador` | 6 · Operador | **Datos de ejemplo**: los endpoints ya están en `main` desde el #26 (`GET /operador/viajes?estado=activos`, cancelar con motivo, reintentar cobro); falta conectar la pantalla |
+| `/operador` | 6 · Operador | `GET /operador/viajes?estado=activos` cada 5 s, `POST /operador/viajes/:id/cancelar` (motivo obligatorio) y `POST /operador/viajes/:id/reintentar-cobro` en los `pago_pendiente` (rama 12) |
 | `/admin` | 7 · Admin | **Datos de ejemplo** (falta listar choferes y administrar tarifas) |
 
 Cómo está armado:
@@ -59,11 +59,22 @@ Cómo está armado:
 
 **Falta en el backend** (la web lo resuelve así mientras tanto):
 - Estimación antes de pedir: el precio aparece al pedir.
-- Lugares con Places: hay una lista fija de lugares de Resistencia en `src/datos/lugares.js`, todos a menos de 5 km de la plaza.
+- Nombre de la dirección en el viaje: el backend guarda sólo coordenadas. La web recuerda en la pestaña el nombre de lo que eligió el pasajero, pero el chofer ve coordenadas si la dirección no es un lugar frecuente.
 - Patente y vehículo en el viaje: no se muestran.
 - Cancelar: hecho (rama 12). El pasajero cancela desde Mi viaje con confirmación en la tarjeta, mientras el viaje está pedido, asignado o con el chofer en camino. El operador cancela con un motivo obligatorio y reintenta el cobro de un `pago_pendiente` desde su pantalla, que ya usa `GET /operador/viajes?estado=activos` (#26). Falta la cancelación del chofer en la web.
 - Vencimiento de la ubicación: activo desde el #34 (`UBICACION_TTL_SEGUNDOS=60`). El chofer manda su ubicación cada 10 s, así que mientras tiene la pestaña abierta nunca vence.
-- Google Maps: el mapa sigue siendo el dibujo del diseño (`MapaSimulado.jsx`).
+
+## Mapa (OpenStreetMap, sin clave)
+
+Google Maps pide tarjeta de crédito para habilitar la facturación, así que se usa OpenStreetMap (ADR 011, Decisión 4). No hace falta cuenta, clave ni configuración:
+
+- **Mapa**: Leaflet con los mosaicos de OpenStreetMap (`src/componentes/MapaReal.jsx`). La atribución "© OpenStreetMap" es obligatoria y queda siempre a la vista.
+- **Buscar direcciones**: en Pedir, "Desde" y "Hasta" buscan con **Photon** mientras se escribe, dentro de Resistencia (`src/componentes/CampoLugar.jsx`). Con el campo vacío ofrece los lugares frecuentes.
+- **Ruta por calles**: **OSRM**, en azul. Para el chofer se suma el tramo punteado hasta el retiro (`src/mapas/rutas.js`). Es sólo visual: **la tarifa la calcula el backend**.
+- **Pedir arranca vacía**, con el estado "Conectado" (o "Sin conexión" si el servidor no responde). No muestra un viaje ni una ruta hasta que se eligen los dos puntos.
+- **Sin internet**, o con `VITE_MAPA=simulado` en `.env.local`: se usan el dibujo del diseño (`MapaSimulado.jsx`) y la lista fija de lugares. Así la demo, la CI y los E2E no dependen de servicios externos.
+- **Privacidad**: lo que se escribe en "Desde"/"Hasta" viaja a `photon.komoot.io` y los puntos del viaje a `router.project-osrm.org`. Son servidores públicos para **uso moderado**: la web espera 300 ms entre teclas, busca desde 3 letras y pide cada ruta una sola vez.
+- **CSP** (`vite.config.js`): sólo se agregan esos tres orígenes (imágenes de los mosaicos, y conexiones a Photon y OSRM). No entra ningún script de terceros.
 
 ## Lo que piden las consignas
 

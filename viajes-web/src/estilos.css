@@ -242,6 +242,78 @@ h1 { margin: 0; font-weight: 600; }
 }
 .mapa > svg { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
 
+/* Mapa real (Leaflet + OpenStreetMap): ocupa el mismo lugar que el dibujo, debajo de las tarjetas.
+   z-index: 0 encierra los z-index internos de Leaflet (llegan a 1000) para que no tapen las tarjetas. */
+.mapa__real { position: absolute; inset: 0; z-index: 0; background: #F1F3F4; font: inherit; }
+.mapa__real .leaflet-control-attribution { font-size: 11px; }
+.marcador-origen {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 4px solid #202124;
+  background: #FFFFFF;
+}
+.marcador-vos {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 3px solid #FFFFFF;
+  background: #1A73E8;
+  box-shadow: 0 0 0 8px rgba(26, 115, 232, 0.2);
+}
+/* Pin rojo del destino: una gota con la punta en el punto exacto (iconAnchor abajo al medio). */
+.marcador-destino::before {
+  content: "";
+  position: absolute;
+  left: 1px;
+  top: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 50% 50% 50% 0;
+  background: #D93025;
+  border: 2px solid #A50E0E;
+  transform: rotate(-45deg);
+  transform-origin: center;
+  translate: 0 2px;
+}
+.marcador-destino::after {
+  content: "";
+  position: absolute;
+  left: 9px;
+  top: 9px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #FFFFFF;
+}
+@media (max-width: 600px) {
+  .mapa__real .leaflet-control-zoom { display: none; } /* en el celular se hace zoom con los dedos */
+}
+
+/* Desde / Hasta con Places: la lista va dentro de la tarjeta (no flota), así no la recorta el scroll. */
+.campo-lugar { display: flex; flex-direction: column; gap: 6px; }
+.campo-lugar__lista {
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  border: 1px solid var(--borde-input);
+  border-radius: var(--radio-control);
+  max-height: 240px;
+  overflow-y: auto;
+}
+.campo-lugar__opcion {
+  display: flex;
+  flex-direction: column;
+  min-height: 44px;
+  justify-content: center;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.campo-lugar__opcion:hover, .campo-lugar__opcion--activa { background: var(--acento-fondo); }
+
 .mapa__zoom {
   position: absolute;
   right: 20px;
@@ -276,6 +348,10 @@ h1 { margin: 0; font-weight: 600; }
   gap: 12px;
 }
 .pedir h1 { margin-bottom: 2px; font-size: 22px; }
+/* Título y estado de conexión ("Conectado") en la misma línea. */
+.pedir__cabecera { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.pedir__cabecera .chip { align-self: center; flex: none; }
+.input-con-icono input::placeholder { color: var(--texto-secundario); }
 .pedir__resumen {
   display: flex;
   justify-content: space-between;
@@ -381,6 +457,11 @@ h1 { margin: 0; font-weight: 600; }
   gap: 16px;
 }
 .columna .tarjeta { padding: 24px; }
+/* Tarjeta de estado vacío ("No tenés un viaje activo"): en columna, así la acción ocupa todo el ancho
+   en lugar de quedar un botón angosto del tamaño del texto. */
+.tarjeta--vacia { display: flex; flex-direction: column; gap: 12px; }
+.tarjeta--vacia h1 { font-size: 24px; }
+.tarjeta--vacia .boton { margin-top: 4px; }
 
 .billetera__saldo { display: flex; flex-direction: column; gap: 14px; }
 .billetera__monto { font-size: 40px; font-weight: 600; line-height: 1; }
@@ -398,9 +479,8 @@ h1 { margin: 0; font-weight: 600; }
 }
 .lista li:last-child { border-bottom: 0; }
 .lista li > :last-child { flex: none; white-space: nowrap; } /* el monto o el estado no se parten en dos renglones */
-.lista__texto { min-width: 0; }
 .lista--compacta li { padding: 10px 0; }
-.lista__texto { display: flex; flex-direction: column; }
+.lista__texto { display: flex; flex-direction: column; min-width: 0; }
 .lista__detalle { font-size: 13px; color: var(--texto-secundario); }
 
 /* Operador y admin: columna más ancha, títulos de lista más grandes */
