@@ -15,6 +15,27 @@ services:
       timeout: 5s
       retries: 10
 
+  # API en contenedor (opcional, para TP1/entrega containerizada). No arranca con `docker compose up -d`:
+  #   docker compose --profile api up -d --build
+  api:
+    build: .
+    image: viajes-resistencia-api:0.12.0
+    profiles: ["api"]
+    env_file:
+      - .env
+    environment:
+      PORT: "3000"
+      DATABASE_URL: postgres://viajes_app:viajes_app_dev@postgres:5432/viajes
+      BILLETERA_DATABASE_URL: postgres://billetera_app:billetera_app_dev@postgres:5432/billetera
+      LECTURA_DATABASE_URL: postgres://lectura_app:lectura_app_dev@postgres:5432/lectura
+      ADMIN_DATABASE_URL: postgres://viajes:viajes@postgres:5432/postgres
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
   # Visualización del contrato (docs/openapi.yaml). No arranca con el compose de siempre:
   #   docker compose --profile docs up -d docs   →  http://localhost:8080
   docs:

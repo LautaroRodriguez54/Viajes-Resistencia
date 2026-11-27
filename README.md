@@ -103,6 +103,7 @@ El detalle de cada pantalla y sus endpoints está en el [README de la web](viaje
 | `npm run carga:ubicaciones -- --escenario=ubicaciones --duracion-s=30` | 500 choferes mandando ubicación cada 2 s mientras se piden viajes (bloque 7). Resultados en [mediciones](viajes-backend/docs/mediciones.md). |
 | `npm run demo:reiniciar -- --confirmar` | Deja la base de desarrollo como recién instalada (sólo los 4 usuarios de demo y la tarifa), para mostrar la demo prolija. Después: reiniciar el servidor y `cargar-saldo`. Sólo local. |
 | `npm run lint` | ESLint con reglas de seguridad. |
+| `docker compose --profile api up -d --build` | Levanta PostgreSQL y la API (`viajes-resistencia-api:0.12.0`) en contenedores. |
 | `docker compose --profile docs up -d docs` | Swagger UI con el contrato en http://localhost:8080. |
 
 ## Dónde se defiende cada tema
