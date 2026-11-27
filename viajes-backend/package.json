@@ -19,7 +19,8 @@
     "cargar-saldo": "node scripts/cargarSaldo.js",
     "demo:propiedad-datos": "node scripts/demoPropiedadDatos.js",
     "proyecciones:reconstruir": "node scripts/reconstruirProyecciones.js",
-    "carga:ubicaciones": "node scripts/simularCargaUbicaciones.js"
+    "carga:ubicaciones": "node scripts/simularCargaUbicaciones.js",
+    "demo:reiniciar": "node scripts/reiniciarDemo.js"
   },
   "dependencies": {
     "argon2": "^0.45.1",

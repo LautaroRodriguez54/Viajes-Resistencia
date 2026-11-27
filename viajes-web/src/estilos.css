@@ -704,7 +704,8 @@ h1 { margin: 0; font-weight: 600; }
   left: 5px;
   top: 14px;
   bottom: 14px;
-  border-left: 2px dotted var(--borde-input);
+  border-left: 2px dotted var(--texto-secundario);
+  opacity: 0.6;
 }
 .comprobante__punto { flex: none; width: 12px; height: 12px; border-radius: 50%; position: relative; }
 .comprobante__punto--origen { border: 3px solid #202124; background: #FFFFFF; }
@@ -869,3 +870,19 @@ h1 { margin: 0; font-weight: 600; }
 /* Precio aproximado en Pedir: el monto arriba (sin partirse) y la distancia y el tiempo debajo. */
 .pedir__resumen--estimacion { flex-direction: column; align-items: flex-start; gap: 2px; }
 .pedir__resumen--estimacion .pedir__precio { white-space: nowrap; }
+
+/* Celular: lo agregado el 27/11 (panel, comprobante, chofer, precio aproximado). Mismas reglas que la
+   rama 11: nada más ancho que la pantalla y controles de al menos 44 px. */
+@media (max-width: 600px) {
+  .panel__metricas { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .metrica { padding: 10px 12px; }
+  .metrica__valor { font-size: 22px; }
+  .panel__encabezado h1 { font-size: 19px; }
+  .comprobante { padding: 14px; gap: 12px; }
+  .comprobante__total strong { font-size: 21px; }
+  .comprobante__datos { gap: 8px 12px; }
+  .comprobante__imprimir { align-self: stretch; min-height: 44px; }
+  .mi-viaje__chofer { padding: 8px 10px; gap: 10px; }
+  .pedir__resumen--estimacion .pedir__precio { font-size: 24px; }
+  .lista__fila { gap: 10px; }
+}

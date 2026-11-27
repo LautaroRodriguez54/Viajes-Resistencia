@@ -100,6 +100,7 @@ El detalle de cada pantalla y sus endpoints está en el [README de la web](viaje
 | `npm run demo:propiedad-datos` | Muestra que el módulo Viajes no puede leer la base de la billetera (`permission denied`, tema 12). |
 | `npm run proyecciones:reconstruir` | Rearma las proyecciones de lectura (saldos e historial) desde los outbox (tema 13). |
 | `npm run carga:ubicaciones -- --escenario=ubicaciones --duracion-s=30` | 500 choferes mandando ubicación cada 2 s mientras se piden viajes (bloque 7). Resultados en [mediciones](viajes-backend/docs/mediciones.md). |
+| `npm run demo:reiniciar -- --confirmar` | Deja la base de desarrollo como recién instalada (sólo los 4 usuarios de demo y la tarifa), para mostrar la demo prolija. Después: reiniciar el servidor y `cargar-saldo`. Sólo local. |
 | `npm run lint` | ESLint con reglas de seguridad. |
 | `docker compose --profile docs up -d docs` | Swagger UI con el contrato en http://localhost:8080. |
 
