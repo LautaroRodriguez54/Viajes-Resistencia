@@ -127,7 +127,7 @@ Al 26/11/2026 (`main` en `579a1cc`, más la rama 10). El contrato completo está
 - Los 5 endpoints que crean o cobran exigen `Idempotency-Key` (ADR 010).
 - **Tests**: 214, en `tests/dominio`, `aplicacion`, `infra`, `integracion`, `seguridad` y `concurrencia`. Un solo comando: `npm test` con `DATABASE_URL` apuntando a `viajes_test`.
 - **Lint**: ESLint con `eslint-plugin-security`, 0 errores. **CI** en GitHub Actions: lint, tests, auditoría, Semgrep y un job de Playwright que se saltea hasta que exista `e2e/package.json`.
-- **ADR**: 001 a 011. El 004 ya está "aceptado" (complementado por el 008); el 005 sigue "propuesto" (es de Lucas).
+- **ADR**: 001 a 011. El 004 y el 005 ya están "aceptado" (el 008 reemplaza en parte al 004).
 
 ## Lo que falta (por bloque del enunciado)
 
@@ -185,19 +185,19 @@ Prioridad: lo que pide el **control 3** de Puljiz (carrera con test concurrente 
 - [x] Usuario operador en el seed (`operador@demo.local`) y endpoints del operador: `GET /operador/viajes?estado=activos`, cancelar con motivo, reintentar cobro de un `pago_pendiente` (#24–#26).
 - [ ] La oferta le llega al chofer por SSE con origen, destino, polilínea de la ruta, distancia/tiempo hasta el retiro y tarifa estimada (la web la previsualiza en el mapa).
 - [ ] Decidir si el radio de búsqueda (hoy fijo en 5 km) pasa a parámetros administrables o queda como constante.
-- [ ] Política de retención/agregación de `historial_ubicaciones_chofer` (con 500 choferes son ~21 M filas/día).
+- [x] Política de retención/agregación de `historial_ubicaciones_chofer` (con 500 choferes son ~21 M filas/día) — definida en `docs/modelo.md`.
 
 ### Bloque 7 y 6.6 — Tarea pesada
-- [ ] Simulador de 500 choferes enviando ubicación cada 2 s durante varios minutos, mientras se asignan viajes.
-- [ ] Versión ingenua y versión final (ADR 005: worker threads, cola u optimización de consultas). Medir p50/p95/p99 de solicitud de viaje, tiempo hasta asignación, req/s, lag del event loop con `monitorEventLoopDelay` (expuesto por el propio servidor), memoria; 3 corridas de ≥30 s cada una.
-- [ ] Declarar el tiempo de asignación objetivo del grupo.
+- [x] Simulador de 500 choferes enviando ubicación cada 2 s durante varios minutos, mientras se asignan viajes (`npm run carga:ubicaciones`).
+- [x] Versión ingenua y versión final (ADR 005: sin `FOR UPDATE` en pings + batching asíncrono con `unnest` drenado en apagado). Medido p50/p95/p99 de solicitud de viaje, tiempo hasta asignación, req/s, lag del event loop con `monitorEventLoopDelay` (`GET /admin/metricas`), memoria; 3 corridas de ≥30 s cada una.
+- [x] Declarar el tiempo de asignación objetivo del grupo (p95 ≤ 500 ms, lag p99 < 50 ms en `docs/mediciones.md`).
 
 ### Bloque 8 — Tests
 - [x] Tres niveles con un solo comando: `tests/dominio`, `tests/aplicacion`, `tests/integracion` (Postgres real en Docker, estado conocido por test), `tests/seguridad` y `tests/concurrencia`.
 
 ### Documentación y proceso
-- [~] ADR: participantes y fecha completos en 001–003 y 006–011 (rama 8); 008–011 escritos. El 004 ya está cerrado; falta cerrar el 005 (Lucas).
-- [ ] `docs/mediciones.md`: hipótesis con número antes de medir, entorno, comando exacto, tabla ingenua vs final, conclusión.
+- [x] ADR: participantes y fecha completos en 001–011 (004 y 005 cerrados por Lucas).
+- [x] `docs/mediciones.md`: hipótesis con número antes de medir, entorno, comando exacto, tabla ingenua vs final, conclusión.
 - [ ] `docs/ataque.md`: bitácora (número, hipótesis, petición exacta, esperado, obtenido, veredicto, severidad, impacto) y respuesta del defensor (causa raíz, commit, test que falla antes y pasa después).
 - [x] `docs/api.md` como índice del OpenAPI (rama `docs/api-openapi`). Quedan prefijo/versión de API y eventos SSE.
 - [ ] `docs/modelo.md`: diagrama, transiciones de `pago_pendiente`, reglas de tarifa y radio, retención de ubicaciones, separación de bases.
