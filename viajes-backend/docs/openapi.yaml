@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Viajes Resistencia · API del backend
-  version: 0.12.0
+  version: 0.13.0
   summary: Viajes a demanda con billetera y pagos (grupo 4, variante D).
   description: |
     Contrato HTTP del backend. Es la **fuente de verdad** de la API: `docs/api.md` sólo lo resume.
@@ -817,6 +817,94 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+  /billetera/me/cargas:
+    post:
+      tags: [Billetera]
+      summary: Iniciar una carga de saldo desde la web (pasarela simulada, demo)
+      description: |
+        Paso 1 de la carga desde la web. Crea una carga `pendiente` por el importe elegido (de $ 100 a $ 500.000); **no acredita nada**. Sólo existe si la pasarela simulada está habilitada (`PASARELA_SIMULADA_HABILITADA`; por defecto, activa salvo con `NODE_ENV=production`).
+      operationId: iniciarCargaDeSaldo
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [importeCentavos]
+              properties:
+                importeCentavos: { type: integer, minimum: 10000, maximum: 50000000 }
+            example: { importeCentavos: 1000000 }
+      responses:
+        '201':
+          description: Carga creada, pendiente de pago.
+          headers: { Idempotency-Replayed: { $ref: '#/components/headers/IdempotencyReplayed' } }
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [carga]
+                properties:
+                  carga: { $ref: '#/components/schemas/CargaDeSaldo' }
+              example:
+                carga: { id: 5b1f0c2a-7d3e-4f50-9a6b-1c2d3e4f5a6b, importeCentavos: 1000000, estado: pendiente, creadaAt: '2026-11-27T20:00:00.000Z' }
+        '400': { $ref: '#/components/responses/EntradaOClaveInvalida' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+        '404':
+          description: '`BILLETERA_NO_ENCONTRADA`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409': { $ref: '#/components/responses/PedidoEnCurso' }
+        '422': { $ref: '#/components/responses/ClaveReutilizada' }
+  /billetera/me/cargas/{cargaId}/pagar:
+    post:
+      tags: [Billetera]
+      summary: Pagar una carga en el checkout de la pasarela simulada (demo)
+      description: |
+        Paso 2. La pasarela simulada del servidor arma el **mismo webhook firmado con HMAC** que mandaría un proveedor real (`eventoExternoId = checkout-<cargaId>`) y lo procesa `POST /billetera/webhooks/cargas`, que es el único que acredita. La carga se bloquea mientras tanto (`FOR UPDATE`): pagar dos veces, o dos a la vez, acredita una sola vez y las dos respuestas dicen `pagada`. El secreto nunca sale del servidor.
+      operationId: pagarCargaDeSaldo
+      parameters:
+        - name: cargaId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Pagada y acreditada.
+          headers: { Idempotency-Replayed: { $ref: '#/components/headers/IdempotencyReplayed' } }
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [carga]
+                properties:
+                  carga:
+                    type: object
+                    additionalProperties: false
+                    required: [id, importeCentavos, estado]
+                    properties:
+                      id: { type: string, format: uuid }
+                      importeCentavos: { type: integer, minimum: 1 }
+                      estado: { type: string, const: pagada }
+              example:
+                carga: { id: 5b1f0c2a-7d3e-4f50-9a6b-1c2d3e4f5a6b, importeCentavos: 1000000, estado: pagada }
+        '400': { $ref: '#/components/responses/EntradaOClaveInvalida' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+        '404':
+          description: '`RECURSO_NO_ENCONTRADO` (no existe o es de otro pasajero).'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409': { $ref: '#/components/responses/PedidoEnCurso' }
+        '422': { $ref: '#/components/responses/ClaveReutilizada' }
   /billetera/webhooks/cargas:
     post:
       tags: [Billetera]
@@ -1531,6 +1619,15 @@ components:
         importeCentavos: { type: integer, minimum: 1 }
         viajeId: { type: [string, 'null'], format: uuid, description: Sólo en los consumos. }
         creadoAt: { type: string, format: date-time }
+    CargaDeSaldo:
+      type: object
+      additionalProperties: false
+      required: [id, importeCentavos, estado, creadaAt]
+      properties:
+        id: { type: string, format: uuid }
+        importeCentavos: { type: integer, minimum: 10000, maximum: 50000000 }
+        estado: { type: string, enum: [pendiente, pagada] }
+        creadaAt: { type: string, format: date-time }
     ResultadoWebhook:
       type: object
       additionalProperties: false

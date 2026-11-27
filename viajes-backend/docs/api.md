@@ -32,6 +32,7 @@
 | Viajes | `GET /viajes?limite=` (historial desde la proyección `historial_viajes`, ADR 009) | pasajero | |
 | Billetera | `GET /billetera/me` | pasajero | |
 | Billetera | `GET /billetera/me/movimientos?limite=` (desde la base `billetera`) | pasajero | |
+| Billetera | `POST /billetera/me/cargas` y `POST /billetera/me/cargas/:cargaId/pagar` (pasarela simulada, demo) | pasajero | `Idempotency-Key` |
 | Billetera | `POST /billetera/webhooks/cargas` | proveedor de pagos (firma HMAC) | no: deduplica por `eventoExternoId` |
 | Operador | `GET /operador/viajes?estado=activos` | operador | |
 | Operador | `POST /operador/viajes/:viajeId/cancelar` (motivo obligatorio) | operador | **sí** |
