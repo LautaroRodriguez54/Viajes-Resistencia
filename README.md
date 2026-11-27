@@ -62,16 +62,19 @@ npm run dev            # http://localhost:5173
 
 En Windows PowerShell 5.1 no existe `&&`: ejecutar los comandos uno por línea.
 
-### Usuarios de desarrollo
+### Accesos de prueba
 
-Los crea `npm run setup` (seed, sólo para desarrollo):
+Los crea `npm run setup` (seed, **sólo para desarrollo**; no son secretos, son datos de demo):
 
-| Rol | Email | Contraseña |
-|---|---|---|
-| Administrador | `admin@demo.local` | `AdminDemo123!` |
-| Operador | `operador@demo.local` | `OperadorDemo123!` |
+| Rol | Email | Contraseña | Qué puede hacer |
+|---|---|---|---|
+| Pasajero | `pasajero@demo.local` | `PasajeroDemo123!` | Pedir viajes, billetera, historial. Arranca con saldo 0 |
+| Chofer | `chofer@demo.local` | `ChoferDemo123!` | Ya habilitado (Fiat Cronos, `DEMO001`): prender "Disponible", aceptar ofertas, avanzar y finalizar |
+| Operador | `operador@demo.local` | `OperadorDemo123!` | Ver viajes activos, cancelar con motivo, reintentar cobros pendientes |
+| Administrador | `admin@demo.local` | `AdminDemo123!` | Habilitar choferes, métricas del proceso |
 
-Pasajeros y choferes se registran desde la web (`/registro`). Un chofer nuevo tiene que ser habilitado por el administrador (`PATCH /admin/choferes/:choferId/habilitacion`, está en la [colección de pedidos](viajes-backend/docs/requests.http)).
+- Saldo para el pasajero: `npm run cargar-saldo -- pasajero@demo.local 500000` (en `viajes-backend/`, con el servidor levantado). La billetera se crea unos milisegundos después de que arranca el servidor (evento `UsuarioRegistrado`).
+- Se pueden registrar más pasajeros y choferes desde la web (`/registro`). Un chofer nuevo tiene que ser habilitado por el administrador (`PATCH /admin/choferes/:choferId/habilitacion`, está en la [colección de pedidos](viajes-backend/docs/requests.http)).
 
 ### Recorrido de la demo
 

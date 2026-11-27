@@ -48,7 +48,16 @@ Comprobar el proceso con `GET http://localhost:3000/health` y la disponibilidad 
 
 El registro público admite pasajeros y choferes mediante `POST /auth/register`. La respuesta de registro y login contiene `accessToken`; enviarlo luego como `Authorization: Bearer <accessToken>`. Los usuarios operador y administrador se cargarán con los datos de demostración, no por registro público.
 
-Administrador de desarrollo: `admin@demo.local` / `AdminDemo123!`.
+Accesos de desarrollo que crea `npm run setup` (seed):
+
+| Rol | Email | Contraseña |
+|---|---|---|
+| Pasajero | `pasajero@demo.local` | `PasajeroDemo123!` |
+| Chofer (ya habilitado, patente `DEMO001`) | `chofer@demo.local` | `ChoferDemo123!` |
+| Operador | `operador@demo.local` | `OperadorDemo123!` |
+| Administrador | `admin@demo.local` | `AdminDemo123!` |
+
+El pasajero arranca con saldo 0: ver "Cargar saldo para la demo".
 
 ## Cargar saldo para la demo
 
