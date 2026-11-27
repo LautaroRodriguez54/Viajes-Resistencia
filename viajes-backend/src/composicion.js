@@ -30,6 +30,7 @@ import { crearOfrecerAlChoferCercano } from './aplicacion/viajes/ofrecerAlChofer
 import { crearRechazarOferta } from './aplicacion/viajes/rechazarOferta.js';
 import { crearProcesarOfertasVencidas } from './aplicacion/viajes/procesarOfertasVencidas.js';
 import { crearVerificadorWebhookHmac } from './infra/externos/verificadorWebhookHmac.js';
+import { crearMetricasProceso } from './infra/observabilidad/metricasProceso.js';
 
 export function componerAplicacion() {
   const config = leerConfiguracion();
@@ -79,7 +80,8 @@ export function componerAplicacion() {
   const viajesHttp = { solicitarViaje: crearSolicitarViaje({ viajes }), buscarViajePropio: viajes.buscarPorIdDelPasajero, ofrecerAlChoferCercano, reintentarCobro, cancelarViaje, listarHistorial: proyectorHistorial.listarPorPasajero, tokens };
   const ofertasHttp = { aceptarOferta, rechazarOferta, tokens };
   const choferesHttp = { cambiarDisponibilidad: choferes.cambiarDisponibilidad, registrarUbicacion: choferes.registrarUbicacion, avanzarEstado, finalizarYCobrar, cancelarViaje, buscarOfertaPendiente: viajes.buscarOfertaPendienteDelChofer, buscarViajeActual: viajes.buscarViajeActualDelChofer, tokens };
-  const administracion = { establecerHabilitacion: choferes.establecerHabilitacion, tokens };
+  const metricasProceso = crearMetricasProceso();
+  const administracion = { establecerHabilitacion: choferes.establecerHabilitacion, obtenerMetricas: metricasProceso.obtenerInstantanea, tokens };
   const operadorHttp = { listarViajesActivos: viajes.listarViajesActivos, cancelarViaje, reintentarCobro: crearReintentarCobroOperador(dependenciasCobro), tokens };
   const verificarDisponibilidad = () => Promise.all([
     verificarMigracionesAplicadas(pool, DIRECTORIOS_MIGRACIONES.viajes),
@@ -116,6 +118,7 @@ export function componerAplicacion() {
     app, config, logger,
     iniciarProcesos: () => procesos.forEach((p) => p.iniciar()),
     async cerrar() {
+      metricasProceso.cerrar();
       await Promise.all(procesos.map((p) => p.detener()));
       await Promise.all([pool.end(), poolBilletera.end(), poolLectura.end()]);
     },
