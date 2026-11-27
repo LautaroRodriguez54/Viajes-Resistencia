@@ -74,6 +74,9 @@ export default function MapaReal({ origen, destino, posicion, auto, tarjeta = 'l
   const marcadores = useRef({});
   const lineas = useRef(null);
   const marcadorAuto = useRef(null);
+  // Última posición del auto, para sumarla a los encuadres (al aparecer y cuando llega la ruta).
+  const autoRef = useRef(null);
+  autoRef.current = auto?.latitud == null ? null : [auto.latitud, auto.longitud];
   const atribucion = useRef(null);
   const alFallarRef = useRef(alFallar);
   alFallarRef.current = alFallar;
@@ -110,6 +113,8 @@ export default function MapaReal({ origen, destino, posicion, auto, tarjeta = 'l
       marcadorAuto.current.setLatLng([autoLat, autoLng]);
     } else {
       marcadorAuto.current = L.marker([autoLat, autoLng], { icon: iconoAuto, title: 'Chofer', keyboard: false, zIndexOffset: 500 }).addTo(m);
+      // Al aparecer, el auto entra en el encuadre (si no, podía quedar en el borde o afuera del mapa).
+      encuadrar(m, [...[origen, destino, posicion].filter(Boolean).map(aLatLng), [autoLat, autoLng]], tarjeta);
     }
   }, [autoLat, autoLng]);
 
@@ -138,7 +143,7 @@ export default function MapaReal({ origen, destino, posicion, auto, tarjeta = 'l
         marcadores.current[tipo] = L.marker(aLatLng(punto), { icon: iconos[tipo], title: titulos[tipo], keyboard: false }).addTo(m);
       }
     }
-    encuadrar(m, Object.values(puntos).filter(Boolean).map(aLatLng), tarjeta);
+    encuadrar(m, [...Object.values(puntos).filter(Boolean).map(aLatLng), ...(autoRef.current ? [autoRef.current] : [])], tarjeta);
   }, [firma, tarjeta]); // `firma` resume los tres puntos
 
   // Rutas por calles (OSRM): la del viaje (origen → destino) en azul y, en la pantalla del chofer,
@@ -161,7 +166,7 @@ export default function MapaReal({ origen, destino, posicion, auto, tarjeta = 'l
         L.polyline(viaje, estilos.borde).addTo(lineas.current);
         L.polyline(viaje, estilos.viaje).addTo(lineas.current);
       }
-      const todos = [...(alRetiro ?? []), ...(viaje ?? []), ...[posicion, origen, destino].filter(Boolean).map(aLatLng)];
+      const todos = [...(alRetiro ?? []), ...(viaje ?? []), ...[posicion, origen, destino].filter(Boolean).map(aLatLng), ...(autoRef.current ? [autoRef.current] : [])];
       if (alRetiro || viaje) encuadrar(m, todos, tarjeta);
     })();
     return () => cancelar.abort();

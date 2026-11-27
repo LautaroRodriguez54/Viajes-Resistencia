@@ -63,6 +63,10 @@ Accesos de desarrollo que crea `npm run setup` (seed):
 
 El pasajero arranca con saldo 0: ver "Cargar saldo para la demo".
 
+## Dejar la demo como nueva
+
+`npm run demo:reiniciar -- --confirmar` borra las bases de desarrollo (`viajes`, `billetera`, `lectura`; nunca las `_test`) y corre `setup`: quedan sólo los 4 usuarios de demo y la tarifa. Se niega sin `--confirmar`, con `NODE_ENV=production` o contra un Postgres que no sea local. Después hay que reiniciar el servidor y cargar saldo.
+
 ## Cargar saldo para la demo
 
 En producción el saldo lo acredita el proveedor de pagos con un webhook firmado (`POST /billetera/webhooks/cargas`, HMAC-SHA256 con `WEBHOOK_HMAC_SECRET`). Para desarrollo y demos, el script simula a ese proveedor: firma el cuerpo con el secreto del `.env` y llama al mismo webhook. No agrega ningún endpoint, así que no amplía lo que se puede atacar, y el secreto nunca sale del servidor ni llega al front.
