@@ -202,12 +202,12 @@ try {
         body: { origen: { latitud: -27.4514, longitud: -58.9867 }, destino: { latitud: -27.44, longitud: -58.98 } },
       });
       solicitudLatencias.push(crear.ms);
-      if (crear.status !== 201 || !crear.json?.id) {
+      const viajeId = crear.json?.viaje?.id;
+      if (crear.status !== 201 || !viajeId) {
         viajesError += 1;
         await sleep(opts.pausaViajeMs);
         continue;
       }
-      const viajeId = crear.json.id;
       const ofrecer = await peticionHttp(agent, opts.baseUrl, {
         method: 'POST', path: `/viajes/${viajeId}/ofertas`, token: pasajero.token, idempotente: true,
       });
