@@ -152,38 +152,36 @@ test('cambiarDisponibilidad bloquea disponible=true si el chofer tiene un viaje 
   await assert.rejects(repo.cambiarDisponibilidad('ch-1', true), (err) => err.codigo === 'CHOFER_CON_VIAJE_ACTIVO');
 });
 
-test('registrarUbicacion permite chofer con viaje activo aunque disponible sea false, y rechaza chofer inactivo', async () => {
-  const poolConViajeActivo = crearPoolSimulado((sql) => {
-    if (sql === 'BEGIN' || sql === 'COMMIT') return { rows: [] };
-    if (sql.startsWith('SELECT habilitado, disponible FROM perfiles_chofer')) {
-      return { rows: [{ habilitado: true, disponible: false }] };
-    }
-    if (sql.startsWith('SELECT 1 FROM viajes WHERE chofer_id = $1')) {
-      return { rows: [{ '?column?': 1 }] };
-    }
-    return { rows: [] };
-  });
+test('registrarUbicacion permite chofer con viaje activo sin tomar FOR UPDATE, y rechaza chofer inactivo', async () => {
+  const consultas = [];
+  const poolConViajeActivo = {
+    async query(sql) {
+      consultas.push(sql);
+      return { rows: [{ habilitado: true, disponible: false, tiene_viaje_activo: true, reportada_at: new Date() }] };
+    },
+  };
+  const encolados = [];
+  const recolectorHistorial = { encolar(item) { encolados.push(item); } };
 
-  const repoActivo = crearRepositorioChoferesPostgres(poolConViajeActivo);
+  const repoActivo = crearRepositorioChoferesPostgres(poolConViajeActivo, { recolectorHistorial });
   const res = await repoActivo.registrarUbicacion('ch-1', { latitud: -27.45, longitud: -58.98 });
   assert.deepEqual(res, { choferId: 'ch-1', latitud: -27.45, longitud: -58.98 });
+  assert.equal(consultas.length, 1);
+  assert.equal(consultas.some((sql) => sql.includes('FOR UPDATE') || sql === 'BEGIN'), false);
+  assert.equal(encolados.length, 1);
 
-  const poolSinViaje = crearPoolSimulado((sql) => {
-    if (sql === 'BEGIN' || sql === 'ROLLBACK') return { rows: [] };
-    if (sql.startsWith('SELECT habilitado, disponible FROM perfiles_chofer')) {
-      return { rows: [{ habilitado: true, disponible: false }] };
-    }
-    if (sql.startsWith('SELECT 1 FROM viajes WHERE chofer_id = $1')) {
-      return { rows: [] };
-    }
-    return { rows: [] };
-  });
+  const poolSinViaje = {
+    async query() {
+      return { rows: [{ habilitado: true, disponible: false, tiene_viaje_activo: false, reportada_at: null }] };
+    },
+  };
 
-  const repoInactivo = crearRepositorioChoferesPostgres(poolSinViaje);
+  const repoInactivo = crearRepositorioChoferesPostgres(poolSinViaje, { recolectorHistorial });
   await assert.rejects(
     repoInactivo.registrarUbicacion('ch-1', { latitud: -27.45, longitud: -58.98 }),
     (err) => err.codigo === 'CHOFER_NO_DISPONIBLE',
   );
+  assert.equal(encolados.length, 1);
 });
 
 test('rechazarOferta respeta orden de bloqueos y re-ofrece al siguiente candidato o marca sin_choferes_disponibles', async () => {

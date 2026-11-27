@@ -1,6 +1,6 @@
 import { ErrorDeDominio } from '../../dominio/errores.js';
 
-export function crearRepositorioChoferesPostgres(pool) {
+export function crearRepositorioChoferesPostgres(pool, { recolectorHistorial = null } = {}) {
   return {
     async establecerHabilitacion(choferId, habilitado) {
       const { rows } = await pool.query(
@@ -47,37 +47,57 @@ export function crearRepositorioChoferesPostgres(pool) {
     },
 
     async registrarUbicacion(choferId, { latitud, longitud }) {
-      const client = await pool.connect();
-      try {
-        await client.query('BEGIN');
-        const perfil = await client.query(
-          'SELECT habilitado, disponible FROM perfiles_chofer WHERE usuario_id = $1 AND habilitado = TRUE FOR UPDATE',
-          [choferId],
-        );
-        if (!perfil.rows[0]) throw new ErrorDeDominio('CHOFER_NO_HABILITADO', 'El chofer no está habilitado.');
-        if (!perfil.rows[0].disponible) {
-          const viajeActivo = await client.query(
-            "SELECT 1 FROM viajes WHERE chofer_id = $1 AND estado IN ('asignado', 'chofer_en_camino', 'en_curso') LIMIT 1",
-            [choferId],
-          );
-          if (!viajeActivo.rows[0]) {
-            throw new ErrorDeDominio('CHOFER_NO_DISPONIBLE', 'El chofer debe estar disponible o en un viaje activo.');
-          }
-        }
-        await client.query(
-          `INSERT INTO ubicaciones_actuales_chofer (chofer_id, ubicacion, reportada_at)
-           VALUES ($1, ST_SetSRID(ST_MakePoint($3, $2), 4326)::geography, now())
-           ON CONFLICT (chofer_id) DO UPDATE SET ubicacion = EXCLUDED.ubicacion, reportada_at = EXCLUDED.reportada_at, updated_at = now()`,
-          [choferId, latitud, longitud],
-        );
-        await client.query(
+      const { rows } = await pool.query(
+        `WITH estado AS (
+           SELECT p.habilitado,
+                  p.disponible,
+                  EXISTS (
+                    SELECT 1 FROM viajes v
+                    WHERE v.chofer_id = p.usuario_id
+                      AND v.estado IN ('asignado', 'chofer_en_camino', 'en_curso')
+                  ) AS tiene_viaje_activo
+           FROM perfiles_chofer p
+           WHERE p.usuario_id = $1
+         ),
+         actualizada AS (
+           INSERT INTO ubicaciones_actuales_chofer (chofer_id, ubicacion, reportada_at)
+           SELECT $1, ST_SetSRID(ST_MakePoint($3, $2), 4326)::geography, now()
+           FROM estado
+           WHERE estado.habilitado = TRUE
+             AND (estado.disponible = TRUE OR estado.tiene_viaje_activo = TRUE)
+           ON CONFLICT (chofer_id) DO UPDATE
+             SET ubicacion = EXCLUDED.ubicacion,
+                 reportada_at = EXCLUDED.reportada_at,
+                 updated_at = now()
+           RETURNING reportada_at
+         )
+         SELECT e.habilitado, e.disponible, e.tiene_viaje_activo, a.reportada_at
+         FROM estado e
+         LEFT JOIN actualizada a ON TRUE`,
+        [choferId, latitud, longitud],
+      );
+      const fila = rows[0];
+      if (!fila || !fila.habilitado) {
+        throw new ErrorDeDominio('CHOFER_NO_HABILITADO', 'El chofer no está habilitado.');
+      }
+      if (!fila.disponible && !fila.tiene_viaje_activo) {
+        throw new ErrorDeDominio('CHOFER_NO_DISPONIBLE', 'El chofer debe estar disponible o en un viaje activo.');
+      }
+      if (recolectorHistorial) {
+        recolectorHistorial.encolar({
+          choferId,
+          latitud,
+          longitud,
+          reportadaAt: fila.reportada_at ?? new Date(),
+        });
+      } else {
+        await pool.query(
           `INSERT INTO historial_ubicaciones_chofer (chofer_id, ubicacion, reportada_at)
            VALUES ($1, ST_SetSRID(ST_MakePoint($3, $2), 4326)::geography, now())`,
           [choferId, latitud, longitud],
         );
-        await client.query('COMMIT');
-        return { choferId, latitud, longitud };
-      } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
+      }
+      return { choferId, latitud, longitud };
     },
   };
 }

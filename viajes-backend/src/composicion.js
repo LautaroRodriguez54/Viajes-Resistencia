@@ -31,6 +31,7 @@ import { crearRechazarOferta } from './aplicacion/viajes/rechazarOferta.js';
 import { crearProcesarOfertasVencidas } from './aplicacion/viajes/procesarOfertasVencidas.js';
 import { crearVerificadorWebhookHmac } from './infra/externos/verificadorWebhookHmac.js';
 import { crearMetricasProceso } from './infra/observabilidad/metricasProceso.js';
+import { crearRecolectorHistorialUbicaciones } from './infra/db/recolectorHistorialUbicaciones.js';
 
 export function componerAplicacion() {
   const config = leerConfiguracion();
@@ -44,7 +45,14 @@ export function componerAplicacion() {
   const usuarios = crearRepositorioUsuariosPostgres(pool);
   const billeteras = crearRepositorioBilleterasPostgres(poolBilletera);
   const viajes = crearRepositorioViajesPostgres(pool);
-  const choferes = crearRepositorioChoferesPostgres(pool);
+  const recolectorHistorial = crearRecolectorHistorialUbicaciones({
+    pool,
+    logger,
+    intervaloMs: config.HISTORIAL_UBICACIONES_FLUSH_MS,
+    loteMax: config.HISTORIAL_UBICACIONES_LOTE_MAX,
+    bufferMax: config.HISTORIAL_UBICACIONES_BUFFER_MAX,
+  });
+  const choferes = crearRepositorioChoferesPostgres(pool, { recolectorHistorial });
   const hasheador = crearHasheadorArgon2(config);
   const tokens = crearServicioJwt(config);
   const autenticacion = {
@@ -113,7 +121,7 @@ export function componerAplicacion() {
     logger,
     intervaloMs: config.OFERTA_VERIFICACION_MS,
   });
-  const procesos = [...despachadores, despachadorVencimiento];
+  const procesos = [...despachadores, despachadorVencimiento, recolectorHistorial];
   return {
     app, config, logger,
     iniciarProcesos: () => procesos.forEach((p) => p.iniciar()),
