@@ -121,7 +121,7 @@ Crea 500 choferes sintéticos que mandan su ubicación cada 2 s mientras otros p
 ## Documentación
 
 - [Modelo de dominio](docs/modelo.md): estados del viaje, tarifa, billetera, bases y reglas
-- [Contrato HTTP (OpenAPI 3.1)](docs/openapi.yaml): resumen en [`api.md`](docs/api.md); Swagger UI con `docker compose --profile docs up -d docs` (http://localhost:8080)
+- [Contrato HTTP (OpenAPI 3.1)](docs/openapi.yaml): resumen en [`api.md`](docs/api.md), validado contra respuestas reales en `tests/infra/contratoOpenApi.test.js`; Swagger UI con `docker compose --profile docs up -d docs` (http://localhost:8080)
 - [Colección de pedidos](docs/requests.http): el recorrido completo de un viaje para REST Client
 - [Mediciones](docs/mediciones.md)
 - [Bitácora de ataque](docs/ataque.md)
