@@ -100,7 +100,7 @@ test('el trigger deja un ViajeCambiado por cada INSERT y UPDATE de viajes, con l
     const ultimo = eventos[2].datos;
     assert.equal(ultimo.pasajeroId, pasajeroId);
     assert.equal(ultimo.choferId, choferId);
-    assert.deepEqual(ultimo.origen, { latitud: -27.4514, longitud: -58.9867 });
+    assert.deepEqual(ultimo.origen, { latitud: -27.4514, longitud: -58.9867, nombre: null });
     assert.equal(ultimo.estimacionCentavos, 1300);
     const { rows } = await pools.viajes.query('SELECT version FROM viajes WHERE id = $1', [viajeId]);
     assert.equal(rows[0].version, 3);
@@ -254,7 +254,7 @@ test('GET /viajes devuelve el historial del pasajero desde la proyección: sólo
       const { viajes } = await respuesta.json();
       assert.deepEqual(viajes.map((v) => v.viajeId), [nuevo, viejo]);
       assert.equal(viajes[0].estado, 'solicitado');
-      assert.deepEqual(viajes[0].destino, { latitud: -27.44, longitud: -58.98 });
+      assert.deepEqual(viajes[0].destino, { latitud: -27.44, longitud: -58.98, nombre: null });
       assert.equal(viajes[0].pasajeroId, undefined, 'no hace falta devolver el id propio');
 
       assert.deepEqual((await (await pedir('?limite=1')).json()).viajes.map((v) => v.viajeId), [nuevo]);

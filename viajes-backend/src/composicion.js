@@ -33,6 +33,7 @@ import { crearVerificadorWebhookHmac } from './infra/externos/verificadorWebhook
 import { crearMetricasProceso } from './infra/observabilidad/metricasProceso.js';
 import { crearRecolectorHistorialUbicaciones } from './infra/db/recolectorHistorialUbicaciones.js';
 import { crearRepositorioTarifasPostgres } from './infra/db/repositorioTarifasPostgres.js';
+import { crearResumenOperativoPostgres } from './infra/db/resumenOperativoPostgres.js';
 
 export function componerAplicacion() {
   const config = leerConfiguracion();
@@ -91,12 +92,13 @@ export function componerAplicacion() {
   const choferesHttp = { cambiarDisponibilidad: choferes.cambiarDisponibilidad, registrarUbicacion: choferes.registrarUbicacion, avanzarEstado, finalizarYCobrar, cancelarViaje, buscarOfertaPendiente: viajes.buscarOfertaPendienteDelChofer, buscarViajeActual: viajes.buscarViajeActualDelChofer, tokens };
   const metricasProceso = crearMetricasProceso();
   const tarifas = crearRepositorioTarifasPostgres(pool);
+  const resumenOperativo = crearResumenOperativoPostgres(pool, { ubicacionTtlSegundos: config.UBICACION_TTL_SEGUNDOS ?? null });
   const administracion = {
     establecerHabilitacion: choferes.establecerHabilitacion,
     listarChoferes: choferes.listarParaAdministracion,
     obtenerTarifa: tarifas.obtenerActiva,
     reemplazarTarifa: tarifas.reemplazarActiva,
-    obtenerMetricas: metricasProceso.obtenerInstantanea,
+    obtenerMetricas: async (opciones) => ({ ...metricasProceso.obtenerInstantanea(opciones), negocio: await resumenOperativo.obtener() }),
     tokens,
   };
   const operadorHttp = { listarViajesActivos: viajes.listarViajesActivos, cancelarViaje, reintentarCobro: crearReintentarCobroOperador(dependenciasCobro), tokens };

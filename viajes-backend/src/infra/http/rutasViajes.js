@@ -4,8 +4,16 @@ import { ErrorDeDominio } from '../../dominio/errores.js';
 import { Rol } from '../../dominio/usuarios/roles.js';
 import { requiereAutenticacion, requiereRol } from './autenticacion.js';
 
-const punto = z.object({ latitud: z.number().gte(-90).lte(90), longitud: z.number().gte(-180).lte(180) }).strict();
-const solicitud = z.object({ origen: punto, destino: punto }).strict();
+// En la solicitud, cada punto puede traer el nombre que eligió el pasajero ("Hospital Perrando").
+// Es sólo para mostrar: la tarifa usa las coordenadas. Sin caracteres de control, para que no
+// rompa los logs ni la pantalla del chofer.
+const nombreDeLugar = z.string().trim().min(1).max(120).regex(/^[^\p{Cc}]+$/u);
+const puntoConNombre = z.object({
+  latitud: z.number().gte(-90).lte(90),
+  longitud: z.number().gte(-180).lte(180),
+  nombre: nombreDeLugar.optional(),
+}).strict();
+const solicitud = z.object({ origen: puntoConNombre, destino: puntoConNombre }).strict();
 const listado = z.object({ limite: z.coerce.number().int().min(1).max(50).default(20) }).strict();
 const cancelacionOpcional = z.object({ motivo: z.string().trim().min(1).max(200).optional() }).strict();
 

@@ -144,12 +144,16 @@ export function crearRepositorioViajesPostgres(pool) {
       try {
         await client.query('BEGIN');
         const { rows } = await client.query(
-          `INSERT INTO viajes (pasajero_id, estado, origen, destino, estimacion_centavos)
+          `INSERT INTO viajes (pasajero_id, estado, origen, destino, estimacion_centavos, origen_nombre, destino_nombre)
            VALUES ($1, 'solicitado',
              ST_SetSRID(ST_MakePoint($3, $2), 4326)::geography,
-             ST_SetSRID(ST_MakePoint($5, $4), 4326)::geography, $6)
-           RETURNING id, estado, pasajero_id, chofer_id, estimacion_centavos, tarifa_final_centavos, solicitado_at`,
-          [pasajeroId, origen.latitud, origen.longitud, destino.latitud, destino.longitud, estimacion.importeCentavos],
+             ST_SetSRID(ST_MakePoint($5, $4), 4326)::geography, $6, $7, $8)
+           RETURNING id, estado, pasajero_id, chofer_id, estimacion_centavos, tarifa_final_centavos, solicitado_at,
+             ST_Y(origen::geometry) AS origen_latitud, ST_X(origen::geometry) AS origen_longitud,
+             ST_Y(destino::geometry) AS destino_latitud, ST_X(destino::geometry) AS destino_longitud,
+             origen_nombre, destino_nombre`,
+          [pasajeroId, origen.latitud, origen.longitud, destino.latitud, destino.longitud, estimacion.importeCentavos,
+            origen.nombre ?? null, destino.nombre ?? null],
         );
         await client.query(
           `INSERT INTO eventos_viaje (viaje_id, tipo, datos)
@@ -157,7 +161,7 @@ export function crearRepositorioViajesPostgres(pool) {
           [rows[0].id, JSON.stringify({ estimacionCentavos: estimacion.importeCentavos })],
         );
         await client.query('COMMIT');
-        return { ...mapearViaje(rows[0]), estimacion };
+        return { ...mapearViaje(rows[0]), ...mapearRecorrido(rows[0]), estimacion };
       } catch (error) {
         await client.query('ROLLBACK');
         throw error;
@@ -167,6 +171,12 @@ export function crearRepositorioViajesPostgres(pool) {
       const { rows } = await pool.query(
         `SELECT v.id, v.estado, v.pasajero_id, v.chofer_id, v.estimacion_centavos,
                 v.tarifa_final_centavos, v.solicitado_at,
+                ST_Y(v.origen::geometry) AS origen_latitud, ST_X(v.origen::geometry) AS origen_longitud,
+                ST_Y(v.destino::geometry) AS destino_latitud, ST_X(v.destino::geometry) AS destino_longitud,
+                v.origen_nombre, v.destino_nombre,
+                p.patente, p.marca_vehiculo, p.modelo_vehiculo,
+                ST_Y(u.ubicacion::geometry) AS chofer_latitud, ST_X(u.ubicacion::geometry) AS chofer_longitud,
+                u.reportada_at AS chofer_reportada_at,
                 EXISTS (
                   SELECT 1 FROM ofertas_viaje o
                   WHERE o.viaje_id = v.id
@@ -174,11 +184,30 @@ export function crearRepositorioViajesPostgres(pool) {
                     AND o.vence_at > now()
                 ) AS tiene_oferta_vigente
          FROM viajes v
+         -- El vehículo y la posición del chofer sólo mientras el viaje está activo: después de
+         -- terminar, el pasajero ya no tiene por qué saber dónde está (privacidad, 6.4).
+         LEFT JOIN perfiles_chofer p
+           ON p.usuario_id = v.chofer_id AND v.estado IN ('asignado', 'chofer_en_camino', 'en_curso')
+         LEFT JOIN ubicaciones_actuales_chofer u
+           ON u.chofer_id = v.chofer_id AND v.estado IN ('asignado', 'chofer_en_camino', 'en_curso')
          WHERE v.id = $1 AND v.pasajero_id = $2`,
         [viajeId, pasajeroId],
       );
       if (!rows[0]) return null;
-      return { ...mapearViaje(rows[0]), tieneOfertaVigente: Boolean(rows[0].tiene_oferta_vigente) };
+      const fila = rows[0];
+      return {
+        ...mapearViaje(fila),
+        ...mapearRecorrido(fila),
+        tieneOfertaVigente: Boolean(fila.tiene_oferta_vigente),
+        chofer: fila.patente
+          ? {
+            vehiculo: { patente: fila.patente, marca: fila.marca_vehiculo, modelo: fila.modelo_vehiculo },
+            ubicacion: fila.chofer_latitud === null
+              ? null
+              : { latitud: fila.chofer_latitud, longitud: fila.chofer_longitud, reportadaAt: fila.chofer_reportada_at },
+          }
+          : null,
+      };
     },
     // Lecturas del chofer (sin bloqueos): la web las consulta cada 2 s mientras no haya SSE.
     // Sólo devuelve una oferta pendiente, vigente y de un viaje que todavía se puede asignar.
@@ -186,7 +215,8 @@ export function crearRepositorioViajesPostgres(pool) {
       const { rows } = await pool.query(
         `SELECT o.id AS oferta_id, o.viaje_id, o.vence_at, v.estimacion_centavos,
                 ST_Y(v.origen::geometry) AS origen_latitud, ST_X(v.origen::geometry) AS origen_longitud,
-                ST_Y(v.destino::geometry) AS destino_latitud, ST_X(v.destino::geometry) AS destino_longitud
+                ST_Y(v.destino::geometry) AS destino_latitud, ST_X(v.destino::geometry) AS destino_longitud,
+                v.origen_nombre, v.destino_nombre
          FROM ofertas_viaje o JOIN viajes v ON v.id = o.viaje_id
          WHERE o.chofer_id = $1 AND o.estado = 'pendiente' AND o.vence_at > now() AND v.estado = 'solicitado'
          ORDER BY o.vence_at DESC LIMIT 1`,
@@ -203,7 +233,8 @@ export function crearRepositorioViajesPostgres(pool) {
       const { rows } = await pool.query(
         `SELECT id, estado, estimacion_centavos,
                 ST_Y(origen::geometry) AS origen_latitud, ST_X(origen::geometry) AS origen_longitud,
-                ST_Y(destino::geometry) AS destino_latitud, ST_X(destino::geometry) AS destino_longitud
+                ST_Y(destino::geometry) AS destino_latitud, ST_X(destino::geometry) AS destino_longitud,
+                origen_nombre, destino_nombre
          FROM viajes
          WHERE chofer_id = $1 AND estado IN ('asignado', 'chofer_en_camino', 'en_curso')
          LIMIT 1`,
@@ -218,7 +249,8 @@ export function crearRepositorioViajesPostgres(pool) {
         `SELECT v.id, v.estado, v.pasajero_id, v.chofer_id, p.patente,
                 v.estimacion_centavos, v.tarifa_final_centavos, v.solicitado_at,
                 ST_Y(v.origen::geometry) AS origen_latitud, ST_X(v.origen::geometry) AS origen_longitud,
-                ST_Y(v.destino::geometry) AS destino_latitud, ST_X(v.destino::geometry) AS destino_longitud
+                ST_Y(v.destino::geometry) AS destino_latitud, ST_X(v.destino::geometry) AS destino_longitud,
+                v.origen_nombre, v.destino_nombre
          FROM viajes v
          LEFT JOIN perfiles_chofer p ON p.usuario_id = v.chofer_id
          WHERE v.estado = ANY($1::text[])
@@ -243,8 +275,8 @@ export function crearRepositorioViajesPostgres(pool) {
 
 function mapearRecorrido(fila) {
   return {
-    origen: { latitud: fila.origen_latitud, longitud: fila.origen_longitud },
-    destino: { latitud: fila.destino_latitud, longitud: fila.destino_longitud },
+    origen: { latitud: fila.origen_latitud, longitud: fila.origen_longitud, nombre: fila.origen_nombre ?? null },
+    destino: { latitud: fila.destino_latitud, longitud: fila.destino_longitud, nombre: fila.destino_nombre ?? null },
   };
 }
 
