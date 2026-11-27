@@ -27,14 +27,15 @@ npm run dev                      # http://localhost:5173
 
 ## Recorrido de la demo
 
-1. **Chofer**: ingresá con `chofer@demo.local` / `ChoferDemo123!` (lo crea el seed, ya habilitado) y prendé **Disponible**: la web manda la ubicación cada 10 s, junto a la Plaza 25 de Mayo. Un chofer registrado en `/registro` lo tiene que habilitar un admin (`admin@demo.local` / `AdminDemo123!`, `PATCH /admin/choferes/:choferId/habilitacion` desde `viajes-backend/docs/requests.http`; la pantalla Admin todavía no está conectada).
+1. **Chofer**: ingresá con `chofer@demo.local` / `ChoferDemo123!` (lo crea el seed, ya habilitado) y prendé **Disponible**: la web manda la ubicación cada 10 s, junto a la Plaza 25 de Mayo. Un chofer registrado en `/registro` lo tiene que habilitar el admin desde su pantalla (`admin@demo.local` / `AdminDemo123!`).
 2. **Pasajero**: en otra pestaña, ingresá con `pasajero@demo.local` / `PasajeroDemo123!` (o registrá uno nuevo). La billetera arranca en 0.
 3. **Pedir**: escribí Desde y Hasta (o elegí un lugar frecuente). Se marca la ruta y tocás **Pedir viaje**. La web hace `POST /viajes` (el servidor calcula el precio) y `POST /viajes/:id/ofertas` (le ofrece el viaje al chofer más cercano), cada uno con su `Idempotency-Key`.
 4. **Chofer**: en menos de 2 s aparece la oferta con el monto y la cuenta regresiva de 30 s, que sale de `venceAt`. **Aceptar**. Si otro chofer la aceptó antes, aparece "Otro chofer lo aceptó primero".
    - **Rechazar** (`POST /ofertas/:id/rechazar`): el backend se la ofrece al siguiente chofer cercano y a éste no se la vuelve a ofrecer. Si no queda ninguno, el viaje pasa a `sin_choferes_disponibles` y el pasajero ve "No encontramos chofer" con **Pedir otro viaje**.
    - **Si nadie contesta**, la oferta vence sola a los 30 s (`OFERTA_TTL_SEGUNDOS`): el backend hace lo mismo que con un rechazo. Con un solo chofer en la demo, el viaje termina en `sin_choferes_disponibles`.
-5. **Chofer**: "Voy en camino" → "Pasajero a bordo: iniciar viaje" → "Finalizar y cobrar". El pasajero ve cada paso en **Mi viaje** (consulta cada 2 s).
+5. **Chofer**: "Voy en camino" → "Pasajero a bordo: iniciar viaje" → "Finalizar y cobrar". El pasajero ve cada paso en **Mi viaje** (consulta cada 2 s). Antes de que suba el pasajero, el chofer puede **Cancelar viaje** (con confirmación y un motivo opcional); queda no disponible hasta que vuelva a prender el interruptor.
 6. **Sin saldo**: el viaje termina en `pago_pendiente`, y el pasajero y el chofer ven que **no se cobró nada**. Cargá saldo con `npm run cargar-saldo -- <email> <centavos>` en `viajes-backend` (la billetera se actualiza sola cada 5 s) y tocá **Pagar ahora**.
+7. **Admin** (`admin@demo.local`): habilitá a un chofer recién registrado y cambiá la tarifa con **Guardar tarifa nueva**. El próximo viaje que se pida ya usa la nueva.
 
 ## Qué está conectado
 
@@ -45,9 +46,9 @@ npm run dev                      # http://localhost:5173
 | `/pasajero/pedir` | 2 · Pedir viaje | `POST /viajes`, `POST /viajes/:id/ofertas`, `GET /billetera/me` |
 | `/pasajero/viaje` | 3 · Mi viaje | `GET /viajes/:id` cada 2 s (el id llega desde Pedir; si se entra por el menú, sale de `GET /viajes?limite=1`); "Buscar chofer de nuevo" sólo si el viaje no tiene una oferta vigente (`tieneOfertaVigente`); "Cancelar viaje" con confirmación (`POST /viajes/:id/cancelar`) |
 | `/pasajero/billetera` | 4 · Billetera | `GET /billetera/me`, `GET /viajes` ("Mis viajes" y la deuda) y `GET /billetera/me/movimientos` cada 5 s; `POST /viajes/:id/reintentar-cobro` |
-| `/chofer` | 5 · Chofer | `PUT /choferes/me/disponibilidad`, `PUT /choferes/me/ubicacion`, `GET /choferes/me/ofertas`, `GET /choferes/me/viaje-actual`, `POST /ofertas/:id/aceptar`, `POST /ofertas/:id/rechazar`, `POST /choferes/viajes/:id/estado`, `POST /choferes/viajes/:id/finalizar` |
+| `/chofer` | 5 · Chofer | `PUT /choferes/me/disponibilidad`, `PUT /choferes/me/ubicacion`, `GET /choferes/me/ofertas`, `GET /choferes/me/viaje-actual`, `POST /ofertas/:id/aceptar`, `POST /ofertas/:id/rechazar`, `POST /choferes/viajes/:id/estado`, `POST /choferes/viajes/:id/finalizar`, `POST /choferes/viajes/:id/cancelar` (en asignado o en camino, con motivo opcional) |
 | `/operador` | 6 · Operador | `GET /operador/viajes?estado=activos` cada 5 s, `POST /operador/viajes/:id/cancelar` (motivo obligatorio) y `POST /operador/viajes/:id/reintentar-cobro` en los `pago_pendiente` (rama 12) |
-| `/admin` | 7 · Admin | **Datos de ejemplo** (falta listar choferes y administrar tarifas) |
+| `/admin` | 7 · Admin | `GET /admin/choferes` cada 10 s con **Habilitar** (`PATCH /admin/choferes/:id/habilitacion`), `GET /admin/tarifa` y **Guardar tarifa nueva** (`POST /admin/tarifa` con `Idempotency-Key`; los importes se pasan a centavos con `parsearImporte`, sin `parseFloat`) |
 
 Cómo está armado:
 - **`src/api/cliente.js`** es el único lugar que llama a la API. Agrega el JWT en `Authorization` (nunca en la URL), manda `Idempotency-Key` y traduce `error.codigo` a un mensaje.
@@ -61,7 +62,7 @@ Cómo está armado:
 - Estimación antes de pedir: el precio aparece al pedir.
 - Nombre de la dirección en el viaje: el backend guarda sólo coordenadas. La web recuerda en la pestaña el nombre de lo que eligió el pasajero, pero el chofer ve coordenadas si la dirección no es un lugar frecuente.
 - Patente y vehículo en el viaje: no se muestran.
-- Cancelar: hecho (rama 12). El pasajero cancela desde Mi viaje con confirmación en la tarjeta, mientras el viaje está pedido, asignado o con el chofer en camino. El operador cancela con un motivo obligatorio y reintenta el cobro de un `pago_pendiente` desde su pantalla, que ya usa `GET /operador/viajes?estado=activos` (#26). Falta la cancelación del chofer en la web.
+- Cancelar: hecho (rama 12). El pasajero cancela desde Mi viaje con confirmación en la tarjeta, mientras el viaje está pedido, asignado o con el chofer en camino. El operador cancela con un motivo obligatorio y reintenta el cobro de un `pago_pendiente` desde su pantalla, que ya usa `GET /operador/viajes?estado=activos` (#26). El chofer cancela desde su tarjeta mientras el viaje está asignado o en camino.
 - Vencimiento de la ubicación: activo desde el #34 (`UBICACION_TTL_SEGUNDOS=60`). El chofer manda su ubicación cada 10 s, así que mientras tiene la pestaña abierta nunca vence.
 
 ## Mapa (OpenStreetMap, sin clave)
@@ -91,7 +92,7 @@ Google Maps pide tarjeta de crédito para habilitar la facturación, así que se
   - Al terminar: **calificar** al chofer y al pasajero, una sola vez por viaje (RF-2.5, 3.7) y ver/descargar el **comprobante** (RF-8.4).
 - [ ] **Recorrido de reserva completo** (M9): pantalla para reservar con fecha, hora y zona horaria; ver, reprogramar y cancelar con motivo (RF-9.1, 9.6, 9.7); al activarse, sigue como un viaje normal.
 - [ ] Billetera: mostrar reintegros y cargos de cancelación como movimientos (RF-7.4, 7.5).
-- [ ] Admin/operador: habilitación con aprobar, observar, suspender o rechazar con motivo (RF-3.4), no sólo "Habilitar".
+- [~] Admin: la pantalla está conectada (choferes por habilitar y tarifa). Falta la habilitación con aprobar, observar, suspender o rechazar con motivo (RF-3.4), no sólo "Habilitar".
 - [ ] Mostrar el caso de concurrencia en vivo (ya está el aviso "Otro chofer lo aceptó primero") y una falla parcial controlada (p. ej. pago que no responde → "no se cobró nada, se reintenta").
 - [ ] Sin datos sensibles en URLs (RNF-19): el JWT nunca en la URL ni en el QR.
 - [ ] Si el consorcio arma tests End-to-End sobre contenedores, que esta web se pueda levantar como contenedor más (Dockerfile con el build estático).

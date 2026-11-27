@@ -43,7 +43,7 @@ export function crearApp({ config, logger, verificarDisponibilidad, autenticacio
   app.use('/choferes', crearRutasChoferes({ ...choferes, idempotente, limitadorUbicacion: limitadores.ubicacion }));
   app.use('/admin', crearRutasAdministracion({ ...administracion, idempotente }));
   app.use('/operador', crearRutasOperador({ tokens: administracion?.tokens ?? autenticacion?.tokens, ...operador, idempotente }));
-  // TODO: montar rutas de habilitación, ofertas, asignación, SSE y finalización/cobro.
+  // El seguimiento en vivo es por consulta periódica (ADR 011); el SSE queda para después.
   app.use((_req, res) => {
     const requestId = contexto.getStore()?.requestId;
     res.status(404).json({ error: { codigo: 'RUTA_NO_ENCONTRADA', requestId } });

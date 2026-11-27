@@ -35,7 +35,11 @@
 | Operador | `GET /operador/viajes?estado=activos` | operador | |
 | Operador | `POST /operador/viajes/:viajeId/cancelar` (motivo obligatorio) | operador | **sí** |
 | Operador | `POST /operador/viajes/:viajeId/reintentar-cobro` | operador | **sí** |
+| Administración | `GET /admin/choferes?estado=&limite=` (`pendientes` por defecto, o `todos`) | administrador | |
 | Administración | `PATCH /admin/choferes/:choferId/habilitacion` | administrador | |
+| Administración | `GET /admin/tarifa` (tarifa activa) | administrador | |
+| Administración | `POST /admin/tarifa` (crea una tarifa nueva activa; la anterior queda en el historial) | administrador | **sí** |
+| Administración | `GET /admin/metricas?reiniciar=` (lag del event loop y memoria, bloque 7) | administrador | |
 
 **Pendientes** (se agregan al OpenAPI cuando existan): estimación sin crear el viaje, historial del chofer y SSE.
 
