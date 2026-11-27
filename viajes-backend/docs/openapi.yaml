@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Viajes Resistencia · API del backend
-  version: 0.9.0
+  version: 0.10.0
   summary: Viajes a demanda con billetera y pagos (grupo 4, variante D).
   description: |
     Contrato HTTP del backend. Es la **fuente de verdad** de la API: `docs/api.md` sólo lo resume.
@@ -905,6 +905,97 @@ paths:
         '401': { $ref: '#/components/responses/NoAutenticado' }
         '403': { $ref: '#/components/responses/Prohibido' }
 
+  /admin/choferes:
+    get:
+      tags: [Administración]
+      summary: Choferes para habilitar (administrador)
+      description: Por defecto sólo los pendientes (no habilitados), los más viejos primero. Con `estado=todos`, también los habilitados.
+      operationId: listarChoferesAdministracion
+      parameters:
+        - name: estado
+          in: query
+          required: false
+          schema: { type: string, enum: [pendientes, todos], default: pendientes }
+        - name: limite
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 50, default: 50 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [choferes]
+                properties:
+                  choferes:
+                    type: array
+                    maxItems: 50
+                    items: { $ref: '#/components/schemas/ChoferAdministracion' }
+        '400': { $ref: '#/components/responses/EntradaInvalida' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+
+  /admin/tarifa:
+    get:
+      tags: [Administración]
+      summary: Tarifa activa (administrador)
+      operationId: obtenerTarifaActiva
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [tarifa]
+                properties:
+                  tarifa: { $ref: '#/components/schemas/Tarifa' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+        '503':
+          description: '`TARIFA_NO_CONFIGURADA`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    post:
+      tags: [Administración]
+      summary: Crear una tarifa nueva activa (administrador)
+      description: >-
+        No edita la tarifa vigente: la desactiva e inserta una fila nueva activa, en la misma transacción y con
+        `LOCK TABLE parametros_tarifa IN EXCLUSIVE MODE`, así dos administradores guardando a la vez quedan en fila
+        y siempre hay exactamente una activa. Los viajes ya pedidos conservan su estimación. Sin `velocidadPromedioKmh`,
+        se mantiene la de la tarifa anterior.
+      operationId: reemplazarTarifa
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SolicitudTarifa' }
+            example: { baseCentavos: 600, porKilometroCentavos: 300, porMinutoCentavos: 120, maximoViajeCentavos: 200000 }
+      responses:
+        '201':
+          description: Tarifa nueva activa
+          headers: { Idempotency-Replayed: { $ref: '#/components/headers/IdempotencyReplayed' } }
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [tarifa]
+                properties:
+                  tarifa: { $ref: '#/components/schemas/Tarifa' }
+        '400': { $ref: '#/components/responses/EntradaOClaveInvalida' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+        '409': { $ref: '#/components/responses/PedidoEnCurso' }
+        '422': { $ref: '#/components/responses/ClaveReutilizada' }
+
   /operador/viajes:
     get:
       tags: [Operador]
@@ -1105,6 +1196,47 @@ components:
           example: { error: { codigo: ERROR_INTERNO, requestId: 6f1c2d4e-8a0b-4c3d-9e2f-1a2b3c4d5e6f } }
 
   schemas:
+    ChoferAdministracion:
+      type: object
+      additionalProperties: false
+      required: [choferId, email, vehiculo, habilitado, disponible, registradoAt]
+      properties:
+        choferId: { type: string, format: uuid }
+        email: { type: string, format: email }
+        vehiculo:
+          type: object
+          additionalProperties: false
+          required: [patente, marca, modelo]
+          properties:
+            patente: { type: string }
+            marca: { type: string }
+            modelo: { type: string }
+        habilitado: { type: boolean }
+        disponible: { type: boolean }
+        registradoAt: { type: string, format: date-time }
+    SolicitudTarifa:
+      type: object
+      additionalProperties: false
+      required: [baseCentavos, porKilometroCentavos, porMinutoCentavos, maximoViajeCentavos]
+      description: Centavos enteros (nunca decimales). `maximoViajeCentavos` tiene que ser mayor o igual que `baseCentavos`.
+      properties:
+        baseCentavos: { type: integer, minimum: 0, maximum: 100000000 }
+        porKilometroCentavos: { type: integer, minimum: 0, maximum: 100000000 }
+        porMinutoCentavos: { type: integer, minimum: 0, maximum: 100000000 }
+        maximoViajeCentavos: { type: integer, minimum: 1, maximum: 100000000 }
+        velocidadPromedioKmh: { type: integer, minimum: 1, maximum: 120 }
+    Tarifa:
+      type: object
+      additionalProperties: false
+      required: [id, baseCentavos, porKilometroCentavos, porMinutoCentavos, maximoViajeCentavos, velocidadPromedioKmh, vigenteDesde]
+      properties:
+        id: { type: string, format: uuid }
+        baseCentavos: { type: integer }
+        porKilometroCentavos: { type: integer }
+        porMinutoCentavos: { type: integer }
+        maximoViajeCentavos: { type: integer }
+        velocidadPromedioKmh: { type: integer }
+        vigenteDesde: { type: string, format: date-time }
     Ok:
       type: object
       additionalProperties: false

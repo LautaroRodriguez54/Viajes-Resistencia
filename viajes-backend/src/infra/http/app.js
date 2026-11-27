@@ -41,7 +41,7 @@ export function crearApp({ config, logger, verificarDisponibilidad, autenticacio
   app.use('/viajes', crearRutasViajes({ ...viajes, idempotente }));
   app.use('/ofertas', crearRutasOfertas({ ...ofertas, idempotente }));
   app.use('/choferes', crearRutasChoferes({ ...choferes, idempotente, limitadorUbicacion: limitadores.ubicacion }));
-  app.use('/admin', crearRutasAdministracion(administracion));
+  app.use('/admin', crearRutasAdministracion({ ...administracion, idempotente }));
   app.use('/operador', crearRutasOperador({ tokens: administracion?.tokens ?? autenticacion?.tokens, ...operador, idempotente }));
   // TODO: montar rutas de habilitación, ofertas, asignación, SSE y finalización/cobro.
   app.use((_req, res) => {

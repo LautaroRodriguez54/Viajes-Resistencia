@@ -32,6 +32,7 @@ import { crearProcesarOfertasVencidas } from './aplicacion/viajes/procesarOferta
 import { crearVerificadorWebhookHmac } from './infra/externos/verificadorWebhookHmac.js';
 import { crearMetricasProceso } from './infra/observabilidad/metricasProceso.js';
 import { crearRecolectorHistorialUbicaciones } from './infra/db/recolectorHistorialUbicaciones.js';
+import { crearRepositorioTarifasPostgres } from './infra/db/repositorioTarifasPostgres.js';
 
 export function componerAplicacion() {
   const config = leerConfiguracion();
@@ -89,7 +90,15 @@ export function componerAplicacion() {
   const ofertasHttp = { aceptarOferta, rechazarOferta, tokens };
   const choferesHttp = { cambiarDisponibilidad: choferes.cambiarDisponibilidad, registrarUbicacion: choferes.registrarUbicacion, avanzarEstado, finalizarYCobrar, cancelarViaje, buscarOfertaPendiente: viajes.buscarOfertaPendienteDelChofer, buscarViajeActual: viajes.buscarViajeActualDelChofer, tokens };
   const metricasProceso = crearMetricasProceso();
-  const administracion = { establecerHabilitacion: choferes.establecerHabilitacion, obtenerMetricas: metricasProceso.obtenerInstantanea, tokens };
+  const tarifas = crearRepositorioTarifasPostgres(pool);
+  const administracion = {
+    establecerHabilitacion: choferes.establecerHabilitacion,
+    listarChoferes: choferes.listarParaAdministracion,
+    obtenerTarifa: tarifas.obtenerActiva,
+    reemplazarTarifa: tarifas.reemplazarActiva,
+    obtenerMetricas: metricasProceso.obtenerInstantanea,
+    tokens,
+  };
   const operadorHttp = { listarViajesActivos: viajes.listarViajesActivos, cancelarViaje, reintentarCobro: crearReintentarCobroOperador(dependenciasCobro), tokens };
   const verificarDisponibilidad = () => Promise.all([
     verificarMigracionesAplicadas(pool, DIRECTORIOS_MIGRACIONES.viajes),

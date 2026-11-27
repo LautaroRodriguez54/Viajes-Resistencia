@@ -12,6 +12,28 @@ export function crearRepositorioChoferesPostgres(pool, { recolectorHistorial = n
       if (!rows[0]) throw new ErrorDeDominio('CHOFER_NO_ENCONTRADO', 'El chofer no existe.');
       return { choferId: rows[0].usuario_id, habilitado: rows[0].habilitado, disponible: rows[0].disponible };
     },
+    // Para la pantalla del administrador: los pendientes primero (los más viejos arriba). Con tope,
+    // como todos los listados (un listado sin límite es un hallazgo fácil).
+    async listarParaAdministracion({ soloPendientes = true, limite = 50 } = {}) {
+      const { rows } = await pool.query(
+        `SELECT p.usuario_id, u.email, p.patente, p.marca_vehiculo, p.modelo_vehiculo,
+                p.habilitado, p.disponible, u.created_at
+         FROM perfiles_chofer p
+         JOIN usuarios u ON u.id = p.usuario_id
+         WHERE NOT $1::boolean OR p.habilitado = FALSE
+         ORDER BY p.habilitado, u.created_at
+         LIMIT $2`,
+        [soloPendientes, limite],
+      );
+      return rows.map((r) => ({
+        choferId: r.usuario_id,
+        email: r.email,
+        vehiculo: { patente: r.patente, marca: r.marca_vehiculo, modelo: r.modelo_vehiculo },
+        habilitado: r.habilitado,
+        disponible: r.disponible,
+        registradoAt: r.created_at,
+      }));
+    },
     async cambiarDisponibilidad(choferId, disponible) {
       const client = await pool.connect();
       try {
