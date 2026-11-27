@@ -67,4 +67,5 @@ pasajero = cliente · chofer = conductor · billetera = medio de pago (M7) · of
 
 - Prefijo y versión de la API (`/v1`), cuando haya que convivir con otros módulos del consorcio.
 - Eventos SSE, estrategia de reconexión y `Last-Event-ID`.
-- Tests que validen las respuestas contra `openapi.yaml` (TP1). Hace falta elegir una librería que lea YAML y valide JSON Schema.
+
+> La validación automática de respuestas contra `openapi.yaml` (TP1) corre en [`tests/infra/contratoOpenApi.test.js`](../tests/infra/contratoOpenApi.test.js) con `yaml`, `ajv` (`Ajv2020`) y `ajv-formats` como dependencias de desarrollo.
