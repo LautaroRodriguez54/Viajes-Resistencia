@@ -94,6 +94,11 @@ El orden de bloqueo sigue siendo viaje → billetera. Con la billetera bloqueada
 - Si la billetera cobró y el COMMIT de `viajes` no llegó (una caída entre las dos bases), el viaje sigue en `pago_pendiente` y el reintento lo cierra sin debitar dos veces.
 - La billetera se crea por el evento `UsuarioRegistrado` (outbox de Viajes), unos cientos de milisegundos después del registro. Un viaje que se finaliza antes queda en `pago_pendiente` con motivo `BILLETERA_NO_ENCONTRADA`.
 
+## Nombres de lugares y privacidad de la ubicación
+
+- El viaje guarda el nombre del origen y del destino que eligió el pasajero (migración `007`, opcional, 1 a 120 caracteres). Es sólo para mostrar: la tarifa y la búsqueda usan las coordenadas.
+- `GET /viajes/:viajeId` le muestra al pasajero el vehículo y la última posición de **su** chofer **sólo** mientras el viaje está `asignado`, `chofer_en_camino` o `en_curso`. Antes de la asignación y después de terminar es `null`, y otro pasajero recibe 404. La posición del pasajero no se expone en ningún endpoint. Lo prueba `tests/integracion/nombresYUbicacionChofer.test.js`.
+
 ## Estados del viaje
 
 Las reglas están en `src/dominio/viajes/estadosViaje.js` (`decidirCancelacion` y las transiciones). Cada cambio inserta una fila en `eventos_viaje` y, por el trigger de la migración `006`, una foto en `outbox_viajes`.

@@ -14,10 +14,10 @@ El mismo proyecto cumple las consignas de los dos docentes. Además del enunciad
 
 ## Qué hace
 
-- **Pasajero:** se registra, busca la dirección de origen y de destino en el mapa, pide el viaje, lo sigue, lo puede cancelar y paga con su billetera. Ve su historial de viajes y los movimientos de la billetera.
+- **Pasajero:** se registra, busca la dirección de origen y de destino en el mapa, pide el viaje y lo sigue: ve el auto del chofer moverse, el vehículo, la patente y los minutos. Lo puede cancelar y paga con su billetera, con comprobante. Ve su historial de viajes y los movimientos de la billetera.
 - **Chofer:** se pone disponible, envía su ubicación, recibe la oferta con cuenta regresiva y la ruta en el mapa, la acepta o la rechaza, avanza el viaje, lo puede cancelar antes de que suba el pasajero y lo finaliza (ahí se cobra).
 - **Operador:** ve los viajes activos, los cancela con motivo y reintenta el cobro de un pago pendiente.
-- **Administrador:** ve los choferes que esperan habilitación y los habilita, y cambia la tarifa (se crea una nueva y la anterior queda en el historial).
+- **Administrador:** ve el estado del sistema en vivo (viajes activos, choferes disponibles, lag del event loop y memoria), habilita a los choferes que esperan y cambia la tarifa (se crea una nueva y la anterior queda en el historial).
 
 Todas las pantallas están conectadas al backend: ninguna usa datos de ejemplo.
 

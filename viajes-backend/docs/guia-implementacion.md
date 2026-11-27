@@ -147,6 +147,7 @@ El body parser de `src/infra/http/app.js` guarda `req.cuerpoCrudo`: volver a ser
 | `src/infra/db/repositorioChoferesPostgres.js` | Disponibilidad, habilitación, ubicación (CTE sin bloqueo) y listado para el administrador. |
 | `src/infra/db/recolectorHistorialUbicaciones.js` | Historial de ubicaciones por lotes (`unnest`), con los volcados en fila y drenado al apagar. |
 | `src/infra/db/repositorioTarifasPostgres.js` | Tarifa activa y su reemplazo por una fila nueva. |
+| `src/infra/db/resumenOperativoPostgres.js` | Conteos del panel del admin (viajes activos, choferes disponibles, pagos pendientes). |
 | `src/infra/observabilidad/metricasProceso.js` | `monitorEventLoopDelay` y memoria para `GET /admin/metricas`. |
 | `src/infra/http/rutasViajes.js` | Solicitar, consultar el viaje propio, ofrecer y reintentar el cobro. |
 | `src/infra/http/rutasOfertas.js` | Aceptar y rechazar. |
@@ -191,8 +192,10 @@ La carrera de la variante D, dos viajes contra un saldo que alcanza para uno, se
 | `migraciones/004-billetera-fuera-de-viajes.sql` | Borra las tablas de billetera de `viajes` y crea `outbox_viajes`. |
 | `migraciones/005-viajes-cancelacion.sql` | Estado `cancelado_operador` y columnas de la cancelación. |
 | `migraciones/006-outbox-viaje-cambiado.sql` | Trigger que deja `ViajeCambiado` en `outbox_viajes` en cada cambio de `viajes` (ADR 009). |
+| `migraciones/007-viajes-nombres-de-lugares.sql` | `origen_nombre` y `destino_nombre` (opcionales) y la foto del viaje con el nombre. |
 | `migraciones-billetera/001-billetera.sql` | Base `billetera`. |
 | `migraciones-lectura/001-lectura.sql` | Base `lectura`. |
+| `migraciones-lectura/003-historial-nombres-de-lugares.sql` | Los nombres en `historial_viajes`. |
 | `src/infra/db/despachadorOutbox.js` | Toma eventos con `FOR UPDATE SKIP LOCKED`, los entrega y los marca. |
 | `src/infra/db/despachadorVencimientoOfertas.js` | Vence ofertas y vuelve a ofrecer. |
 | `src/infra/db/repositorioIdempotenciaPostgres.js` | `reservar`, `completar` y `liberar` sobre `claves_idempotencia`. |
@@ -210,7 +213,7 @@ La carrera de la variante D, dos viajes contra un saldo que alcanza para uno, se
 
 ## 11. Tests
 
-`npm test` corre todo. Con `DATABASE_URL` apuntando a `viajes_test` corren también los que usan base (antes, `npm run setup:test`). Son 261.
+`npm test` corre todo. Con `DATABASE_URL` apuntando a `viajes_test` corren también los que usan base (antes, `npm run setup:test`). Son 266.
 
 | Carpeta | Qué prueba |
 |---|---|
