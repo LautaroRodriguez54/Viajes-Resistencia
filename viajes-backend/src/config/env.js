@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { z } from 'zod';
+import { TIMEOUTS_POOL_DEFECTO } from '../infra/db/postgres.js';
 
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -12,6 +13,9 @@ const schema = z.object({
   ADMIN_DATABASE_URL: z.string().url().optional(),
   OUTBOX_INTERVALO_MS: z.coerce.number().int().positive().default(500),
   DATABASE_SSL: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
+  DATABASE_CONNECT_TIMEOUT_MS: z.coerce.number().int().positive().default(TIMEOUTS_POOL_DEFECTO.connectionTimeoutMillis),
+  DATABASE_IDLE_TIMEOUT_MS: z.coerce.number().int().positive().default(TIMEOUTS_POOL_DEFECTO.idleTimeoutMillis),
+  DATABASE_STATEMENT_TIMEOUT_MS: z.coerce.number().int().positive().default(TIMEOUTS_POOL_DEFECTO.statement_timeout),
   JWT_SECRET: z.string().min(32),
   JWT_ACCESS_TOKEN_TTL: z.string().regex(/^\d+[smhd]$/, 'Debe tener formato, por ejemplo, 15m.'),
   ARGON2_MEMORY_COST: z.coerce.number().int().positive(),

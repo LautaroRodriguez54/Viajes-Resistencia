@@ -35,9 +35,9 @@ export function componerAplicacion() {
   const config = leerConfiguracion();
   const logger = pino({ level: config.LOG_LEVEL });
   // Un pool por base, cada uno con el rol de su módulo (tema 12): Viajes no puede conectarse a la base de la billetera.
-  const pool = crearPoolPostgres(config);
-  const poolBilletera = crearPoolPostgres({ ...config, DATABASE_URL: config.BILLETERA_DATABASE_URL });
-  const poolLectura = crearPoolPostgres({ ...config, DATABASE_URL: config.LECTURA_DATABASE_URL });
+  const pool = crearPoolPostgres(config, { logger, nombre: 'viajes' });
+  const poolBilletera = crearPoolPostgres({ ...config, DATABASE_URL: config.BILLETERA_DATABASE_URL }, { logger, nombre: 'billetera' });
+  const poolLectura = crearPoolPostgres({ ...config, DATABASE_URL: config.LECTURA_DATABASE_URL }, { logger, nombre: 'lectura' });
   const proyectorSaldos = crearProyectorSaldosPostgres(poolLectura);
   const proyectorHistorial = crearProyectorHistorialPostgres(poolLectura);
   const usuarios = crearRepositorioUsuariosPostgres(pool);

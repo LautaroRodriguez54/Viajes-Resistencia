@@ -88,6 +88,35 @@ export function crearRepositorioViajesEnMemoria(opciones = {}) {
     },
 
     enTransaccionViajes(tx) {
+      // Registra ofertas vencidas dentro de la misma transacción para que lecturas posteriores
+      // las vean como 'vencida' antes del COMMIT, sin mutar el mapa si la transacción revierte.
+      const ofertasVencidasEnTx = new Set();
+
+      function estadoEfectivoOferta(oferta) {
+        return ofertasVencidasEnTx.has(oferta.id) ? 'vencida' : oferta.estado;
+      }
+
+      function esCandidatoElegible(chofer, { viajeId, origen, instante, excluidos }) {
+        if (!chofer || !chofer.habilitado || !chofer.disponible || !chofer.ubicacion) return false;
+        if (ubicacionTtlSegundos !== null && chofer.reportadaAt) {
+          const edadMs = instante.getTime() - chofer.reportadaAt.getTime();
+          if (edadMs > ubicacionTtlSegundos * 1000) return false;
+        }
+        if (calcularDistanciaKilometros(chofer.ubicacion, origen) > RADIO_BUSQUEDA_KM) return false;
+        const tieneActivo = [...viajes.values()].some(
+          (v) => v.choferId === chofer.id && ['asignado', 'chofer_en_camino', 'en_curso'].includes(v.estado),
+        );
+        if (tieneActivo) return false;
+        const excluidoEnViaje = [...ofertas.values()].some(
+          (o) => o.viajeId === viajeId && o.choferId === chofer.id && excluidos.has(estadoEfectivoOferta(o)),
+        );
+        if (excluidoEnViaje) return false;
+        const tieneOfertaVigente = [...ofertas.values()].some(
+          (o) => o.choferId === chofer.id && estadoEfectivoOferta(o) === 'pendiente' && o.venceAt > instante,
+        );
+        return !tieneOfertaVigente;
+      }
+
       return {
         async bloquearViaje(viajeId) {
           tx.retener(await tomarCandado(`viaje:${viajeId}`));
@@ -205,9 +234,12 @@ export function crearRepositorioViajesEnMemoria(opciones = {}) {
           tx.retener(await tomarCandado(`ofertas:${viajeId}`));
           const instante = ahora();
           const vencidas = [...ofertas.values()].filter(
-            (o) => o.viajeId === viajeId && o.estado === 'pendiente' && o.venceAt <= instante,
+            (o) => o.viajeId === viajeId && estadoEfectivoOferta(o) === 'pendiente' && o.venceAt <= instante,
           );
           if (vencidas.length > 0) {
+            for (const oferta of vencidas) {
+              ofertasVencidasEnTx.add(oferta.id);
+            }
             tx.alConfirmar(() => {
               for (const oferta of vencidas) {
                 oferta.estado = 'vencida';
@@ -222,32 +254,22 @@ export function crearRepositorioViajesEnMemoria(opciones = {}) {
           const instante = ahora();
           const excluidos = new Set(estadosExcluidos);
           const candidatos = [...choferes.values()]
-            .filter((c) => {
-              if (!c.habilitado || !c.disponible || !c.ubicacion) return false;
-              if (ubicacionTtlSegundos !== null && c.reportadaAt) {
-                const edadMs = instante.getTime() - c.reportadaAt.getTime();
-                if (edadMs > ubicacionTtlSegundos * 1000) return false;
-              }
-              const distanciaKm = calcularDistanciaKilometros(c.ubicacion, origen);
-              if (distanciaKm > RADIO_BUSQUEDA_KM) return false;
-              const tieneActivo = [...viajes.values()].some(
-                (v) => v.choferId === c.id && ['asignado', 'chofer_en_camino', 'en_curso'].includes(v.estado),
-              );
-              if (tieneActivo) return false;
-              const excluidoEnViaje = [...ofertas.values()].some(
-                (o) => o.viajeId === viajeId && o.choferId === c.id && excluidos.has(o.estado),
-              );
-              if (excluidoEnViaje) return false;
-              const tieneOfertaVigente = [...ofertas.values()].some(
-                (o) => o.choferId === c.id && o.estado === 'pendiente' && o.venceAt > instante,
-              );
-              return !tieneOfertaVigente;
-            })
+            .filter((c) => esCandidatoElegible(c, { viajeId, origen, instante, excluidos }))
             .sort((a, b) => calcularDistanciaKilometros(a.ubicacion, origen) - calcularDistanciaKilometros(b.ubicacion, origen));
 
-          const elegido = candidatos[0];
+          let elegido = null;
+          for (const candidato of candidatos) {
+            const soltar = await tomarCandado(`chofer:${candidato.id}`);
+            const actual = choferes.get(candidato.id);
+            if (esCandidatoElegible(actual, { viajeId, origen, instante, excluidos })) {
+              tx.retener(soltar);
+              elegido = actual;
+              break;
+            }
+            soltar();
+          }
+
           if (!elegido) return null;
-          tx.retener(await tomarCandado(`chofer:${elegido.id}`));
           const ofertaId = crypto.randomUUID();
           const venceAt = new Date(instante.getTime() + ofertaTtlSegundos * 1000);
           tx.alConfirmar(() => {

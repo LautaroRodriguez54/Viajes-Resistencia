@@ -127,7 +127,7 @@ Al 26/11/2026 (`main` en `579a1cc`, más la rama 10). El contrato completo está
 - Los 5 endpoints que crean o cobran exigen `Idempotency-Key` (ADR 010).
 - **Tests**: 214, en `tests/dominio`, `aplicacion`, `infra`, `integracion`, `seguridad` y `concurrencia`. Un solo comando: `npm test` con `DATABASE_URL` apuntando a `viajes_test`.
 - **Lint**: ESLint con `eslint-plugin-security`, 0 errores. **CI** en GitHub Actions: lint, tests, auditoría, Semgrep y un job de Playwright que se saltea hasta que exista `e2e/package.json`.
-- **ADR**: 001 a 011. El 004 y el 005 siguen "propuesto" (son de Lucas) y el 008 reemplaza en parte al 004.
+- **ADR**: 001 a 011. El 004 ya está "aceptado" (complementado por el 008); el 005 sigue "propuesto" (es de Lucas).
 
 ## Lo que falta (por bloque del enunciado)
 
@@ -164,7 +164,7 @@ Prioridad: lo que pide el **control 3** de Puljiz (carrera con test concurrente 
 - [x] Vencimiento de ofertas en el servidor, siguiente candidato y `sin_choferes_disponibles` al agotar la lista (PR #22).
 - [x] Ofertas duplicadas y choferes con oferta pendiente con `FOR UPDATE SKIP LOCKED` + revalidación después del bloqueo (PR #21, que arregla el test intermitente).
 - [x] Rechazo explícito de oferta por el chofer (PR #22).
-- [ ] ADR 004 completo: qué se bloquea, en qué orden, por qué no hay doble asignación ni interbloqueo.
+- [x] ADR 004 completo: qué se bloquea, en qué orden, por qué no hay doble asignación ni interbloqueo.
 
 ### Variante D — Billetera
 - [x] Separación en base propia (tema 12, ADR 008) y proyección de saldos (tema 13, ADR 009).
@@ -196,7 +196,7 @@ Prioridad: lo que pide el **control 3** de Puljiz (carrera con test concurrente 
 - [x] Tres niveles con un solo comando: `tests/dominio`, `tests/aplicacion`, `tests/integracion` (Postgres real en Docker, estado conocido por test), `tests/seguridad` y `tests/concurrencia`.
 
 ### Documentación y proceso
-- [~] ADR: participantes y fecha completos en 001–003 y 006–011 (rama 8); 008–011 escritos. Falta cerrar el 004 y el 005 (Lucas).
+- [~] ADR: participantes y fecha completos en 001–003 y 006–011 (rama 8); 008–011 escritos. El 004 ya está cerrado; falta cerrar el 005 (Lucas).
 - [ ] `docs/mediciones.md`: hipótesis con número antes de medir, entorno, comando exacto, tabla ingenua vs final, conclusión.
 - [ ] `docs/ataque.md`: bitácora (número, hipótesis, petición exacta, esperado, obtenido, veredicto, severidad, impacto) y respuesta del defensor (causa raíz, commit, test que falla antes y pasa después).
 - [x] `docs/api.md` como índice del OpenAPI (rama `docs/api-openapi`). Quedan prefijo/versión de API y eventos SSE.
