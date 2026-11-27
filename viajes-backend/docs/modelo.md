@@ -96,7 +96,15 @@ El orden de bloqueo sigue siendo viaje → billetera. Con la billetera bloqueada
 ## Decisiones pendientes
 
 - TODO: tarifa final desde el recorrido y la duración reales; radio de búsqueda administrable o constante; orden de ofertas al vencer una.
-- TODO: definir retención/agregación de ubicaciones históricas.
+
+## Retención de historial de ubicaciones
+
+Con 500 choferes reportando cada 2 segundos, `historial_ubicaciones_chofer` recibe ~250 filas/s, equivalentes a **~21,6 millones de filas por día** (~2–3 GiB diarios considerando fila + índices). Para evitar crecimiento ilimitado y degradación de `autovacuum`:
+
+1. **Separación operacional**: la búsqueda geográfica en tiempo real lee únicamente `ubicaciones_actuales_chofer` (1 fila por chofer); el historial se inserta de forma asíncrona por lotes (ADR 005) y nunca bloquea el despacho.
+2. **Particionado declarativo por fecha (producción)**: particionar `historial_ubicaciones_chofer` por rango diario de `reportada_at` (`PARTITION BY RANGE (reportada_at)`).
+3. **Ventana caliente y compactación**: conservar **7 días** de detalle completo para auditoría, soporte de incidentes y resolución de disputas. Antes de retirar particiones antiguas, se puede compactar/archivar una muestra (p. ej. 1 punto cada 30 s o trayectoria simplificada con `ST_Simplify` por viaje cerrado) fuera de la tabla activa.
+4. **Purga sin bloqueo**: eliminar particiones expiradas (> 30 días) con `DROP TABLE` / `DETACH PARTITION` en lugar de `DELETE` masivo, evitando locks largos y *bloat* de índices.
 
 ## Diagrama inicial
 
