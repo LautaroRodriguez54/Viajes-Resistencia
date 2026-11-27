@@ -59,12 +59,12 @@ export function crearRecolectorHistorialUbicaciones({
     }
   }
 
+  // Los volcados van en fila: el último siempre queda en `enCurso`, así `encolar` nunca arranca
+  // otro en paralelo que tome el mismo lote (duplicaría filas y el doble `splice` perdería otras).
   function vaciar({ todo = false } = {}) {
-    if (enCurso) {
-      if (!todo) return enCurso;
-      return enCurso.then(() => vaciarInterno(true));
-    }
-    const promesa = vaciarInterno(todo).finally(() => {
+    if (enCurso && !todo) return enCurso;
+    const previo = enCurso ?? Promise.resolve();
+    const promesa = previo.catch(() => {}).then(() => vaciarInterno(todo)).finally(() => {
       if (enCurso === promesa) enCurso = null;
     });
     enCurso = promesa;
