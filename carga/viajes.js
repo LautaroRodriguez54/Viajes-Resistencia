@@ -6,6 +6,7 @@ if (!/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(base)) throw new Error('S
 if (!__ENV.TOKEN_PASAJERO) throw new Error('Definí TOKEN_PASAJERO para una cuenta de prueba.');
 
 export const options = {
+  summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)', 'count'],
   scenarios: { viajes: { executor: 'constant-vus', vus: Number(__ENV.VUS || 2), duration: __ENV.DURATION || '30s' } },
   thresholds: { checks: ['rate>0.99'], http_req_failed: ['rate<0.01'] },
 };

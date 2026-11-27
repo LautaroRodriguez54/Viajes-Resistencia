@@ -1,0 +1,111 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_LOKI",
+      "label": "Fuente de logs Loki",
+      "description": "Seleccionar la fuente de logs de Grafana Cloud",
+      "type": "datasource",
+      "pluginId": "loki",
+      "pluginName": "Loki"
+    }
+  ],
+  "title": "Viajes - Backend y tiempos de respuesta",
+  "description": "Pedidos HTTP capturados en el entorno de pruebas. Los datos provienen de logs, no de métricas de CPU o memoria.",
+  "tags": ["viajes", "backend", "pruebas", "loki"],
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Pedidos en el intervalo seleccionado",
+      "type": "stat",
+      "gridPos": { "h": 5, "w": 8, "x": 0, "y": 0 },
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "targets": [
+        { "refId": "A", "queryType": "instant", "expr": "sum(count_over_time({app=\"viajes-backend\",entorno=\"pruebas\"}[$__range])) or vector(0)" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "blue" } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "id": 2,
+      "title": "Respuestas HTTP 5xx en el intervalo",
+      "description": "Errores de servidor observados en los registros recibidos.",
+      "type": "stat",
+      "gridPos": { "h": 5, "w": 8, "x": 8, "y": 0 },
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "targets": [
+        { "refId": "A", "queryType": "instant", "expr": "sum(count_over_time({app=\"viajes-backend\",entorno=\"pruebas\"} | json | status=~\"5..\" [$__range])) or vector(0)" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "id": 3,
+      "title": "Tiempo de respuesta p95 del backend",
+      "description": "Percentil 95 de todos los pedidos registrados en el intervalo seleccionado; incluye Playwright, k6 y consultas de salud.",
+      "type": "stat",
+      "gridPos": { "h": 5, "w": 8, "x": 16, "y": 0 },
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "targets": [
+        { "refId": "A", "queryType": "instant", "expr": "quantile_over_time(0.95, {app=\"viajes-backend\",entorno=\"pruebas\"} | json duracionMs=\"duracionMs\" | unwrap duracionMs | __error__=\"\" [$__range]) by (app)" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms", "decimals": 2, "noValue": "Sin datos", "color": { "mode": "fixed", "fixedColor": "blue" } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "id": 6,
+      "title": "Tiempo de respuesta p99 del backend",
+      "description": "Percentil 99 de todos los pedidos registrados en el intervalo seleccionado; no es el p99 de k6.",
+      "type": "stat",
+      "gridPos": { "h": 5, "w": 12, "x": 0, "y": 5 },
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "targets": [
+        { "refId": "A", "queryType": "instant", "expr": "quantile_over_time(0.99, {app=\"viajes-backend\",entorno=\"pruebas\"} | json duracionMs=\"duracionMs\" | unwrap duracionMs | __error__=\"\" [$__range]) by (app)" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms", "decimals": 2, "noValue": "Sin datos", "color": { "mode": "fixed", "fixedColor": "blue" } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "id": 7,
+      "title": "Tiempo máximo del backend",
+      "description": "Mayor tiempo registrado entre todos los pedidos del intervalo seleccionado; no es el máximo de k6.",
+      "type": "stat",
+      "gridPos": { "h": 5, "w": 12, "x": 12, "y": 5 },
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "targets": [
+        { "refId": "A", "queryType": "instant", "expr": "max(max_over_time({app=\"viajes-backend\",entorno=\"pruebas\"} | json duracionMs=\"duracionMs\" | unwrap duracionMs | __error__=\"\" [$__range]))" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms", "decimals": 2, "noValue": "Sin datos", "color": { "mode": "fixed", "fixedColor": "blue" } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "id": 4,
+      "title": "Pedidos y errores por minuto",
+      "description": "Cada punto cuenta los pedidos registrados durante el minuto anterior.",
+      "type": "timeseries",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 10 },
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "targets": [
+        { "refId": "A", "queryType": "range", "legendFormat": "Pedidos", "expr": "sum(count_over_time({app=\"viajes-backend\",entorno=\"pruebas\"}[1m])) or vector(0)" },
+        { "refId": "B", "queryType": "range", "legendFormat": "Errores 5xx", "expr": "sum(count_over_time({app=\"viajes-backend\",entorno=\"pruebas\"} | json | status=~\"5..\" [1m])) or vector(0)" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0, "decimals": 0 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "id": 5,
+      "title": "Registros HTTP",
+      "description": "Solo se guardan método, estado y duración, sin rutas ni credenciales.",
+      "type": "logs",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 19 },
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "targets": [
+        { "refId": "A", "queryType": "range", "expr": "{app=\"viajes-backend\",entorno=\"pruebas\"}" }
+      ],
+      "options": { "showTime": true, "showLabels": false, "wrapLogMessage": true, "sortOrder": "Descending" }
+    }
+  ]
+}
