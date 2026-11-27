@@ -1,0 +1,18 @@
+loki.source.file "viajes" {
+  targets = [{
+    "__path__" = "/var/log/viajes/backend.log",
+    "app" = "viajes-backend",
+    "entorno" = "pruebas",
+  }]
+  forward_to = [loki.write.grafana.receiver]
+}
+
+loki.write "grafana" {
+  endpoint {
+    url = sys.env("GRAFANA_LOKI_URL")
+    basic_auth {
+      username = sys.env("GRAFANA_LOKI_USER")
+      password = sys.env("GRAFANA_LOKI_TOKEN")
+    }
+  }
+}

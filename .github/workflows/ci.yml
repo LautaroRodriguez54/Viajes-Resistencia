@@ -117,6 +117,8 @@ jobs:
       - name: Preparar servicios de prueba
         env:
           VITE_MAPA: simulado
+          # La suite E2E usa varias sesiones; el rate limiting se prueba en backend.
+          RATE_LIMIT_LOGIN_MAX: 100
         run: |
           cd viajes-backend
           cp .env.example .env

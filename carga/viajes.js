@@ -1,6 +1,5 @@
-import http from 'k6/http';
 import { check, sleep } from 'k6';
-import { randomUUID } from 'k6/crypto';
+import http from 'k6/http';
 
 const base = __ENV.BASE_URL || 'http://localhost:3000';
 if (!/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(base)) throw new Error('Sólo se admite un servidor local de pruebas.');
@@ -13,7 +12,7 @@ export const options = {
 
 export default function () {
   const res = http.post(`${base}/viajes`, JSON.stringify({ origen: { latitud: -27.4514, longitud: -58.9867 }, destino: { latitud: -27.44, longitud: -58.98 } }), {
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${__ENV.TOKEN_PASAJERO}`, 'Idempotency-Key': randomUUID() },
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${__ENV.TOKEN_PASAJERO}`, 'Idempotency-Key': crypto.randomUUID() },
     tags: { name: 'crear_viaje' },
   });
   check(res, { 'viaje creado': (r) => r.status === 201 });
