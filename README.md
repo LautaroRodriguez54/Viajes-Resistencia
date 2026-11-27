@@ -132,6 +132,7 @@ El detalle de cada pantalla y sus endpoints está en el [README de la web](viaje
 - [README del backend](viajes-backend/README.md) y [README de la web](viajes-web/README.md)
 - [Guía de implementación](viajes-backend/docs/guia-implementacion.md): recorrido archivo por archivo
 - [Modelo de dominio](viajes-backend/docs/modelo.md)
+- [Matriz de trazabilidad (TP1)](viajes-backend/docs/trazabilidad.md)
 - [Contrato HTTP (OpenAPI 3.1)](viajes-backend/docs/openapi.yaml): resumen en [`api.md`](viajes-backend/docs/api.md)
 - [Colección de pedidos](viajes-backend/docs/requests.http): el recorrido completo de un viaje para REST Client
 - [Decisiones de arquitectura (ADR 001 a 011)](viajes-backend/docs/adr/)
