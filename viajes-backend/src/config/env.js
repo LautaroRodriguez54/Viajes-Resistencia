@@ -38,6 +38,9 @@ const schema = z.object({
     (value) => (value === '' || value === undefined ? undefined : value),
     z.coerce.number().int().positive().optional(),
   ),
+  HISTORIAL_UBICACIONES_FLUSH_MS: z.coerce.number().int().positive().default(1_000),
+  HISTORIAL_UBICACIONES_LOTE_MAX: z.coerce.number().int().positive().default(250),
+  HISTORIAL_UBICACIONES_BUFFER_MAX: z.coerce.number().int().positive().default(10_000),
 });
 
 export function leerConfiguracion(environment = process.env) {
