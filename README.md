@@ -78,7 +78,7 @@ Los crea `npm run setup` (seed, **sólo para desarrollo**; no son secretos, son 
 | Operador | `operador@demo.local` | `OperadorDemo123!` | Ver viajes activos, cancelar con motivo, reintentar cobros pendientes |
 | Administrador | `admin@demo.local` | `AdminDemo123!` | Habilitar choferes, cambiar la tarifa, métricas del proceso |
 
-- Saldo para el pasajero: `npm run cargar-saldo -- pasajero@demo.local 5000000` ($ 50.000; un viaje en la ciudad cuesta entre $ 3.000 y $ 8.000) (en `viajes-backend/`, con el servidor levantado). La billetera se crea unos milisegundos después de que arranca el servidor (evento `UsuarioRegistrado`).
+- Saldo para el pasajero: desde la web, en Billetera → **"+ Cargar saldo"** (pasarela de pagos simulada), o por comando: `npm run cargar-saldo -- pasajero@demo.local 5000000` ($ 50.000; un viaje en la ciudad cuesta entre $ 3.000 y $ 8.000) (en `viajes-backend/`, con el servidor levantado). La billetera se crea unos milisegundos después de que arranca el servidor (evento `UsuarioRegistrado`).
 - Se pueden registrar más pasajeros y choferes desde la web (`/registro`). Un chofer nuevo no recibe viajes hasta que el administrador lo habilita desde su pantalla.
 
 ### Recorrido de la demo
@@ -87,7 +87,7 @@ Los crea `npm run setup` (seed, **sólo para desarrollo**; no son secretos, son 
 2. **Chofer:** prender "Disponible".
 3. **Pasajero:** elegir "Desde" y "Hasta" (se marca la ruta) y tocar "Pedir viaje".
 4. **Chofer:** aparece la oferta con la cuenta regresiva de 30 s. Aceptar y avanzar: "Voy en camino" → "Pasajero a bordo: iniciar viaje" → "Finalizar y cobrar".
-5. **Sin saldo** el viaje queda en `pago_pendiente` y no se cobra nada. Cargar saldo con `npm run cargar-saldo -- <email> <centavos>` (en `viajes-backend/`) y tocar "Pagar ahora" en la billetera.
+5. **Sin saldo** el viaje queda en `pago_pendiente` y no se cobra nada. Cargar saldo desde la billetera ("+ Cargar saldo") y tocar "Pagar ahora".
 6. **Operador** (`operador@demo.local`): ve los viajes activos, cancela con motivo o reintenta un cobro pendiente.
 7. **Administrador** (`admin@demo.local`): habilita a un chofer recién registrado y cambia la tarifa; el próximo viaje que se pida ya usa la nueva.
 
@@ -97,7 +97,7 @@ El detalle de cada pantalla y sus endpoints está en el [README de la web](viaje
 
 | Comando | Para qué |
 |---|---|
-| `npm run cargar-saldo -- <email> <centavos>` | Carga saldo por el webhook real, firmado con HMAC (la demo no tiene un endpoint de carga). |
+| `npm run cargar-saldo -- <email> <centavos>` | Carga saldo por el webhook real, firmado con HMAC. Desde la web se hace con "+ Cargar saldo" (pasarela simulada). |
 | `npm run demo:propiedad-datos` | Muestra que el módulo Viajes no puede leer la base de la billetera (`permission denied`, tema 12). |
 | `npm run proyecciones:reconstruir` | Rearma las proyecciones de lectura (saldos e historial) desde los outbox (tema 13). |
 | `npm run carga:ubicaciones -- --escenario=ubicaciones --duracion-s=30` | 500 choferes mandando ubicación cada 2 s mientras se piden viajes (bloque 7). Resultados en [mediciones](viajes-backend/docs/mediciones.md). |

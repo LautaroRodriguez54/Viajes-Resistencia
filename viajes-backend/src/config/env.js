@@ -22,6 +22,8 @@ const schema = z.object({
   ARGON2_TIME_COST: z.coerce.number().int().positive(),
   ARGON2_PARALLELISM: z.coerce.number().int().positive(),
   WEBHOOK_HMAC_SECRET: z.string().min(32),
+  // Pasarela de pagos simulada (carga de saldo desde la web, para la demo). Vacío: activa salvo en producción.
+  PASARELA_SIMULADA_HABILITADA: z.enum(['true', 'false', '']).optional().transform((value) => (value ? value === 'true' : undefined)),
   CORS_ORIGINS: z.string().min(1).transform((value) => value.split(',').map((origin) => origin.trim())),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),

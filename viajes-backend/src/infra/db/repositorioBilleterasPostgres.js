@@ -132,6 +132,40 @@ export function crearRepositorioBilleterasPostgres(pool) {
       });
     },
 
+    // Carga desde la web: la intención sólo anota cuánto quiere cargar el pasajero. No mueve plata.
+    async crearIntencionCarga({ pasajeroId, importeCentavos }) {
+      const billetera = await pool.query('SELECT 1 FROM billeteras WHERE pasajero_id = $1', [pasajeroId]);
+      if (billetera.rowCount === 0) throw new ErrorDeDominio('BILLETERA_NO_ENCONTRADA', 'El pasajero no tiene billetera.');
+      const { rows } = await pool.query(
+        `INSERT INTO intenciones_carga (pasajero_id, importe_centavos) VALUES ($1, $2)
+         RETURNING id, importe_centavos AS "importeCentavos", estado, created_at AS "creadaAt"`,
+        [pasajeroId, importeCentavos],
+      );
+      return rows[0];
+    },
+
+    // Confirmar el pago: bloquea la intención (FOR UPDATE) para que dos "Pagar" a la vez vayan de a
+    // uno. Si está pendiente, `acreditar` manda el webhook (que acredita en su propia transacción y
+    // deduplica por eventoExternoId) y recién después se marca pagada. Si el proceso se cae entre
+    // los dos pasos, la intención sigue pendiente y el próximo "Pagar" reenvía el mismo evento:
+    // el webhook lo reconoce como duplicado y no acredita dos veces.
+    async pagarIntencionCarga({ intencionId, pasajeroId }, acreditar) {
+      return enTransaccion(async (client) => {
+        const { rows } = await client.query(
+          `SELECT id, pasajero_id AS "pasajeroId", importe_centavos AS "importeCentavos", estado
+           FROM intenciones_carga WHERE id = $1 AND pasajero_id = $2 FOR UPDATE`,
+          [intencionId, pasajeroId],
+        );
+        const intencion = rows[0];
+        if (!intencion) throw new ErrorDeDominio('RECURSO_NO_ENCONTRADO', 'La carga no existe.');
+        if (intencion.estado === 'pendiente') {
+          await acreditar(intencion);
+          await client.query("UPDATE intenciones_carga SET estado = 'pagada', pagada_at = now() WHERE id = $1", [intencionId]);
+        }
+        return { id: intencion.id, importeCentavos: intencion.importeCentavos, estado: 'pagada' };
+      });
+    },
+
     // Consumidor del evento UsuarioRegistrado (outbox de Viajes). Deduplicado por id de evento:
     // si el despachador lo entrega dos veces, la segunda no hace nada.
     async crearBilleteraPorEvento({ eventoId, pasajeroId }) {

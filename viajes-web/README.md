@@ -34,7 +34,7 @@ npm run dev                      # http://localhost:5173
    - **Rechazar** (`POST /ofertas/:id/rechazar`): el backend se la ofrece al siguiente chofer cercano y a éste no se la vuelve a ofrecer. Si no queda ninguno, el viaje pasa a `sin_choferes_disponibles` y el pasajero ve "No encontramos chofer" con **Pedir otro viaje**.
    - **Si nadie contesta**, la oferta vence sola a los 30 s (`OFERTA_TTL_SEGUNDOS`): el backend hace lo mismo que con un rechazo. Con un solo chofer en la demo, el viaje termina en `sin_choferes_disponibles`.
 5. **Chofer**: "Voy en camino" → "Pasajero a bordo: iniciar viaje" → "Finalizar y cobrar". El pasajero ve cada paso en **Mi viaje** (consulta cada 2 s). Antes de que suba el pasajero, el chofer puede **Cancelar viaje** (con confirmación y un motivo opcional); queda no disponible hasta que vuelva a prender el interruptor.
-6. **Sin saldo**: el viaje termina en `pago_pendiente`, y el pasajero y el chofer ven que **no se cobró nada**. Cargá saldo con `npm run cargar-saldo -- <email> <centavos>` en `viajes-backend` (la billetera se actualiza sola cada 5 s) y tocá **Pagar ahora**.
+6. **Sin saldo**: el viaje termina en `pago_pendiente`, y el pasajero y el chofer ven que **no se cobró nada**. Cargá saldo en la billetera con **+ Cargar saldo** (elegís el monto y pagás en el checkout de la pasarela simulada; también sirve `npm run cargar-saldo -- <email> <centavos>`) y tocá **Pagar ahora**.
 7. **Admin** (`admin@demo.local`): habilitá a un chofer recién registrado y cambiá la tarifa con **Guardar tarifa nueva**. El próximo viaje que se pida ya usa la nueva.
 
 ## Qué está conectado

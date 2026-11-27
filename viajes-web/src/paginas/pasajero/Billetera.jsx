@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { api } from '../../api/cliente.js';
+import CargarSaldo from '../../componentes/CargarSaldo.jsx';
 import Comprobante from '../../componentes/Comprobante.jsx';
 import { FilasCargando } from '../../componentes/Cargando.jsx';
 import { nombreDelPunto } from '../../datos/lugares.js';
@@ -42,6 +43,13 @@ export default function Billetera() {
   const porId = new Map((viajes ?? []).map((v) => [v.viajeId, v]));
   const completos = viajes?.filter(completo);
 
+  // La proyección del saldo se pone al día en unos cientos de ms: se consulta enseguida y otra vez al ratito.
+  function alCargar() {
+    recargarSaldo();
+    recargarMovimientos();
+    setTimeout(() => { recargarSaldo(); recargarMovimientos(); }, 800);
+  }
+
   async function pagar() {
     setPagando(true);
     setResultado(null);
@@ -67,10 +75,7 @@ export default function Billetera() {
           {billetera ? formatearPesos(billetera.saldoCentavos) : <span className="esqueleto esqueleto--monto" aria-label="Cargando el saldo" />}
         </span>
         {errorSaldo && <p role="alert" className="aviso aviso--peligro">{errorSaldo.message}</p>}
-        <p className="ayuda">
-          La carga la acredita el proveedor de pagos con un webhook firmado. En la demo:
-          {' '}<code>npm run cargar-saldo -- &lt;email&gt; &lt;centavos&gt;</code> en el backend.
-        </p>
+        <CargarSaldo alCargar={alCargar} />
 
         {deuda && (
           <>

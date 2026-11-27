@@ -19,6 +19,8 @@ import { crearApp } from './infra/http/app.js';
 import { crearRegistrarUsuario } from './aplicacion/autenticacion/registrarUsuario.js';
 import { crearIniciarSesion } from './aplicacion/autenticacion/iniciarSesion.js';
 import { crearProcesarCargaWebhook } from './aplicacion/billetera/procesarCargaWebhook.js';
+import { crearIniciarCargaDeSaldo, crearConfirmarCargaDeSaldo } from './aplicacion/billetera/cargarSaldoDesdeWeb.js';
+import { crearPasarelaPagosSimulada } from './infra/externos/pasarelaPagosSimulada.js';
 import { crearSolicitarViaje } from './aplicacion/viajes/solicitarViaje.js';
 import { crearEstimarViaje } from './aplicacion/viajes/estimarViaje.js';
 import { crearFinalizarViajeYCobrar } from './aplicacion/viajes/finalizarViajeYCobrar.js';
@@ -64,9 +66,17 @@ export function componerAplicacion() {
     buscarUsuarioPorId: usuarios.buscarPorId,
     tokens,
   };
+  const procesarCargaWebhook = crearProcesarCargaWebhook({
+    verificadorFirma: crearVerificadorWebhookHmac(config.WEBHOOK_HMAC_SECRET), billeteras,
+  });
+  // Carga desde la web (demo): la pasarela simulada manda el mismo webhook firmado. Apagada en producción salvo que se pida.
+  const pasarelaHabilitada = config.PASARELA_SIMULADA_HABILITADA ?? config.NODE_ENV !== 'production';
+  const pasarela = crearPasarelaPagosSimulada({ secreto: config.WEBHOOK_HMAC_SECRET, procesarCargaWebhook });
   const billetera = {
-    procesarCargaWebhook: crearProcesarCargaWebhook({
-      verificadorFirma: crearVerificadorWebhookHmac(config.WEBHOOK_HMAC_SECRET), billeteras,
+    procesarCargaWebhook,
+    ...(pasarelaHabilitada && {
+      iniciarCargaDeSaldo: crearIniciarCargaDeSaldo({ billeteras }),
+      confirmarCargaDeSaldo: crearConfirmarCargaDeSaldo({ billeteras, pasarela }),
     }),
     // CQRS (tema 13): la pantalla lee la proyección; el cobro sigue sumando movimientos en `billetera`.
     consultarSaldoPorPasajero: proyectorSaldos.consultarSaldoPorPasajero,

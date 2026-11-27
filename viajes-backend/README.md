@@ -67,7 +67,16 @@ El pasajero arranca con saldo 0: ver "Cargar saldo para la demo".
 
 `npm run demo:reiniciar -- --confirmar` borra las bases de desarrollo (`viajes`, `billetera`, `lectura`; nunca las `_test`) y corre `setup`: quedan sólo los 4 usuarios de demo y la tarifa. Se niega sin `--confirmar`, con `NODE_ENV=production` o contra un Postgres que no sea local. Después hay que reiniciar el servidor y cargar saldo.
 
-## Cargar saldo para la demo
+## Cargar saldo desde la web (pasarela simulada)
+
+En la billetera del pasajero, **"+ Cargar saldo"** abre un selector de monto ($ 5.000 a $ 50.000, u otro de $ 100 a $ 500.000) y después un "checkout" de una **pasarela de pagos simulada**. Son dos pasos, como con un proveedor real:
+
+1. `POST /billetera/me/cargas` crea una carga `pendiente` en la base `billetera` (tabla `intenciones_carga`, migración `002`). No acredita nada.
+2. `POST /billetera/me/cargas/:cargaId/pagar`: la pasarela del servidor (`src/infra/externos/pasarelaPagosSimulada.js`) arma **el mismo webhook firmado con HMAC** del proveedor (`eventoExternoId = checkout-<cargaId>`), y quien acredita es el caso de uso del webhook. La carga queda bloqueada (`FOR UPDATE`) mientras tanto: pagar dos veces, o dos a la vez, acredita una sola vez.
+
+El secreto nunca llega al navegador. Está activa salvo con `NODE_ENV=production`; `PASARELA_SIMULADA_HABILITADA=true|false` lo fuerza. Test: `tests/integracion/cargaDesdeWeb.test.js`.
+
+## Cargar saldo para la demo (por comando)
 
 En producción el saldo lo acredita el proveedor de pagos con un webhook firmado (`POST /billetera/webhooks/cargas`, HMAC-SHA256 con `WEBHOOK_HMAC_SECRET`). Para desarrollo y demos, el script simula a ese proveedor: firma el cuerpo con el secreto del `.env` y llama al mismo webhook. No agrega ningún endpoint, así que no amplía lo que se puede atacar, y el secreto nunca sale del servidor ni llega al front.
 
