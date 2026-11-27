@@ -51,12 +51,15 @@ Hay tres bases en el mismo contenedor, cada una con su rol (ADR 008): `viajes` (
 La calcula **siempre el servidor**; el cliente sólo manda coordenadas (`src/dominio/viajes/tarifa.js`). Con los parámetros activos de `parametros_tarifa` (hay uno solo activo, por el índice único parcial):
 
 ```text
-kilómetros = distancia Haversine entre origen y destino (línea recta)
+kilómetros = distancia Haversine entre origen y destino × 1,3   (por calles, no en línea recta)
 minutos    = max(1, ⌈kilómetros / velocidad_promedio_kmh × 60⌉)
-importe    = base_centavos + ⌈kilómetros⌉ × por_kilometro_centavos + minutos × por_minuto_centavos
+importe    = redondeo a pesos( base + kilómetros × por_km + minutos × por_minuto )   (en centavos enteros)
 ```
 
-- Con el seed de desarrollo (base 500, 250 por km, 100 por minuto, 30 km/h), un viaje de 1,4 km da 500 + 2 × 250 + 3 × 100 = **1300 centavos**.
+- **Por qué × 1,3**: el auto va por calles. Resistencia es una cuadrícula, y en una cuadrícula el camino es en promedio ~1,27 veces la línea recta (4/π); con semáforos y desvíos se usa 1,3. Así no depende de un servicio de rutas externo (OSRM es sólo visual en la web). El radio de búsqueda de choferes sigue en línea recta.
+- Los kilómetros se cobran **con decimales** (antes se redondeaban para arriba y 1,1 km costaba como 2), y el total se redondea a pesos enteros, como lo muestran las apps.
+- **Tarifa del seed (2026)**: base $ 1.500, $ 900 por km, $ 180 por minuto, 25 km/h y un máximo de $ 100.000. Está calibrada con el único dato público de Uber para la ciudad: UberX desde el aeropuerto, 19 minutos y **$ 13.379** en promedio (página de Uber del aeropuerto RES). Nuestra estimación para aeropuerto → plaza da unos $ 13.500 (8,9 km, 22 min), y `tests/dominio/tarifa.test.js` verifica que quede a menos del 10 %. Ejemplos desde la plaza: UTN ≈ $ 2.900, Hospital Perrando ≈ $ 3.900, Sarmiento Shopping ≈ $ 7.000 y Terminal ≈ $ 7.800.
+- El seed reemplaza la tarifa vieja de desarrollo ($ 5 + $ 2,50 por km) si sigue activa; si el admin ya la cambió, no la toca.
 - Si el importe supera `maximo_viaje_centavos`, la solicitud se rechaza (`VIAJE_SUPERA_MAXIMO`). Si no hay tarifa activa, responde `TARIFA_NO_CONFIGURADA`.
 - Al finalizar se cobra `estimacion_centavos`: todavía no hay tarifa final calculada con el recorrido real.
 - Radio de búsqueda de choferes: 5 km fijos (`ST_DWithin` en `ofrecerAlChoferCercano`).

@@ -77,7 +77,7 @@ Los crea `npm run setup` (seed, **sólo para desarrollo**; no son secretos, son 
 | Operador | `operador@demo.local` | `OperadorDemo123!` | Ver viajes activos, cancelar con motivo, reintentar cobros pendientes |
 | Administrador | `admin@demo.local` | `AdminDemo123!` | Habilitar choferes, cambiar la tarifa, métricas del proceso |
 
-- Saldo para el pasajero: `npm run cargar-saldo -- pasajero@demo.local 500000` (en `viajes-backend/`, con el servidor levantado). La billetera se crea unos milisegundos después de que arranca el servidor (evento `UsuarioRegistrado`).
+- Saldo para el pasajero: `npm run cargar-saldo -- pasajero@demo.local 5000000` ($ 50.000; un viaje en la ciudad cuesta entre $ 3.000 y $ 8.000) (en `viajes-backend/`, con el servidor levantado). La billetera se crea unos milisegundos después de que arranca el servidor (evento `UsuarioRegistrado`).
 - Se pueden registrar más pasajeros y choferes desde la web (`/registro`). Un chofer nuevo no recibe viajes hasta que el administrador lo habilita desde su pantalla.
 
 ### Recorrido de la demo

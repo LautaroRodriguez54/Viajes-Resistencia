@@ -2,17 +2,27 @@ import { leerConfiguracion } from '../../config/env.js';
 import { crearPoolPostgres } from './postgres.js';
 import { crearHasheadorArgon2 } from '../autenticacion/contrasenasArgon2.js';
 import { crearRepositorioUsuariosPostgres } from './repositorioUsuariosPostgres.js';
+import { crearRepositorioTarifasPostgres } from './repositorioTarifasPostgres.js';
 
 const config = leerConfiguracion();
 const pool = crearPoolPostgres(config);
 try {
-  // Valores exclusivamente de desarrollo: luego los administrará el módulo correspondiente.
-  await pool.query(
-    `INSERT INTO parametros_tarifa
-       (base_centavos, por_kilometro_centavos, por_minuto_centavos, maximo_viaje_centavos, velocidad_promedio_kmh)
-     VALUES (500, 250, 100, 100000, 30)
-     ON CONFLICT DO NOTHING`,
+  // Tarifa de desarrollo 2026, calibrada con el promedio que publica Uber para UberX desde el aeropuerto de
+  // Resistencia (19 min, $ 13.379): base $ 1.500, $ 900 por km (por calles) y $ 180 por minuto, a 25 km/h,
+  // con un máximo de $ 100.000 por viaje. Después la cambia el administrador desde su pantalla.
+  const tarifa2026 = {
+    baseCentavos: 150_000, porKilometroCentavos: 90_000, porMinutoCentavos: 18_000,
+    maximoViajeCentavos: 10_000_000, velocidadPromedioKmh: 25,
+  };
+  const tarifas = crearRepositorioTarifasPostgres(pool);
+  const { rows: activas } = await pool.query(
+    `SELECT base_centavos, por_kilometro_centavos, por_minuto_centavos FROM parametros_tarifa WHERE activo = TRUE`,
   );
+  const activa = activas[0];
+  // Sin tarifa, o con la vieja de desarrollo ($ 5 + $ 2,50 por km + $ 1 por minuto), se pone la de 2026 como
+  // una fila nueva (la anterior queda en el historial). Si el admin ya la cambió, no se toca.
+  const esLaVieja = activa && activa.base_centavos === 500 && activa.por_kilometro_centavos === 250 && activa.por_minuto_centavos === 100;
+  if (!activa || esLaVieja) await tarifas.reemplazarActiva(tarifa2026);
   const hasheador = crearHasheadorArgon2(config);
   const hashAdmin = await hasheador.hashear('AdminDemo123!');
   await pool.query(
