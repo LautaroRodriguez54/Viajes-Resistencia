@@ -224,7 +224,7 @@ try {
         asignacionLatencias.push(performance.now() - inicioCiclo);
         viajesOk += 1;
         await peticionHttp(agent, opts.baseUrl, {
-          method: 'POST', path: `/choferes/viajes/${viajeId}/cancelar`, token: tokenChofer, idempotente: true, body: {},
+          method: 'POST', path: `/viajes/${viajeId}/cancelar`, token: pasajero.token, idempotente: true, body: {},
         });
       } else {
         viajesError += 1;
