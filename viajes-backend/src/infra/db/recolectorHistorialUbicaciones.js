@@ -44,6 +44,12 @@ export function crearRecolectorHistorialUbicaciones({
         insertados += lote.length;
         ultimoErrorAt = 0;
       } catch (error) {
+        if (error?.code === '23503') {
+          pendientes.splice(0, lote.length);
+          descartados += lote.length;
+          logger?.warn({ err: error, cantidad: lote.length }, 'lote de historial descartado por referencia inexistente');
+          continue;
+        }
         ultimoErrorAt = Date.now();
         logger?.error({ err: error, cantidad: lote.length }, 'falló el volcado de historial de ubicaciones');
         break;

@@ -60,3 +60,25 @@ test('recolector acota el buffer ante fallas de Postgres y drena al detenerse cu
   assert.equal(recolector.obtenerEstadisticas().pendientes, 0);
   assert.equal(recolector.obtenerEstadisticas().insertados, 3);
 });
+
+test('recolector descarta lote con error de FK 23503 sin bloquear lotes posteriores', async () => {
+  const lotesOk = [];
+  const pool = {
+    async query(_sql, params) {
+      if (params[0].includes('inexistente')) {
+        const err = new Error('fk violation');
+        err.code = '23503';
+        throw err;
+      }
+      lotesOk.push(params[0]);
+      return { rows: [] };
+    },
+  };
+  const recolector = crearRecolectorHistorialUbicaciones({ pool, intervaloMs: 5_000, loteMax: 1, bufferMax: 10 });
+  recolector.encolar({ choferId: 'inexistente', latitud: -27.45, longitud: -58.98 });
+  recolector.encolar({ choferId: 'ch-ok', latitud: -27.45, longitud: -58.98 });
+  await recolector.detener();
+
+  assert.deepEqual(lotesOk.flat(), ['ch-ok']);
+  assert.deepEqual(recolector.obtenerEstadisticas(), { pendientes: 0, insertados: 1, descartados: 1 });
+});
