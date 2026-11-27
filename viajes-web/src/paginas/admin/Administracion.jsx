@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../api/cliente.js';
+import { FilasCargando } from '../../componentes/Cargando.jsx';
+import PanelMetricas from './PanelMetricas.jsx';
 import { conClave, usarClaveIdempotente, usarConsultaPeriodica } from '../../ganchos.js';
 import { formatearFecha, formatearImporte, formatearPesos, parsearImporte } from '../../formato.js';
 
@@ -85,14 +87,18 @@ export default function Administracion() {
 
   return (
     <div className="columna columna--ancha montos">
+      <PanelMetricas />
       <section className="tarjeta lista" aria-labelledby="titulo-choferes" data-testid="admin-choferes">
         <h1 id="titulo-choferes">Choferes por habilitar</h1>
         {errorChoferes && <p role="alert" className="aviso aviso--peligro">{errorChoferes.message}</p>}
         {errorHabilitar && <p role="alert" className="aviso aviso--peligro">{errorHabilitar}</p>}
         {cargando && !choferes ? (
-          <p className="pedir__detalle">Cargando…</p>
+          <FilasCargando filas={2} />
         ) : pendientes.length === 0 ? (
-          <p className="pedir__detalle">No hay choferes esperando. Los que se registran desde la web aparecen acá.</p>
+          <div className="vacio">
+            <span className="vacio__icono vacio__icono--choferes" aria-hidden="true" />
+            <p className="pedir__detalle">No hay choferes esperando. Los que se registran desde la web aparecen acá.</p>
+          </div>
         ) : (
           <ul>
             {pendientes.map((chofer) => (

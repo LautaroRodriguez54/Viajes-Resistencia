@@ -128,5 +128,6 @@ export const api = {
   choferesAdmin: (estado = 'pendientes') => pedir('GET', `/admin/choferes?estado=${estado}`).then((r) => r.choferes),
   habilitarChofer: (choferId, habilitado) => pedir('PATCH', `/admin/choferes/${choferId}/habilitacion`, { cuerpo: { habilitado } }),
   tarifaActiva: () => pedir('GET', '/admin/tarifa').then((r) => r.tarifa),
+  metricas: () => pedir('GET', '/admin/metricas'),
   guardarTarifa: (tarifa, clave) => pedir('POST', '/admin/tarifa', { cuerpo: tarifa, clave }).then((r) => r.tarifa),
 };

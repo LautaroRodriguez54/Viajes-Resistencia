@@ -57,9 +57,15 @@ export default function PedirViaje() {
     setEnviando(true);
     setError(null);
     const punto = ({ latitud, longitud }) => ({ latitud, longitud });
+    // El nombre viaja al backend (migración 007) para que lo vean el chofer, el operador y el historial.
+    // El backend acepta de 1 a 120 caracteres sin caracteres de control.
+    const conNombre = (lugar) => {
+      const nombre = lugar.nombre?.replace(/\p{Cc}/gu, ' ').trim().slice(0, 120);
+      return nombre ? { ...punto(lugar), nombre } : punto(lugar);
+    };
     let viaje;
     try {
-      viaje = await conClave(claveViaje, (clave) => api.solicitarViaje(punto(origen), punto(destino), clave));
+      viaje = await conClave(claveViaje, (clave) => api.solicitarViaje(conNombre(origen), conNombre(destino), clave));
     } catch (e) {
       setError(e.message);
       setEnviando(false);
@@ -71,7 +77,7 @@ export default function PedirViaje() {
     } catch (e) {
       busqueda = e.codigo === 'SIN_CHOFERES_CERCANOS' ? 'sin_choferes' : e.message;
     }
-    // El backend guarda sólo coordenadas: el nombre elegido se recuerda en la pestaña para el historial.
+    // Además se recuerda en la pestaña, por si el historial todavía no se enteró del viaje.
     recordarNombre(origen, origen.nombre);
     recordarNombre(destino, destino.nombre);
     // El id va en la navegación y no se espera al historial, que puede ir unos cientos de ms atrasado.

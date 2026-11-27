@@ -16,6 +16,8 @@ export const usarMapaReal = entorno.VITE_MAPA !== 'simulado';
 export const URL_MOSAICOS = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 export const ATRIBUCION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
 export const URL_PHOTON = 'https://photon.komoot.io/api/';
+// Dirección aproximada de un punto, para los viajes guardados sin nombre (antes de la migración 007).
+export const URL_PHOTON_INVERSA = 'https://photon.komoot.io/reverse';
 // Rutas por calles: OSRM (motor libre sobre OSM), servidor público de demostración. Pide como mucho una
 // consulta por segundo: la web la pide sólo cuando cambian los puntos y guarda el resultado en memoria.
 // La ruta es sólo visual: la tarifa la sigue calculando el backend.

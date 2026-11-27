@@ -9,6 +9,9 @@ import { buscarRuta } from '../mapas/rutas.js';
 // - origen: punto de retiro (círculo negro, como en el diseño);
 // - destino: pin rojo;
 // - posicion: "Vos" (el chofer en su pantalla), punto azul.
+// - auto: el auto del chofer mientras se mueve (el chofer lo ve en su pantalla y el pasajero en Mi viaje).
+//   No entra en el encuadre ni en las rutas: cambia cada pocos segundos, y si no el mapa se reencuadraría
+//   y le pediría una ruta nueva a OSRM en cada paso. Sólo se mueve el marcador, con una transición suave.
 // La ruta por calles sale de OSRM (src/mapas/rutas.js); si no responde, quedan sólo los marcadores
 // (nunca una línea recta, que sería engañosa).
 // tarjeta: dónde está la tarjeta que tapa el mapa, para encuadrar los puntos en la parte visible:
@@ -23,6 +26,16 @@ const iconos = {
   posicion: L.divIcon({ className: 'marcador-vos', iconSize: [18, 18] }),
 };
 const titulos = { origen: 'Retiro', destino: 'Destino', posicion: 'Vos' };
+
+// Auto visto desde arriba, en el azul del acento, con sombra para que se lea sobre las calles.
+const iconoAuto = L.divIcon({
+  className: 'marcador-auto',
+  iconSize: [30, 30],
+  html: '<svg viewBox="0 0 30 30" aria-hidden="true"><circle cx="15" cy="15" r="14" fill="#FFFFFF"/>'
+    + '<rect x="9.5" y="6" width="11" height="18" rx="4" fill="#3346D3"/>'
+    + '<rect x="11" y="9" width="8" height="4" rx="1.5" fill="#C9D0F7"/>'
+    + '<rect x="11" y="18" width="8" height="3" rx="1.5" fill="#C9D0F7"/></svg>',
+});
 
 // Líneas como en el diseño: el viaje en el azul de los mapas con un borde blanco para que se lea sobre
 // las calles; el tramo del chofer hasta el retiro, punteado y oscuro.
@@ -55,11 +68,12 @@ function encuadrar(m, latlngs, tarjeta) {
   });
 }
 
-export default function MapaReal({ origen, destino, posicion, tarjeta = 'lateral', chofer = false, alFallar, children }) {
+export default function MapaReal({ origen, destino, posicion, auto, tarjeta = 'lateral', chofer = false, alFallar, children }) {
   const contenedor = useRef(null);
   const mapa = useRef(null);
   const marcadores = useRef({});
   const lineas = useRef(null);
+  const marcadorAuto = useRef(null);
   const atribucion = useRef(null);
   const alFallarRef = useRef(alFallar);
   alFallarRef.current = alFallar;
@@ -80,8 +94,24 @@ export default function MapaReal({ origen, destino, posicion, tarjeta = 'lateral
       })
       .addTo(m);
     mapa.current = m;
-    return () => { m.remove(); mapa.current = null; marcadores.current = {}; lineas.current = null; };
+    return () => { m.remove(); mapa.current = null; marcadores.current = {}; lineas.current = null; marcadorAuto.current = null; };
   }, []);
+
+  // El auto: se crea, se mueve o se saca. No reencuadra.
+  const autoLat = auto?.latitud;
+  const autoLng = auto?.longitud;
+  useEffect(() => {
+    const m = mapa.current;
+    if (!m) return;
+    if (autoLat === undefined || autoLat === null) {
+      marcadorAuto.current?.remove();
+      marcadorAuto.current = null;
+    } else if (marcadorAuto.current) {
+      marcadorAuto.current.setLatLng([autoLat, autoLng]);
+    } else {
+      marcadorAuto.current = L.marker([autoLat, autoLng], { icon: iconoAuto, title: 'Chofer', keyboard: false, zIndexOffset: 500 }).addTo(m);
+    }
+  }, [autoLat, autoLng]);
 
   // La atribución de OSM es obligatoria y tiene que verse: va en la esquina que la tarjeta no tapa
   // (con la hoja inferior del celular, arriba; con la notificación de oferta del chofer, abajo).
