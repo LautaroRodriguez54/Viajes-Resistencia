@@ -865,3 +865,7 @@ h1 { margin: 0; font-weight: 600; }
 }
 .punto-vivo--apagado { background: var(--peligro); animation: none; }
 @media (prefers-reduced-motion: reduce) { .punto-vivo { animation: none; } }
+
+/* Precio aproximado en Pedir: el monto arriba (sin partirse) y la distancia y el tiempo debajo. */
+.pedir__resumen--estimacion { flex-direction: column; align-items: flex-start; gap: 2px; }
+.pedir__resumen--estimacion .pedir__precio { white-space: nowrap; }

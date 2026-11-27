@@ -3,6 +3,11 @@ export function formatearPesos(centavos) {
   return `$ ${formatearImporte(centavos)}`;
 }
 
+// Para importes que ya vienen redondeados a pesos (el precio aproximado): "$ 7.840" en vez de "$ 7.840,00".
+export function formatearPesosEnteros(centavos) {
+  return `$ ${Math.round(centavos / 100).toLocaleString('es-AR')}`;
+}
+
 // Sin el signo, para los campos editables (tarifa del admin): 100000 → "1.000,00".
 export function formatearImporte(centavos) {
   const pesos = Math.trunc(centavos / 100);

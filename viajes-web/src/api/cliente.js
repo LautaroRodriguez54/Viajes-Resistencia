@@ -102,6 +102,8 @@ export const api = {
   movimientos: (limite = 20) => pedir('GET', `/billetera/me/movimientos?limite=${limite}`).then((r) => r.movimientos),
   historial: (limite = 20) => pedir('GET', `/viajes?limite=${limite}`).then((r) => r.viajes),
   // POST /viajes y GET /viajes/:id responden { viaje } (ver openapi.yaml): se desenvuelve acá.
+  // Precio aproximado antes de pedir (no crea nada, sin Idempotency-Key). Responde { importeCentavos, kilometros, minutos }.
+  estimarViaje: (origen, destino) => pedir('POST', '/viajes/estimacion', { cuerpo: { origen, destino } }).then((r) => r.estimacion),
   solicitarViaje: (origen, destino, clave) => pedir('POST', '/viajes', { cuerpo: { origen, destino }, clave }).then((r) => r.viaje),
   buscarChofer: (viajeId, clave) => pedir('POST', `/viajes/${viajeId}/ofertas`, { clave }),
   viaje: (viajeId) => pedir('GET', `/viajes/${viajeId}`).then((r) => r.viaje),

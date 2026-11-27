@@ -19,8 +19,14 @@ const cancelacionOpcional = z.object({ motivo: z.string().trim().min(1).max(200)
 
 const soloPasajero = requiereRol(Rol.PASAJERO, 'Sólo un pasajero puede solicitar viajes.');
 
-export function crearRutasViajes({ solicitarViaje, buscarViajePropio, ofrecerAlChoferCercano, reintentarCobro, cancelarViaje, listarHistorial, tokens, idempotente }) {
+export function crearRutasViajes({ solicitarViaje, estimarViaje, buscarViajePropio, ofrecerAlChoferCercano, reintentarCobro, cancelarViaje, listarHistorial, tokens, idempotente }) {
   const router = express.Router();
+  // Precio aproximado antes de pedir (no crea nada). Acepta el mismo cuerpo que POST /viajes.
+  router.post('/estimacion', requiereAutenticacion(tokens), soloPasajero, async (req, res) => {
+    const validacion = solicitud.safeParse(req.body);
+    if (!validacion.success) throw new ErrorDeDominio('ENTRADA_INVALIDA', 'Origen o destino inválidos.');
+    res.status(200).json({ estimacion: await estimarViaje(validacion.data) });
+  });
   router.post('/', requiereAutenticacion(tokens), soloPasajero, idempotente('viajes.solicitar'), async (req, res) => {
     const validacion = solicitud.safeParse(req.body);
     if (!validacion.success) throw new ErrorDeDominio('ENTRADA_INVALIDA', 'Origen o destino inválidos.');

@@ -112,7 +112,7 @@ Hilo conductor: **"La billetera es un servicio dueño de sus datos (12); como ya
 
 ## Estado actual
 
-Al 27/11/2026. El contrato completo está en `docs/openapi.yaml` (0.11.0). La próxima migración de `viajes` es la `008` (la `007` agrega los nombres de los lugares).
+Al 27/11/2026. El contrato completo está en `docs/openapi.yaml` (0.12.0). La próxima migración de `viajes` es la `008` (la `007` agrega los nombres de los lugares).
 
 | Área | Endpoints | Estado |
 |---|---|---|
@@ -126,7 +126,7 @@ Al 27/11/2026. El contrato completo está en `docs/openapi.yaml` (0.11.0). La pr
 | Admin | `GET /admin/choferes`, `PATCH /admin/choferes/:choferId/habilitacion`, `GET /admin/tarifa`, `POST /admin/tarifa` (fila nueva activa, `LOCK TABLE`), `GET /admin/metricas` | Hecho |
 
 - Los 11 endpoints que crean, cobran o cambian la tarifa exigen `Idempotency-Key` (ADR 010). El rol se verifica antes que la clave.
-- **Tests**: 266, en `tests/dominio`, `aplicacion`, `infra`, `integracion`, `seguridad` y `concurrencia`. Un solo comando: `npm test` con `DATABASE_URL` apuntando a `viajes_test`.
+- **Tests**: 273, en `tests/dominio`, `aplicacion`, `infra`, `integracion`, `seguridad` y `concurrencia`. Un solo comando: `npm test` con `DATABASE_URL` apuntando a `viajes_test`.
 - **Lint**: ESLint con `eslint-plugin-security`, 0 errores. **CI** en GitHub Actions, obligatoria en cada PR: lint, tests con PostGIS, auditoría, Semgrep y Playwright (`e2e/`, 1 recorrido hasta `pago_pendiente`).
 - **ADR**: 001 a 011. El 004 y el 005 ya están "aceptado" (el 008 reemplaza en parte al 004).
 
@@ -176,7 +176,7 @@ Prioridad (27/11): lo de la rúbrica de Puljiz que no llegó (ataque cruzado, Gr
 - [x] Carga de saldo para la demo sin exponer el secreto HMAC: `npm run cargar-saldo`.
 
 ### 6.2, 6.4 y 6.5 — Alcance funcional
-- [ ] Estimación previa sin crear el viaje (`POST /viajes/estimacion`) y tarifa final desde recorrido y duración reales con la misma función. (Los tests de tarifa con distancia cero y con máximo permitido ya están en `tests/dominio/tarifa.test.js`.)
+- [~] Estimación previa sin crear el viaje: **hecha** (`POST /viajes/estimacion`, misma función y tarifa que la solicitud; la web la muestra en Pedir). Falta la tarifa final desde el recorrido y la duración reales. (Los tests de tarifa con distancia cero y con máximo permitido ya están en `tests/dominio/tarifa.test.js`.)
 - [ ] Asignación automática al crear el viaje (hoy el pasajero llama a mano a `/ofertas`).
 - [ ] Tiempo real por SSE con `Last-Event-ID` (estado del viaje + posición del chofer). `EventSource` no permite el header `Authorization`: ticket corto de un solo uso, nunca el JWT en la URL.
 - [x] Test: la ubicación del chofer sólo la ve su pasajero y sólo mientras el viaje está activo (`tests/integracion/nombresYUbicacionChofer.test.js`). La del pasajero no se expone en ningún endpoint.
@@ -209,7 +209,7 @@ Prioridad (27/11): lo de la rúbrica de Puljiz que no llegó (ataque cruzado, Gr
 Además de lo de Puljiz. Códigos RF/RNF del Word. El alcance exacto de cada entrega lo fija el Acta de Alcance: esto es el máximo posible, no todo es obligatorio para TP1.
 
 ### TP1 · Contrato ejecutable
-- [~] **OpenAPI** versionado (hecho: `docs/openapi.yaml` 0.11.0, + Swagger UI en el compose con `--profile docs`; falta validar las respuestas en los tests) (`docs/openapi.yaml`) con parámetros, esquemas, validaciones, ejemplos, respuestas de éxito y error (`{ error: { codigo, requestId } }`) y esquema de seguridad Bearer; visualización local (p. ej. Swagger UI en `GET /docs`, deshabilitada en producción). Los esquemas Zod y el contrato no pueden divergir.
+- [~] **OpenAPI** versionado (hecho: `docs/openapi.yaml` 0.12.0, + Swagger UI en el compose con `--profile docs`; falta validar las respuestas en los tests) (`docs/openapi.yaml`) con parámetros, esquemas, validaciones, ejemplos, respuestas de éxito y error (`{ error: { codigo, requestId } }`) y esquema de seguridad Bearer; visualización local (p. ej. Swagger UI en `GET /docs`, deshabilitada en producción). Los esquemas Zod y el contrato no pueden divergir.
 - [ ] Tests de integración que validen las respuestas contra el OpenAPI.
 - [ ] Mocks/stubs de las dependencias de otros módulos hechos desde **sus** OpenAPI, con casos de éxito, error y demora. Encajan como adaptadores en memoria de los puertos (también cumplen el bloque 2 de Puljiz).
 - [ ] **Dockerfile** del backend (multi-stage, usuario no root, `HEALTHCHECK` contra `/health`) y servicio `api` en `docker-compose.yml`. La secuencia de clon limpio de Puljiz tiene que seguir funcionando igual.

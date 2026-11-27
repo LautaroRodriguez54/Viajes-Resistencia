@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import CampoLugar from '../../componentes/CampoLugar.jsx';
 import Mapa from '../../componentes/Mapa.jsx';
@@ -7,14 +7,15 @@ import { api } from '../../api/cliente.js';
 import { lugares, recordarNombre } from '../../datos/lugares.js';
 import { usarMapaReal } from '../../mapas/config.js';
 import { conClave, usarClaveIdempotente, usarConsultaPeriodica } from '../../ganchos.js';
-import { formatearPesos } from '../../formato.js';
+import { formatearPesos, formatearPesosEnteros } from '../../formato.js';
 
 // Pantalla 2 del diseño. POST /viajes (el precio lo calcula el servidor) y enseguida
 // POST /viajes/:id/ofertas, cada uno con su Idempotency-Key. Saldo: GET /billetera/me.
 // Origen y destino: { nombre, latitud, longitud }. Con el mapa real se eligen escribiendo la dirección
 // (CampoLugar, Photon); con VITE_MAPA=simulado, de la lista fija. Al backend van sólo las coordenadas.
-// Pendiente en el backend: POST /viajes/estimacion (precio antes de pedir) y la
-// asignación automática; hasta entonces la web hace los dos pasos.
+// Con los dos puntos elegidos, POST /viajes/estimacion muestra el precio aproximado (lo calcula el
+// servidor con la misma tarifa que al pedir). Pendiente en el backend: la asignación automática;
+// hasta entonces la web hace los dos pasos.
 const porId = (id) => lugares.find((l) => l.id === id);
 
 // Estado de la conexión del pasajero, como el "Disponible" del chofer. Sale de la consulta del saldo
@@ -42,6 +43,25 @@ export default function PedirViaje() {
 
   const completo = Boolean(origen && destino);
   const mismoLugar = completo && origen.latitud === destino.latitud && origen.longitud === destino.longitud;
+
+  // Precio aproximado: se pide al servidor cada vez que cambian los puntos (con una pausa corta, por si el
+  // pasajero está cambiando de lugar). El de una consulta vieja no pisa al de la nueva.
+  const [estimacion, setEstimacion] = useState(null);
+  const [errorEstimacion, setErrorEstimacion] = useState(null);
+  const claveRecorrido = completo ? [origen.latitud, origen.longitud, destino.latitud, destino.longitud].join(',') : null;
+  useEffect(() => {
+    setEstimacion(null);
+    setErrorEstimacion(null);
+    if (!claveRecorrido || mismoLugar) return undefined;
+    let vigente = true;
+    const temporizador = setTimeout(() => {
+      api.estimarViaje({ latitud: origen.latitud, longitud: origen.longitud }, { latitud: destino.latitud, longitud: destino.longitud })
+        .then((e) => { if (vigente) setEstimacion(e); })
+        .catch((e) => { if (vigente) setErrorEstimacion(e.message); });
+    }, 250);
+    return () => { vigente = false; clearTimeout(temporizador); };
+  }, [claveRecorrido, mismoLugar]);
+  const saldoCorto = estimacion && billetera && billetera.saldoCentavos < estimacion.importeCentavos;
 
   function elegir(setter) {
     return (lugar) => {
@@ -127,11 +147,30 @@ export default function PedirViaje() {
           </>
         )}
 
-        <div className="pedir__resumen">
-          <span className="pedir__detalle">
-            {completo ? 'El precio lo calcula el servidor al pedir.' : 'Elegí dónde te buscamos y a dónde vas.'}
-          </span>
+        <div className="pedir__resumen pedir__resumen--estimacion" data-testid="pedir-estimacion">
+          {!completo || mismoLugar ? (
+            <span className="pedir__detalle">Elegí dónde te buscamos y a dónde vas.</span>
+          ) : estimacion ? (
+            <>
+              <span className="pedir__precio" data-testid="pedir-precio">≈ {formatearPesosEnteros(estimacion.importeCentavos)}</span>
+              <span className="pedir__detalle">
+                {estimacion.kilometros.toLocaleString('es-AR', { maximumFractionDigits: 1 })} km · unos {estimacion.minutos} min · precio aproximado
+              </span>
+            </>
+          ) : errorEstimacion ? (
+            <span className="pedir__detalle texto-advertencia">{errorEstimacion}</span>
+          ) : (
+            <>
+              <span className="esqueleto esqueleto--monto" aria-label="Calculando el precio" />
+              <span className="pedir__detalle">Calculando el precio…</span>
+            </>
+          )}
         </div>
+        {saldoCorto && (
+          <p className="aviso aviso--advertencia" data-testid="pedir-saldo-corto">
+            Tu saldo no alcanza para este viaje. Podés pedirlo igual: si al llegar sigue sin alcanzar, no se cobra nada y queda pendiente de pago.
+          </p>
+        )}
 
         {mismoLugar && <p role="alert" className="aviso aviso--advertencia">Elegí un destino distinto del origen.</p>}
         {error && <p role="alert" className="aviso aviso--peligro" data-testid="pedir-error">{error}</p>}
