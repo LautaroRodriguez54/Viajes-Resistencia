@@ -82,3 +82,27 @@ test('recolector descarta lote con error de FK 23503 sin bloquear lotes posterio
   assert.deepEqual(lotesOk.flat(), ['ch-ok']);
   assert.deepEqual(recolector.obtenerEstadisticas(), { pendientes: 0, insertados: 1, descartados: 1 });
 });
+
+test('recolector no escribe dos veces el mismo lote cuando un volcado completo se encadena a uno en curso', async () => {
+  const escritos = [];
+  const pool = {
+    async query(_sql, params) {
+      await new Promise((resolver) => setTimeout(resolver, 30));
+      escritos.push(...params[0]);
+      return { rows: [] };
+    },
+  };
+  const recolector = crearRecolectorHistorialUbicaciones({ pool, intervaloMs: 5_000, loteMax: 3, bufferMax: 100 });
+  let n = 0;
+  const encolar = () => recolector.encolar({ choferId: `ch-${n++}`, latitud: -27.45, longitud: -58.98 });
+
+  for (let i = 0; i < 3; i += 1) encolar(); // volcado A con ch-0..ch-2
+  encolar(); encolar(); // ch-3 y ch-4: menos de un lote, A no los toma
+  recolector.vaciar({ todo: true }); // como el temporizador: B queda encadenado detrás de A
+  await new Promise((resolver) => setTimeout(resolver, 35)); // A terminó; B escribe ch-3 y ch-4
+  encolar(); // ch-5 completa un lote: antes arrancaba un volcado en paralelo con B
+  await recolector.detener();
+
+  assert.deepEqual(escritos, ['ch-0', 'ch-1', 'ch-2', 'ch-3', 'ch-4', 'ch-5']);
+  assert.deepEqual(recolector.obtenerEstadisticas(), { pendientes: 0, insertados: 6, descartados: 0 });
+});
