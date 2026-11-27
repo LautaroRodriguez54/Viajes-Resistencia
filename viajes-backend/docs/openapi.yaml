@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Viajes Resistencia · API del backend
-  version: 0.10.0
+  version: 0.11.0
   summary: Viajes a demanda con billetera y pagos (grupo 4, variante D).
   description: |
     Contrato HTTP del backend. Es la **fuente de verdad** de la API: `docs/api.md` sólo lo resume.
@@ -901,6 +901,17 @@ paths:
                       heapUsed: { type: number }
                       external: { type: number }
                   uptimeSegundos: { type: number }
+                  negocio:
+                    type: object
+                    description: Conteos para el panel del administrador (sin bloqueos). "Disponibles" son los habilitados, disponibles y con ubicación reciente.
+                    additionalProperties: false
+                    required: [viajesActivos, pagosPendientes, choferesHabilitados, choferesPorHabilitar, choferesDisponibles]
+                    properties:
+                      viajesActivos: { type: integer, minimum: 0 }
+                      pagosPendientes: { type: integer, minimum: 0 }
+                      choferesHabilitados: { type: integer, minimum: 0 }
+                      choferesPorHabilitar: { type: integer, minimum: 0 }
+                      choferesDisponibles: { type: integer, minimum: 0 }
         '400': { $ref: '#/components/responses/EntradaInvalida' }
         '401': { $ref: '#/components/responses/NoAutenticado' }
         '403': { $ref: '#/components/responses/Prohibido' }
@@ -1303,20 +1314,38 @@ components:
       properties:
         latitud: { type: number, minimum: -90, maximum: 90 }
         longitud: { type: number, minimum: -180, maximum: 180 }
+    PuntoConNombre:
+      description: Punto de la solicitud. `nombre` es opcional y sólo para mostrar (lo ven el chofer, el operador y el historial); la tarifa usa las coordenadas.
+      type: object
+      additionalProperties: false
+      required: [latitud, longitud]
+      properties:
+        latitud: { type: number, minimum: -90, maximum: 90 }
+        longitud: { type: number, minimum: -180, maximum: 180 }
+        nombre: { type: string, minLength: 1, maxLength: 120, description: 'Se recorta; sin caracteres de control.' }
+    PuntoDelViaje:
+      description: Punto de un viaje en las respuestas. `nombre` es null si el pasajero no lo mandó (o si el viaje es anterior a la migración 007).
+      type: object
+      additionalProperties: false
+      required: [latitud, longitud, nombre]
+      properties:
+        latitud: { type: number }
+        longitud: { type: number }
+        nombre: { type: [string, 'null'] }
     SolicitudViaje:
       type: object
       additionalProperties: false
       required: [origen, destino]
       properties:
-        origen: { $ref: '#/components/schemas/Punto' }
-        destino: { $ref: '#/components/schemas/Punto' }
+        origen: { $ref: '#/components/schemas/PuntoConNombre' }
+        destino: { $ref: '#/components/schemas/PuntoConNombre' }
     EstadoViaje:
       type: string
       enum: [solicitado, asignado, chofer_en_camino, en_curso, finalizado, pago_pendiente, cancelado_pasajero, cancelado_chofer, cancelado_operador, sin_choferes_disponibles]
     Viaje:
       type: object
       additionalProperties: false
-      required: [id, estado, pasajeroId, choferId, estimacionCentavos, tarifaFinalCentavos, solicitadoAt, tieneOfertaVigente]
+      required: [id, estado, pasajeroId, choferId, estimacionCentavos, tarifaFinalCentavos, solicitadoAt, origen, destino, tieneOfertaVigente, chofer]
       properties:
         id: { type: string, format: uuid }
         estado: { $ref: '#/components/schemas/EstadoViaje' }
@@ -1325,12 +1354,42 @@ components:
         estimacionCentavos: { type: integer, minimum: 0 }
         tarifaFinalCentavos: { type: [integer, 'null'], minimum: 0 }
         solicitadoAt: { type: string, format: date-time }
+        origen: { $ref: '#/components/schemas/PuntoDelViaje' }
+        destino: { $ref: '#/components/schemas/PuntoDelViaje' }
         tieneOfertaVigente: { type: boolean, description: Indica si existe una oferta pendiente no vencida para el viaje. }
+        chofer:
+          description: >-
+            Vehículo y última posición del chofer, sólo mientras el viaje está `asignado`, `chofer_en_camino` o `en_curso`.
+            Antes de la asignación y después de terminar es null: la posición del chofer no se expone fuera del viaje (6.4).
+          oneOf:
+            - type: 'null'
+            - type: object
+              additionalProperties: false
+              required: [vehiculo, ubicacion]
+              properties:
+                vehiculo:
+                  type: object
+                  additionalProperties: false
+                  required: [patente, marca, modelo]
+                  properties:
+                    patente: { type: string }
+                    marca: { type: string }
+                    modelo: { type: string }
+                ubicacion:
+                  oneOf:
+                    - type: 'null'
+                    - type: object
+                      additionalProperties: false
+                      required: [latitud, longitud, reportadaAt]
+                      properties:
+                        latitud: { type: number }
+                        longitud: { type: number }
+                        reportadaAt: { type: string, format: date-time }
     ViajeConEstimacion:
       description: Lo mismo que `Viaje` más el detalle de la estimación (sólo al crearlo).
       type: object
       additionalProperties: false
-      required: [id, estado, pasajeroId, choferId, estimacionCentavos, tarifaFinalCentavos, solicitadoAt, estimacion]
+      required: [id, estado, pasajeroId, choferId, estimacionCentavos, tarifaFinalCentavos, solicitadoAt, origen, destino, estimacion]
       properties:
         id: { type: string, format: uuid }
         estado: { $ref: '#/components/schemas/EstadoViaje' }
@@ -1339,6 +1398,8 @@ components:
         estimacionCentavos: { type: integer, minimum: 0 }
         tarifaFinalCentavos: { type: [integer, 'null'], minimum: 0 }
         solicitadoAt: { type: string, format: date-time }
+        origen: { $ref: '#/components/schemas/PuntoDelViaje' }
+        destino: { $ref: '#/components/schemas/PuntoDelViaje' }
         estimacion:
           type: object
           additionalProperties: false
@@ -1374,8 +1435,8 @@ components:
         viajeId: { type: string, format: uuid }
         venceAt: { type: string, format: date-time }
         estimacionCentavos: { type: integer, minimum: 0 }
-        origen: { $ref: '#/components/schemas/Punto' }
-        destino: { $ref: '#/components/schemas/Punto' }
+        origen: { $ref: '#/components/schemas/PuntoDelViaje' }
+        destino: { $ref: '#/components/schemas/PuntoDelViaje' }
     ViajeDelChofer:
       type: object
       additionalProperties: false
@@ -1384,8 +1445,8 @@ components:
         id: { type: string, format: uuid }
         estado: { type: string, enum: [asignado, chofer_en_camino, en_curso] }
         estimacionCentavos: { type: integer, minimum: 0 }
-        origen: { $ref: '#/components/schemas/Punto' }
-        destino: { $ref: '#/components/schemas/Punto' }
+        origen: { $ref: '#/components/schemas/PuntoDelViaje' }
+        destino: { $ref: '#/components/schemas/PuntoDelViaje' }
     ResultadoCobro:
       type: object
       additionalProperties: false
@@ -1402,8 +1463,8 @@ components:
         viajeId: { type: string, format: uuid }
         choferId: { type: [string, 'null'], format: uuid }
         estado: { $ref: '#/components/schemas/EstadoViaje' }
-        origen: { $ref: '#/components/schemas/Punto' }
-        destino: { $ref: '#/components/schemas/Punto' }
+        origen: { $ref: '#/components/schemas/PuntoDelViaje' }
+        destino: { $ref: '#/components/schemas/PuntoDelViaje' }
         estimacionCentavos: { type: integer, minimum: 0 }
         tarifaFinalCentavos: { type: [integer, 'null'], minimum: 0 }
         solicitadoAt: { type: string, format: date-time }
@@ -1463,5 +1524,5 @@ components:
         estimacionCentavos: { type: integer, minimum: 0 }
         tarifaFinalCentavos: { type: [integer, 'null'], minimum: 0 }
         solicitadoAt: { type: string, format: date-time }
-        origen: { $ref: '#/components/schemas/Punto' }
-        destino: { $ref: '#/components/schemas/Punto' }
+        origen: { $ref: '#/components/schemas/PuntoDelViaje' }
+        destino: { $ref: '#/components/schemas/PuntoDelViaje' }

@@ -677,3 +677,191 @@ h1 { margin: 0; font-weight: 600; }
   }
   .mapa--chofer > svg { top: -14%; bottom: auto; height: 114%; transform: translateX(-45%); }
 }
+
+/* Auto del chofer en el mapa real: se desliza entre una posición y la siguiente (la web la actualiza
+   cada pocos segundos). Durante el zoom Leaflet anima por su cuenta: ahí no hay transición. */
+.marcador-auto { filter: drop-shadow(0 2px 4px rgba(32, 33, 36, 0.35)); transition: transform 2.4s linear; }
+.marcador-auto svg { display: block; width: 30px; height: 30px; }
+.leaflet-zoom-anim .marcador-auto { transition: none; }
+
+/* Comprobante de un viaje (Mi viaje, billetera y chofer). Parece un recibo: borde punteado entre el
+   recorrido y el total. Al imprimir sólo se ve el comprobante. */
+.comprobante {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--borde-tarjeta);
+  border-radius: var(--radio-control);
+  background: var(--tarjeta);
+}
+.comprobante__encabezado { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.comprobante__recorrido { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; position: relative; }
+.comprobante__recorrido li { display: flex; align-items: center; gap: 10px; font-weight: 500; }
+.comprobante__recorrido::before {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 14px;
+  bottom: 14px;
+  border-left: 2px dotted var(--borde-input);
+}
+.comprobante__punto { flex: none; width: 12px; height: 12px; border-radius: 50%; position: relative; }
+.comprobante__punto--origen { border: 3px solid #202124; background: #FFFFFF; }
+.comprobante__punto--destino { background: #D93025; }
+.comprobante__datos { margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; }
+.comprobante__datos div { display: flex; flex-direction: column; gap: 2px; }
+.comprobante__datos dt { font-size: 13px; color: var(--texto-secundario); }
+.comprobante__datos dd { margin: 0; }
+.comprobante__id { font-variant-numeric: tabular-nums; letter-spacing: 0.04em; }
+.comprobante__total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding-top: 14px;
+  border-top: 2px dashed var(--borde-tarjeta);
+  font-size: 15px;
+}
+.comprobante__total strong { font-size: 24px; font-weight: 600; }
+.comprobante__imprimir { align-self: flex-start; }
+@media print {
+  body * { visibility: hidden; }
+  .comprobante, .comprobante * { visibility: visible; }
+  .comprobante { position: absolute; left: 0; top: 0; width: 360px; border-color: #999; }
+  .comprobante__imprimir { display: none; }
+}
+
+/* Mi viaje: el chofer asignado (auto, vehículo, minutos y patente como en una chapa). */
+.mi-viaje__chofer { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: var(--radio-control); background: var(--fondo); }
+.mi-viaje__auto {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--acento-fondo) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3E%3Crect x='9.5' y='6' width='11' height='18' rx='4' fill='%233346D3'/%3E%3Crect x='11' y='9' width='8' height='4' rx='1.5' fill='%23C9D0F7'/%3E%3Crect x='11' y='18' width='8' height='3' rx='1.5' fill='%23C9D0F7'/%3E%3C/svg%3E") center / 26px no-repeat;
+}
+.mi-viaje__chofer .lista__texto { flex: 1; min-width: 0; }
+.patente {
+  flex: none;
+  padding: 3px 8px;
+  border: 2px solid #202124;
+  border-radius: 6px;
+  background: #FFFFFF;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Billetera: cada viaje es una fila que se toca y abre su comprobante. */
+.lista li.lista__desplegable { display: block; padding: 0; }
+/* Las reglas de .lista li no aplican adentro: el botón de la fila tiene que poder partir el texto (el
+   nowrap es sólo para el monto) y el comprobante tiene sus propias listas. */
+.lista li.lista__desplegable > * { white-space: normal; }
+.lista .comprobante li { display: flex; justify-content: flex-start; padding: 0; border: 0; }
+.lista__fila {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  padding: 12px 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.lista__fila .lista__texto { flex: 1; }
+.lista__fila > :last-child { flex: none; white-space: nowrap; }
+.lista__fila:hover .lista__texto > :first-child { color: var(--acento); }
+.lista__desplegable .comprobante { margin: 0 0 14px; }
+
+/* Ícono redondo por tipo de fila: un auto para los viajes y una flecha para las cargas. */
+.icono-lista { flex: none; width: 32px; height: 32px; border-radius: 50%; background: center / 20px no-repeat; }
+.icono-lista--viaje {
+  background-color: var(--acento-fondo);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3E%3Crect x='9.5' y='6' width='11' height='18' rx='4' fill='%233346D3'/%3E%3Crect x='11' y='9' width='8' height='4' rx='1.5' fill='%23C9D0F7'/%3E%3C/svg%3E");
+}
+.icono-lista--carga {
+  background-color: var(--exito-fondo);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231F7A4D' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 5v14M5 12l7 7 7-7'/%3E%3C/svg%3E");
+}
+.lista li > .lista__texto { flex: 1; }
+
+/* Estado vacío: un dibujo simple, una frase y qué hacer. */
+.vacio { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 12px 0 4px; text-align: center; }
+.vacio__icono { width: 56px; height: 56px; border-radius: 50%; background: var(--acento-fondo) center / 34px no-repeat; }
+.vacio__icono--viaje { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3E%3Crect x='9.5' y='6' width='11' height='18' rx='4' fill='%233346D3'/%3E%3Crect x='11' y='9' width='8' height='4' rx='1.5' fill='%23C9D0F7'/%3E%3Crect x='11' y='18' width='8' height='3' rx='1.5' fill='%23C9D0F7'/%3E%3C/svg%3E"); }
+.vacio__icono--choferes { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233346D3' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E"); }
+
+/* Placeholders de carga. */
+.esqueleto {
+  display: inline-block;
+  border-radius: 8px;
+  background: linear-gradient(90deg, var(--separador) 25%, #F7F5F1 50%, var(--separador) 75%) 0 0 / 200% 100%;
+  animation: brillo 1.3s ease-in-out infinite;
+}
+.esqueleto--monto { width: 180px; height: 40px; }
+.esqueleto--monto-chico { width: 64px; height: 16px; }
+.esqueleto--icono { width: 32px; height: 32px; border-radius: 50%; }
+.esqueleto--linea { width: 70%; height: 14px; }
+.esqueleto--corta { width: 40%; height: 11px; }
+.cargando { margin: 0; padding: 0; list-style: none; }
+.cargando li { display: flex; align-items: center; gap: 12px; padding: 12px 0; }
+.cargando__texto { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+@keyframes brillo { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .esqueleto { animation: none; }
+  .marcador-auto { transition: none; }
+}
+
+/* La oferta entra desde arriba, como una notificación. */
+.oferta { animation: entra-oferta 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.2) both; }
+@keyframes entra-oferta {
+  from { opacity: 0; transform: translate(-50%, -24px) scale(0.97); }
+  to { opacity: 1; transform: translate(-50%, 0) scale(1); }
+}
+/* El paso actual del progreso de Mi viaje late suave: se ve que el viaje sigue vivo. */
+.progreso li.actual::before { animation: late 1.6s ease-in-out infinite; }
+@keyframes late { 50% { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) {
+  .oferta, .progreso li.actual::before { animation: none; }
+}
+
+/* Panel del administrador: tarjetas de métricas en vivo. */
+.panel { display: flex; flex-direction: column; gap: 14px; }
+.panel__encabezado { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.panel__encabezado h1 { margin: 0; font-size: 22px; font-weight: 600; }
+.panel__metricas { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+.metrica {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: var(--radio-control);
+  background: var(--fondo);
+  border: 1px solid transparent;
+}
+.metrica__titulo { font-size: 13px; color: var(--texto-secundario); }
+.metrica__valor { font-size: 28px; font-weight: 600; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.metrica__detalle { font-size: 12px; color: var(--texto-secundario); }
+.metrica--bien .metrica__valor { color: var(--exito); }
+.metrica--mal { border-color: var(--peligro); background: var(--peligro-fondo); }
+.metrica--mal .metrica__valor { color: var(--peligro); }
+.metrica--atencion .metrica__valor { color: var(--advertencia); }
+.metrica__grafica { width: 100%; height: 32px; margin-top: 4px; overflow: visible; }
+.metrica__linea { fill: none; stroke: var(--acento); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.metrica__objetivo { stroke: var(--peligro); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; opacity: 0.6; }
+.punto-vivo {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--exito);
+  animation: late 1.6s ease-in-out infinite;
+}
+.punto-vivo--apagado { background: var(--peligro); animation: none; }
+@media (prefers-reduced-motion: reduce) { .punto-vivo { animation: none; } }

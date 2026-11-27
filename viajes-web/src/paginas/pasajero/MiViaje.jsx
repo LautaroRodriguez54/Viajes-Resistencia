@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import Mapa from '../../componentes/Mapa.jsx';
+import Comprobante from '../../componentes/Comprobante.jsx';
 import { api } from '../../api/cliente.js';
-import { nombreDelPunto } from '../../datos/lugares.js';
+import { distanciaMetros, nombreDelPunto } from '../../datos/lugares.js';
 import { conClave, usarClaveIdempotente, usarConsultaPeriodica } from '../../ganchos.js';
 import { formatearPesos } from '../../formato.js';
 
@@ -10,7 +11,8 @@ import { formatearPesos } from '../../formato.js';
 // Qué viaje se sigue: el que se acaba de pedir (llega en el estado de la navegación desde Pedir) o,
 // si se entra desde el menú, el último del historial (GET /viajes?limite=1) mientras siga activo
 // o deba el pago. El historial puede ir unos cientos de ms atrasado, por eso Pedir pasa el id.
-// Pendiente en el backend: patente, vehículo y minutos hasta el retiro en el viaje.
+// Con chofer asignado, GET /viajes/:id trae su vehículo y su última posición (sólo para este pasajero y sólo
+// mientras el viaje está activo): el auto se mueve en el mapa y se estiman los minutos.
 const pasos = ['Pedido', 'Asignado', 'En camino', 'En viaje'];
 
 // El pasajero puede cancelar hasta que el chofer lo levanta (regla de dominio, decidirCancelacion).
@@ -22,6 +24,9 @@ const activos = {
   chofer_en_camino: { paso: 2, chip: 'Chofer en camino', titulo: 'Tu chofer va para el retiro' },
   en_curso: { paso: 3, chip: 'En viaje', titulo: 'Vas camino al destino' },
 };
+
+// A 30 km/h, la velocidad promedio de la tarifa de desarrollo: 500 m por minuto.
+const minutosHasta = (desde, hasta) => Math.max(1, Math.round(distanciaMetros(desde, hasta) / 500));
 
 const terminales = {
   finalizado: { chip: 'Pagado', clase: 'chip--exito', titulo: 'Llegaste' },
@@ -127,25 +132,37 @@ export default function MiViaje() {
   // La oferta en curso la informa el servidor. 'ofrecido' cubre los 2 s hasta la próxima consulta
   // después de pedir, y el hueco entre que una oferta vence y el backend se la ofrece al siguiente.
   const ofertaEnCurso = Boolean(viaje?.tieneOfertaVigente) || busqueda === 'ofrecido';
+  // Los nombres los guarda el backend desde la migración 007; si no, los que pasó Pedir.
+  const nombreOrigen = viaje?.origen ? nombreDelPunto(viaje.origen) : guardado.origen;
+  const nombreDestino = viaje?.destino ? nombreDelPunto(viaje.destino) : guardado.destino;
+  const chofer = conChofer ? viaje.chofer : null;
+  const ubicacionChofer = chofer?.ubicacion ?? null;
+  const origenPunto = viaje?.origen ?? guardado.origenPunto;
+  const destinoPunto = viaje?.destino ?? guardado.destinoPunto;
 
   return (
-    // La posición del chofer no llega al pasajero (no hay endpoint todavía): el mapa real muestra retiro y destino.
     <Mapa
-      etiquetaDestino={guardado.destino} chofer={conChofer ? { etiqueta: 'Tu chofer' } : undefined}
-      origen={guardado.origenPunto} destino={guardado.destinoPunto}
+      etiquetaDestino={nombreDestino} chofer={conChofer ? { etiqueta: 'Tu chofer' } : undefined}
+      origen={origenPunto} destino={destinoPunto} auto={ubicacionChofer}
     >
       <section
         className="tarjeta tarjeta--flotante pedir mi-viaje montos" aria-labelledby="titulo-viaje"
         data-testid="mi-viaje" data-estado={viaje?.estado ?? 'cargando'}
       >
-        {!viaje && !error && <p className="pedir__detalle">Cargando tu viaje…</p>}
+        {!viaje && !error && (
+          <div className="cargando__texto" aria-busy="true" aria-label="Cargando tu viaje">
+            <span className="esqueleto esqueleto--linea esqueleto--corta" />
+            <span className="esqueleto esqueleto--linea" />
+            <span className="esqueleto esqueleto--linea" />
+          </div>
+        )}
         {error && <p role="alert" className="aviso aviso--peligro">{error.message} Reintentamos solos cada 2 s.</p>}
 
         {activo && (
           <>
             <span className={activo.paso === 0 ? 'chip chip--acento' : 'chip chip--exito'} data-testid="mi-viaje-chip">{activo.chip}</span>
             <h1 id="titulo-viaje">{activo.titulo}</h1>
-            <p className="pedir__detalle">{guardado.origen} → {guardado.destino}</p>
+            <p className="pedir__detalle">{nombreOrigen} → {nombreDestino}</p>
             <ol className="progreso" aria-label="Progreso">
               {pasos.map((paso, i) => (
                 <li
@@ -157,6 +174,22 @@ export default function MiViaje() {
                 </li>
               ))}
             </ol>
+            {chofer && (
+              <div className="mi-viaje__chofer" data-testid="mi-viaje-chofer">
+                <span className="mi-viaje__auto" aria-hidden="true" />
+                <span className="lista__texto">
+                  <span>{chofer.vehiculo.marca} {chofer.vehiculo.modelo}</span>
+                  <span className="lista__detalle">
+                    {ubicacionChofer
+                      ? viaje.estado === 'en_curso'
+                        ? `Llegan en unos ${minutosHasta(ubicacionChofer, destinoPunto)} min`
+                        : `Está a unos ${minutosHasta(ubicacionChofer, origenPunto)} min del retiro`
+                      : 'Ubicando al chofer…'}
+                  </span>
+                </span>
+                <span className="patente" data-testid="mi-viaje-patente">{chofer.vehiculo.patente}</span>
+              </div>
+            )}
             <div className="mi-viaje__precio">
               <span className="pedir__detalle">Precio estimado</span>
               <span data-testid="mi-viaje-precio">{formatearPesos(viaje.estimacionCentavos)}</span>
@@ -212,11 +245,14 @@ export default function MiViaje() {
           <>
             <span className={`chip ${terminal.clase}`} data-testid="mi-viaje-chip">{terminal.chip}</span>
             <h1 id="titulo-viaje">{terminal.titulo}</h1>
-            <p className="pedir__detalle">{guardado.origen} → {guardado.destino}</p>
+            <p className="pedir__detalle">{nombreOrigen} → {nombreDestino}</p>
             {viaje.estado === 'finalizado' && (
-              <p className="aviso" data-testid="mi-viaje-cobro">
-                Se cobraron <strong>{formatearPesos(viaje.tarifaFinalCentavos ?? viaje.estimacionCentavos)}</strong> de tu billetera.
-              </p>
+              <>
+                <p className="aviso" data-testid="mi-viaje-cobro">
+                  Se cobraron <strong>{formatearPesos(viaje.tarifaFinalCentavos ?? viaje.estimacionCentavos)}</strong> de tu billetera.
+                </p>
+                <Comprobante viaje={viaje} />
+              </>
             )}
             {viaje.estado === 'sin_choferes_disponibles' && (
               <p className="aviso aviso--advertencia" data-testid="mi-viaje-sin-choferes-final">

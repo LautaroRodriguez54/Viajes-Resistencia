@@ -55,10 +55,10 @@ export function crearRutasAdministracion({
     if (!parsed.success) throw new ErrorDeDominio('ENTRADA_INVALIDA', 'Tarifa inválida: centavos enteros y el máximo no puede ser menor que la base.');
     res.status(201).json({ tarifa: await reemplazarTarifa(parsed.data) });
   });
-  router.get('/metricas', requiereAutenticacion(tokens), soloAdministrador, (req, res) => {
+  router.get('/metricas', requiereAutenticacion(tokens), soloAdministrador, async (req, res) => {
     const parsed = reiniciarQuery.safeParse(req.query?.reiniciar);
     if (!parsed.success) throw new ErrorDeDominio('ENTRADA_INVALIDA', 'El parámetro reiniciar debe ser true o false.');
-    res.status(200).json(obtenerMetricas({ reiniciar: parsed.data === 'true' }));
+    res.status(200).json(await obtenerMetricas({ reiniciar: parsed.data === 'true' }));
   });
   return router;
 }
