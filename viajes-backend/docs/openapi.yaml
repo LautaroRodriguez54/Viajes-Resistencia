@@ -988,7 +988,7 @@ paths:
         content:
           application/json:
             schema: { $ref: '#/components/schemas/SolicitudTarifa' }
-            example: { baseCentavos: 600, porKilometroCentavos: 300, porMinutoCentavos: 120, maximoViajeCentavos: 200000 }
+            example: { baseCentavos: 150000, porKilometroCentavos: 90000, porMinutoCentavos: 18000, maximoViajeCentavos: 10000000 }
       responses:
         '201':
           description: Tarifa nueva activa

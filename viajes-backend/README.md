@@ -70,12 +70,12 @@ En producción el saldo lo acredita el proveedor de pagos con un webhook firmado
 Con el servidor levantado (`npm run dev`):
 
 ```bash
-npm run cargar-saldo -- pasajero@demo.local 150000
+npm run cargar-saldo -- pasajero@demo.local 5000000
 npm run cargar-saldo -- <pasajeroId> 50000 --url http://localhost:3000
 ```
 
 - El destino es el email de un pasajero registrado (el script busca su id en la base) o directamente su id (uuid).
-- El importe va en **centavos enteros**: `150000` son $1500.
+- El importe va en **centavos enteros**: `5000000` son $ 50.000 (con la tarifa de desarrollo, un viaje en la ciudad cuesta entre $ 3.000 y $ 8.000).
 - Cada ejecución genera un `eventoExternoId` nuevo (`demo-<uuid>`), así que dos ejecuciones acreditan dos veces. El webhook sigue descartando un mismo evento repetido.
 - Se niega a correr con `NODE_ENV=production`.
 
