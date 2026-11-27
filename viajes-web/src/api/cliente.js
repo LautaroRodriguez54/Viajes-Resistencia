@@ -116,10 +116,17 @@ export const api = {
   rechazarOferta: (ofertaId, clave) => pedir('POST', `/ofertas/${ofertaId}/rechazar`, { clave }),
   avanzarEstado: (viajeId, estado) => pedir('POST', `/choferes/viajes/${viajeId}/estado`, { cuerpo: { estado } }),
   finalizar: (viajeId, clave) => pedir('POST', `/choferes/viajes/${viajeId}/finalizar`, { clave }),
+  // Cancelación del chofer (#25): sólo en asignado o en camino; el motivo es opcional (1 a 200 caracteres).
+  cancelarComoChofer: (viajeId, motivo, clave) => pedir('POST', `/choferes/viajes/${viajeId}/cancelar`, { cuerpo: motivo ? { motivo } : {}, clave }),
   // Cancelación del pasajero (#25): sin motivo obligatorio. Responde { viajeId, estado, canceladoAt, motivo }.
   cancelarViaje: (viajeId, clave) => pedir('POST', `/viajes/${viajeId}/cancelar`, { cuerpo: {}, clave }),
   // Operador (#26): viajes activos, cancelar con motivo obligatorio (3 a 200 caracteres) y reintentar un cobro pendiente.
   viajesActivos: () => pedir('GET', '/operador/viajes?estado=activos').then((r) => r.viajes),
   cancelarComoOperador: (viajeId, motivo, clave) => pedir('POST', `/operador/viajes/${viajeId}/cancelar`, { cuerpo: { motivo }, clave }),
   reintentarCobroOperador: (viajeId, clave) => pedir('POST', `/operador/viajes/${viajeId}/reintentar-cobro`, { clave }),
+  // Administrador: choferes por habilitar, habilitación y tarifa (guardar crea una fila nueva activa).
+  choferesAdmin: (estado = 'pendientes') => pedir('GET', `/admin/choferes?estado=${estado}`).then((r) => r.choferes),
+  habilitarChofer: (choferId, habilitado) => pedir('PATCH', `/admin/choferes/${choferId}/habilitacion`, { cuerpo: { habilitado } }),
+  tarifaActiva: () => pedir('GET', '/admin/tarifa').then((r) => r.tarifa),
+  guardarTarifa: (tarifa, clave) => pedir('POST', '/admin/tarifa', { cuerpo: tarifa, clave }).then((r) => r.tarifa),
 };

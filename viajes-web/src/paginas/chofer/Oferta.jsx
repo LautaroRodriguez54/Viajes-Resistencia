@@ -18,7 +18,13 @@ import { formatearDistancia, formatearPesos } from '../../formato.js';
 //   venció o la tomó otro, llega OFERTA_NO_DISPONIBLE y sólo se oculta.
 // - Vencimiento: lo decide el servidor (OFERTA_TTL_SEGUNDOS). Cuando la cuenta llega a 0
 //   la tarjeta se oculta; la consulta siguiente ya no devuelve la oferta.
+// - Cancelar: POST /choferes/viajes/:id/cancelar con Idempotency-Key, sólo mientras el viaje
+//   está asignado o en camino (regla de dominio, decidirCancelacion). Pide confirmación en la
+//   tarjeta y un motivo opcional. Después el chofer queda no disponible hasta prender el interruptor.
 const duracionOferta = 30;
+
+const cancelablesPorChofer = new Set(['asignado', 'chofer_en_camino']);
+const motivosChofer = ['El pasajero no se presentó', 'Problema con el vehículo', 'No llego al punto de retiro'];
 
 const siguientePaso = {
   asignado: { estado: 'chofer_en_camino', boton: 'Voy en camino', titulo: 'Viaje asignado' },
@@ -45,6 +51,11 @@ export default function Oferta() {
   const claveAceptar = usarClaveIdempotente();
   const claveRechazar = usarClaveIdempotente();
   const claveFinalizar = usarClaveIdempotente();
+  const claveCancelar = usarClaveIdempotente();
+  const [confirmandoCancelar, setConfirmandoCancelar] = useState(false);
+  const [motivoCancelar, setMotivoCancelar] = useState('');
+  const [cancelando, setCancelando] = useState(false);
+  const [cancelado, setCancelado] = useState(false);
 
   const { dato: actual, recargar: recargarViaje } = usarConsultaPeriodica(api.viajeActualChofer);
   const viaje = actual?.viaje ?? null;
@@ -85,6 +96,7 @@ export default function Oferta() {
       await api.cambiarDisponibilidad(!disponible);
       setDisponible(!disponible);
       setCobro(null);
+      setCancelado(false);
     } catch (e) {
       setErrorDisponible(e.message);
     }
@@ -149,6 +161,25 @@ export default function Oferta() {
       setErrorViaje(e.message);
     } finally {
       setAvanzando(false);
+      recargarViaje();
+    }
+  }
+
+  // Sin el paso de confirmación, un toque de más cancelaría el viaje. Si el pasajero subió
+  // justo antes (en_curso), el servidor responde TRANSICION_INVALIDA y se muestra el mensaje.
+  async function cancelar() {
+    setCancelando(true);
+    setErrorViaje(null);
+    try {
+      await conClave(claveCancelar, (clave) => api.cancelarComoChofer(viaje.id, motivoCancelar, clave));
+      setConfirmandoCancelar(false);
+      setMotivoCancelar('');
+      setCobro(null);
+      setCancelado(true);
+    } catch (e) {
+      setErrorViaje(e.message);
+    } finally {
+      setCancelando(false);
       recargarViaje();
     }
   }
@@ -218,9 +249,48 @@ export default function Oferta() {
             <span>{formatearPesos(viaje.estimacionCentavos)}</span>
           </div>
           {errorViaje && <p role="alert" className="aviso aviso--peligro">{errorViaje}</p>}
-          <button type="button" className="boton boton--principal boton--grande" onClick={avanzar} disabled={avanzando} data-testid="chofer-avanzar">
-            {avanzando ? 'Enviando…' : siguientePaso[viaje.estado].boton}
-          </button>
+          {confirmandoCancelar ? (
+            <div className="confirmar" role="group" aria-label="Confirmar cancelación">
+              <p className="pedir__detalle">¿Cancelar el viaje? Al pasajero no se le cobra nada.</p>
+              <label htmlFor="motivo-chofer" className="etiqueta">Motivo (opcional)</label>
+              <select
+                id="motivo-chofer" className="input" value={motivoCancelar}
+                onChange={(e) => setMotivoCancelar(e.target.value)} data-testid="chofer-cancelar-motivo"
+              >
+                <option value="">Sin motivo</option>
+                {motivosChofer.map((m) => <option key={m}>{m}</option>)}
+              </select>
+              <div className="confirmar__acciones">
+                <button type="button" className="boton boton--secundario" onClick={() => setConfirmandoCancelar(false)} disabled={cancelando}>
+                  Volver
+                </button>
+                <button type="button" className="boton boton--peligro-lleno" onClick={cancelar} disabled={cancelando} data-testid="chofer-cancelar-confirmar">
+                  {cancelando ? 'Cancelando…' : 'Sí, cancelar'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <button type="button" className="boton boton--principal boton--grande" onClick={avanzar} disabled={avanzando} data-testid="chofer-avanzar">
+                {avanzando ? 'Enviando…' : siguientePaso[viaje.estado].boton}
+              </button>
+              {cancelablesPorChofer.has(viaje.estado) && (
+                <button type="button" className="boton boton--secundario boton--peligro" disabled={avanzando}
+                  onClick={() => { setErrorViaje(null); setConfirmandoCancelar(true); }} data-testid="chofer-cancelar">
+                  Cancelar viaje
+                </button>
+              )}
+            </>
+          )}
+        </section>
+      )}
+
+      {!viaje && cancelado && !cobro && (
+        <section className="tarjeta tarjeta--flotante pedir" data-testid="chofer-cancelado">
+          <span className="chip chip--peligro">Cancelado</span>
+          <h1>Cancelaste el viaje</h1>
+          <p className="aviso">Al pasajero no se le cobró nada.</p>
+          <p className="ayuda">Prendé "Disponible" para recibir otro viaje.</p>
         </section>
       )}
 
