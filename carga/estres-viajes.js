@@ -8,6 +8,7 @@ if (!__ENV.TOKEN_PASAJERO) throw new Error('Definí TOKEN_PASAJERO para una cuen
 
 // Valores deliberadamente moderados: adaptar al equipo y detener ante fallos persistentes.
 export const options = {
+  summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)', 'count'],
   scenarios: {
     viajes: {
       executor: 'ramping-vus',
