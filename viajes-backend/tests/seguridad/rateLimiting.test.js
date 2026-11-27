@@ -6,7 +6,6 @@ import { createServer } from 'node:http';
 import { crearApp } from '../../src/infra/http/app.js';
 import { crearServicioJwt } from '../../src/infra/autenticacion/tokensJwt.js';
 import { ErrorDeDominio } from '../../src/dominio/errores.js';
-import { Rol } from '../../src/dominio/usuarios/roles.js';
 import { crearRepositorioIdempotenciaEnMemoria } from '../../src/infra/memoria/repositorioIdempotenciaEnMemoria.js';
 
 const SECRET = 'secreto-de-prueba-con-mas-de-32-caracteres';
@@ -21,16 +20,6 @@ const config = {
 };
 
 const tokens = crearServicioJwt(config);
-
-const USUARIO_ID = '11111111-1111-4111-8111-111111111111';
-const VIAJE_ID = '22222222-2222-4222-8222-222222222222';
-
-function tokenDePrueba(usuarioId = USUARIO_ID) {
-  return tokens.crearTokenDeAcceso({
-    usuarioId,
-    rol: Rol.PASAJERO,
-  });
-}
 
 async function levantarApp(overrides = {}) {
   const dependencias = {
@@ -127,15 +116,6 @@ async function intentarLogin(url) {
   });
 }
 
-async function solicitarOfertas(url, usuarioId = USUARIO_ID) {
-  return fetch(`${url}/viajes/${VIAJE_ID}/ofertas`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${tokenDePrueba(usuarioId)}`,
-    },
-  });
-}
-
 function verificarHeadersRateLimit(respuesta, limiteEsperado) {
   const headers = respuesta.headers;
 
@@ -205,96 +185,6 @@ test('Rate limiting - login bloquea el sexto intento fallido', async () => {
           'CREDENCIALES_INVALIDAS',
           'Credenciales inválidas.',
         );
-      },
-    },
-  });
-});
-
-test.skip('PROPUESTA: login exitoso no consume el límite (no implementada)', async () => {
-  let intentosEjecutados = 0;
-
-  await conApp(async (url) => {
-    const respuesta = await intentarLogin(url);
-
-    assert.equal(respuesta.status, 200);
-    assert.equal(intentosEjecutados, 1);
-  }, {
-    autenticacion: {
-      iniciarSesion: async () => {
-        intentosEjecutados++;
-        return { token: tokenDePrueba() };
-      },
-    },
-  });
-});
-
-test.skip('PROPUESTA: limitar la generación de ofertas (no implementada)', async () => {
-  let solicitudesEjecutadas = 0;
-
-  await conApp(async (url) => {
-    for (let i = 0; i < 10; i++) {
-      const respuesta = await solicitarOfertas(url);
-      assert.equal(respuesta.status, 201);
-    }
-
-    assert.equal(solicitudesEjecutadas, 10);
-  }, {
-    viajes: {
-      ofrecerAlChoferCercano: async () => {
-        solicitudesEjecutadas++;
-        return { ofertas: [] };
-      },
-    },
-  });
-});
-
-test.skip('PROPUESTA: bloquear la undécima oferta (no implementada)', async () => {
-  let solicitudesEjecutadas = 0;
-
-  await conApp(async (url) => {
-    for (let i = 0; i < 10; i++) {
-      await solicitarOfertas(url);
-    }
-
-    const respuesta = await solicitarOfertas(url);
-
-    assert.equal(respuesta.status, 429);
-    assert.equal(solicitudesEjecutadas, 10);
-
-    verificarHeadersRateLimit(respuesta, 10);
-  }, {
-    viajes: {
-      ofrecerAlChoferCercano: async () => {
-        solicitudesEjecutadas++;
-        return { ofertas: [] };
-      },
-    },
-  });
-});
-
-test.skip('PROPUESTA: limitar ofertas por usuario (no implementada)', async () => {
-  let solicitudesEjecutadas = 0;
-
-  const segundoUsuario = '33333333-3333-4333-8333-333333333333';
-
-  await conApp(async (url) => {
-    for (let i = 0; i < 10; i++) {
-      const respuesta = await solicitarOfertas(url, USUARIO_ID);
-      assert.equal(respuesta.status, 201);
-    }
-
-    const respuestaOtroUsuario = await solicitarOfertas(
-      url,
-      segundoUsuario,
-    );
-
-    assert.equal(respuestaOtroUsuario.status, 201);
-    assert.equal(solicitudesEjecutadas, 11);
-  }, {
-    viajes: {
-      ofrecerAlChoferCercano: async () => {
-        solicitudesEjecutadas++;
-        return { ofertas: [] };
       },
     },
   });

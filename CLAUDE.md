@@ -36,7 +36,7 @@ Los 3 temas de Fernández se implementan **dentro** del backend y se documentan 
 | 6. Entrega final | 12 | 9–15/12 | Correcciones con tests, mediciones completas, todos los ADR, tag `entrega-final` |
 | 7. Defensa oral | 13 | 16–22/12 | Individual, 40 % de la nota, requiere 6 por sí sola |
 
-**Decisión del 27/11/2026:** lo de la rúbrica de Puljiz que no llegó a hacerse (ataque cruzado, Grafana, k6, ampliar E2E) **queda sin efecto** por falta de tiempo. Para Puljiz alcanza con que la app sea funcional y cumpla los demás requisitos obligatorios; si falta algo, se actualiza antes de su entrega (la semana que viene).
+**Actualización del 27/11/2026:** en `#54` se sumaron la suite E2E ampliada (6 casos en Playwright), la rampa k6 (`carga/estres-viajes.js`) y el envío de logs HTTP a Grafana Cloud vía Alloy (`observabilidad/`). Queda pendiente de definir con Puljiz y el equipo la fase de ataque cruzado (`viajes-backend/docs/ataque.md`). Para Puljiz alcanza con que la app sea funcional y cumpla los requisitos obligatorios; lo que falte se completa antes de su entrega.
 
 Nota de Puljiz: grupal 40 % (problema central 30, seguridad 20, concurrencia 20, arquitectura 15, tests/docs 15) + artefactos 20 % (ADR 30, mediciones 30, ataque 30, Git 10) + defensa 40 %.
 
