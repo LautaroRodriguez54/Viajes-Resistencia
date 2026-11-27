@@ -48,6 +48,18 @@ $env:DATABASE_URL='postgres://viajes:viajes@localhost:5433/viajes_test'; npm tes
 
 Comprobar el proceso con `GET http://localhost:3000/health` y la disponibilidad real con `GET http://localhost:3000/ready`.
 
+### Ejecutar la API en contenedor (Docker)
+
+El `docker compose up -d` normal levanta sólo PostgreSQL para desarrollo local. Para construir y correr también la API en contenedor (`profiles: ["api"]`):
+
+```powershell
+docker compose --profile api build api
+docker compose --profile api run --rm api npm run setup
+docker compose --profile api up -d --wait api
+```
+
+Para detener el servicio manteniendo la base: `docker compose --profile api stop api`.
+
 ## Acceso inicial
 
 El registro público admite pasajeros y choferes mediante `POST /auth/register`. La respuesta de registro y login contiene `accessToken` (JWT de 15 min); enviarlo luego como `Authorization: Bearer <accessToken>`. El operador y el administrador no se registran: los crea el seed. Un chofer registrado no recibe viajes hasta que el administrador lo habilita.
