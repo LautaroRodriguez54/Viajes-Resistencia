@@ -8,12 +8,12 @@ import MapaSimulado from './MapaSimulado.jsx';
 // quedar en gris.
 // Props: las de MapaSimulado (conRuta, etiquetaDestino, chofer, oferta) y las del mapa real
 // (origen, destino, posicion, auto, tarjeta). Cada mapa usa las suyas.
-export default function Mapa({ origen, destino, posicion, auto, tarjeta, ...props }) {
+export default function Mapa({ origen, destino, posicion, auto, consumir, tarjeta, ...props }) {
   const [sinRed, setSinRed] = useState(false);
   if (!usarMapaReal || sinRed) return <MapaSimulado {...props} />;
   return (
     <MapaReal
-      origen={origen} destino={destino} posicion={posicion} auto={auto} tarjeta={tarjeta}
+      origen={origen} destino={destino} posicion={posicion} auto={auto} consumir={consumir} tarjeta={tarjeta}
       chofer={Boolean(props.oferta)} alFallar={() => setSinRed(true)}
     >
       {props.children}

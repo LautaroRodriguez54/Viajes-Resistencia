@@ -144,6 +144,7 @@ export default function MiViaje() {
     <Mapa
       etiquetaDestino={nombreDestino} chofer={conChofer ? { etiqueta: 'Tu chofer' } : undefined}
       origen={origenPunto} destino={destinoPunto} auto={ubicacionChofer}
+      consumir={viaje?.estado === 'en_curso' ? 'viaje' : null}
     >
       <section
         className="tarjeta tarjeta--flotante pedir mi-viaje montos" aria-labelledby="titulo-viaje"
