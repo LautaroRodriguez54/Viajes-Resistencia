@@ -20,6 +20,7 @@ import { crearRegistrarUsuario } from './aplicacion/autenticacion/registrarUsuar
 import { crearIniciarSesion } from './aplicacion/autenticacion/iniciarSesion.js';
 import { crearProcesarCargaWebhook } from './aplicacion/billetera/procesarCargaWebhook.js';
 import { crearSolicitarViaje } from './aplicacion/viajes/solicitarViaje.js';
+import { crearEstimarViaje } from './aplicacion/viajes/estimarViaje.js';
 import { crearFinalizarViajeYCobrar } from './aplicacion/viajes/finalizarViajeYCobrar.js';
 import { crearReintentarCobro } from './aplicacion/viajes/reintentarCobro.js';
 import { crearReintentarCobroOperador } from './aplicacion/viajes/reintentarCobroOperador.js';
@@ -87,7 +88,7 @@ export function componerAplicacion() {
   const ofrecerAlChoferCercano = crearOfrecerAlChoferCercano({ unidadDeTrabajo: unidadDeTrabajoViajes });
   const rechazarOferta = crearRechazarOferta({ unidadDeTrabajo: unidadDeTrabajoViajes });
   const procesarOfertasVencidas = crearProcesarOfertasVencidas({ unidadDeTrabajo: unidadDeTrabajoViajes });
-  const viajesHttp = { solicitarViaje: crearSolicitarViaje({ viajes }), buscarViajePropio: viajes.buscarPorIdDelPasajero, ofrecerAlChoferCercano, reintentarCobro, cancelarViaje, listarHistorial: proyectorHistorial.listarPorPasajero, tokens };
+  const viajesHttp = { solicitarViaje: crearSolicitarViaje({ viajes }), estimarViaje: crearEstimarViaje({ viajes }), buscarViajePropio: viajes.buscarPorIdDelPasajero, ofrecerAlChoferCercano, reintentarCobro, cancelarViaje, listarHistorial: proyectorHistorial.listarPorPasajero, tokens };
   const ofertasHttp = { aceptarOferta, rechazarOferta, tokens };
   const choferesHttp = { cambiarDisponibilidad: choferes.cambiarDisponibilidad, registrarUbicacion: choferes.registrarUbicacion, avanzarEstado, finalizarYCobrar, cancelarViaje, buscarOfertaPendiente: viajes.buscarOfertaPendienteDelChofer, buscarViajeActual: viajes.buscarViajeActualDelChofer, tokens };
   const metricasProceso = crearMetricasProceso();

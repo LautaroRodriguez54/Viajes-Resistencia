@@ -16,6 +16,7 @@
 |---|---|---|---|
 | Salud | `GET /health`, `GET /ready` | — | |
 | Autenticación | `POST /auth/register`, `POST /auth/login`, `GET /auth/me` | — / cualquiera | |
+| Viajes | `POST /viajes/estimacion` (precio aproximado, no crea nada) | pasajero | no |
 | Viajes | `POST /viajes` | pasajero | **sí** |
 | Viajes | `GET /viajes/:viajeId` (con origen y destino con nombre; mientras está activo, el vehículo y la posición del chofer) | pasajero dueño | |
 | Viajes | `POST /viajes/:viajeId/cancelar` | pasajero dueño | **sí** |
@@ -41,7 +42,7 @@
 | Administración | `POST /admin/tarifa` (crea una tarifa nueva activa; la anterior queda en el historial) | administrador | **sí** |
 | Administración | `GET /admin/metricas?reiniciar=` (lag del event loop, memoria y conteos del negocio para el panel, bloque 7) | administrador | |
 
-**Pendientes** (se agregan al OpenAPI cuando existan): estimación sin crear el viaje, historial del chofer y SSE.
+**Pendientes** (se agregan al OpenAPI cuando existan): historial del chofer y SSE.
 
 ## Convenciones
 

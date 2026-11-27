@@ -43,7 +43,7 @@ npm run dev                      # http://localhost:5173
 |---|---|---|
 | `/ingresar` | 1 · Ingresar | `POST /auth/login` |
 | `/registro` | Registro pasajero / chofer | `POST /auth/register` (entra directo) |
-| `/pasajero/pedir` | 2 · Pedir viaje | `POST /viajes`, `POST /viajes/:id/ofertas`, `GET /billetera/me` |
+| `/pasajero/pedir` | 2 · Pedir viaje | `POST /viajes/estimacion` (precio aproximado al elegir los dos puntos), `POST /viajes`, `POST /viajes/:id/ofertas`, `GET /billetera/me` |
 | `/pasajero/viaje` | 3 · Mi viaje | `GET /viajes/:id` cada 2 s (el id llega desde Pedir; si se entra por el menú, sale de `GET /viajes?limite=1`); "Buscar chofer de nuevo" sólo si el viaje no tiene una oferta vigente (`tieneOfertaVigente`); "Cancelar viaje" con confirmación (`POST /viajes/:id/cancelar`). Con chofer asignado: el **auto se mueve en el mapa** (`viaje.chofer.ubicacion`), su vehículo, la patente y los minutos estimados. Al terminar, el **comprobante** |
 | `/pasajero/billetera` | 4 · Billetera | `GET /billetera/me`, `GET /viajes?limite=50` ("Mis viajes": **sólo los viajes completos**, `finalizado` o `pago_pendiente`; los cancelados o sin chofer no movieron plata y no se muestran) y `GET /billetera/me/movimientos` cada 5 s, con un ícono por tipo; `POST /viajes/:id/reintentar-cobro`. **Tocar un viaje abre su comprobante** (imprimible o en PDF) |
 | `/chofer` | 5 · Chofer | `PUT /choferes/me/disponibilidad`, `PUT /choferes/me/ubicacion`, `GET /choferes/me/ofertas`, `GET /choferes/me/viaje-actual`, `POST /ofertas/:id/aceptar`, `POST /ofertas/:id/rechazar`, `POST /choferes/viajes/:id/estado`, `POST /choferes/viajes/:id/finalizar`, `POST /choferes/viajes/:id/cancelar` (en asignado o en camino, con motivo opcional). La oferta entra animada, **suena, vibra y el título de la pestaña parpadea**. Con "Voy en camino" el chofer de la demo **avanza por la ruta** de OSRM hasta el retiro y después hasta el destino, y manda cada posición (`PUT /choferes/me/ubicacion` cada 2,5 s). Al finalizar, el comprobante |
@@ -59,7 +59,7 @@ Cómo está armado:
 - Los `data-testid` de cada pantalla son para los E2E con Playwright.
 
 **Falta en el backend** (la web lo resuelve así mientras tanto):
-- Estimación antes de pedir: el precio aparece al pedir.
+- Estimación antes de pedir: hecha. Con los dos puntos elegidos, Pedir muestra "≈ $ X · km · min" (`POST /viajes/estimacion`) y avisa si el saldo no alcanza.
 - Nombres de los lugares: hechos (migración 007). Pedir los manda y todas las pantallas los muestran. Para los viajes anteriores, la web busca la dirección aproximada con Photon (una vez por punto).
 - Patente, vehículo y posición del chofer: hechos (`GET /viajes/:id`, sólo mientras el viaje está activo).
 - El movimiento del chofer de la demo lo simula la web; un chofer real mandaría su GPS al mismo endpoint.
