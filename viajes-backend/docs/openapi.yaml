@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Viajes Resistencia · API del backend
-  version: 0.8.0
+  version: 0.9.0
   summary: Viajes a demanda con billetera y pagos (grupo 4, variante D).
   description: |
     Contrato HTTP del backend. Es la **fuente de verdad** de la API: `docs/api.md` sólo lo resume.
@@ -861,6 +861,49 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+
+  /admin/metricas:
+    get:
+      tags: [Administración]
+      summary: Métricas del proceso (lag del event loop y memoria)
+      operationId: obtenerMetricasProceso
+      parameters:
+        - name: reiniciar
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [eventLoopLagMs, memoriaMb, uptimeSegundos]
+                properties:
+                  eventLoopLagMs:
+                    type: object
+                    required: [min, max, media, p50, p95, p99]
+                    properties:
+                      min: { type: number }
+                      max: { type: number }
+                      media: { type: number }
+                      p50: { type: number }
+                      p95: { type: number }
+                      p99: { type: number }
+                  memoriaMb:
+                    type: object
+                    required: [rss, heapTotal, heapUsed, external]
+                    properties:
+                      rss: { type: number }
+                      heapTotal: { type: number }
+                      heapUsed: { type: number }
+                      external: { type: number }
+                  uptimeSegundos: { type: number }
+        '400': { $ref: '#/components/responses/EntradaInvalida' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
 
   /operador/viajes:
     get:
