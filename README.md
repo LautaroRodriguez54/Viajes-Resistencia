@@ -15,9 +15,11 @@ El mismo proyecto cumple las consignas de los dos docentes. Además del enunciad
 ## Qué hace
 
 - **Pasajero:** se registra, busca la dirección de origen y de destino en el mapa, pide el viaje, lo sigue, lo puede cancelar y paga con su billetera. Ve su historial de viajes y los movimientos de la billetera.
-- **Chofer:** se pone disponible, envía su ubicación, recibe la oferta con cuenta regresiva y la ruta en el mapa, la acepta o la rechaza, avanza el viaje y lo finaliza (ahí se cobra).
+- **Chofer:** se pone disponible, envía su ubicación, recibe la oferta con cuenta regresiva y la ruta en el mapa, la acepta o la rechaza, avanza el viaje, lo puede cancelar antes de que suba el pasajero y lo finaliza (ahí se cobra).
 - **Operador:** ve los viajes activos, los cancela con motivo y reintenta el cobro de un pago pendiente.
-- **Administrador:** habilita choferes (por la API; la pantalla todavía usa datos de ejemplo).
+- **Administrador:** ve los choferes que esperan habilitación y los habilita, y cambia la tarifa (se crea una nueva y la anterior queda en el historial).
+
+Todas las pantallas están conectadas al backend: ninguna usa datos de ejemplo.
 
 Reglas que el sistema garantiza en la base de datos:
 
@@ -34,6 +36,8 @@ Reglas que el sistema garantiza en la base de datos:
 |---|---|
 | [`viajes-backend/`](viajes-backend/) | API REST en Node.js 22 + Express 5, PostgreSQL 16 + PostGIS, SQL directo, JWT y Argon2id. Arquitectura hexagonal, con tres bases (`viajes`, `billetera`, `lectura`) en el mismo contenedor. |
 | [`viajes-web/`](viajes-web/) | Interfaz web en React + Vite, conectada al backend y responsiva para el celular. Mapa de OpenStreetMap (Leaflet), búsqueda de direcciones (Photon) y ruta por calles (OSRM), sin claves. |
+| [`e2e/`](e2e/) | Prueba de punta a punta con Playwright sobre la web y el backend reales (la corre la CI en cada PR). |
+| [`carga/`](carga/) | Script de k6 para medir la creación de viajes. La carga de 500 choferes del bloque 7 es `npm run carga:ubicaciones` en el backend. |
 
 ## Cómo correrlo
 
@@ -71,10 +75,10 @@ Los crea `npm run setup` (seed, **sólo para desarrollo**; no son secretos, son 
 | Pasajero | `pasajero@demo.local` | `PasajeroDemo123!` | Pedir viajes, billetera, historial. Arranca con saldo 0 |
 | Chofer | `chofer@demo.local` | `ChoferDemo123!` | Ya habilitado (Fiat Cronos, `DEMO001`): prender "Disponible", aceptar ofertas, avanzar y finalizar |
 | Operador | `operador@demo.local` | `OperadorDemo123!` | Ver viajes activos, cancelar con motivo, reintentar cobros pendientes |
-| Administrador | `admin@demo.local` | `AdminDemo123!` | Habilitar choferes, métricas del proceso |
+| Administrador | `admin@demo.local` | `AdminDemo123!` | Habilitar choferes, cambiar la tarifa, métricas del proceso |
 
 - Saldo para el pasajero: `npm run cargar-saldo -- pasajero@demo.local 500000` (en `viajes-backend/`, con el servidor levantado). La billetera se crea unos milisegundos después de que arranca el servidor (evento `UsuarioRegistrado`).
-- Se pueden registrar más pasajeros y choferes desde la web (`/registro`). Un chofer nuevo tiene que ser habilitado por el administrador (`PATCH /admin/choferes/:choferId/habilitacion`, está en la [colección de pedidos](viajes-backend/docs/requests.http)).
+- Se pueden registrar más pasajeros y choferes desde la web (`/registro`). Un chofer nuevo no recibe viajes hasta que el administrador lo habilita desde su pantalla.
 
 ### Recorrido de la demo
 
@@ -84,6 +88,7 @@ Los crea `npm run setup` (seed, **sólo para desarrollo**; no son secretos, son 
 4. **Chofer:** aparece la oferta con la cuenta regresiva de 30 s. Aceptar y avanzar: "Voy en camino" → "Pasajero a bordo: iniciar viaje" → "Finalizar y cobrar".
 5. **Sin saldo** el viaje queda en `pago_pendiente` y no se cobra nada. Cargar saldo con `npm run cargar-saldo -- <email> <centavos>` (en `viajes-backend/`) y tocar "Pagar ahora" en la billetera.
 6. **Operador** (`operador@demo.local`): ve los viajes activos, cancela con motivo o reintenta un cobro pendiente.
+7. **Administrador** (`admin@demo.local`): habilita a un chofer recién registrado y cambia la tarifa; el próximo viaje que se pida ya usa la nueva.
 
 El detalle de cada pantalla y sus endpoints está en el [README de la web](viajes-web/README.md).
 
@@ -94,6 +99,7 @@ El detalle de cada pantalla y sus endpoints está en el [README de la web](viaje
 | `npm run cargar-saldo -- <email> <centavos>` | Carga saldo por el webhook real, firmado con HMAC (la demo no tiene un endpoint de carga). |
 | `npm run demo:propiedad-datos` | Muestra que el módulo Viajes no puede leer la base de la billetera (`permission denied`, tema 12). |
 | `npm run proyecciones:reconstruir` | Rearma las proyecciones de lectura (saldos e historial) desde los outbox (tema 13). |
+| `npm run carga:ubicaciones -- --escenario=ubicaciones --duracion-s=30` | 500 choferes mandando ubicación cada 2 s mientras se piden viajes (bloque 7). Resultados en [mediciones](viajes-backend/docs/mediciones.md). |
 | `npm run lint` | ESLint con reglas de seguridad. |
 | `docker compose --profile docs up -d docs` | Swagger UI con el contrato en http://localhost:8080. |
 
@@ -105,13 +111,15 @@ El detalle de cada pantalla y sus endpoints está en el [README de la web](viaje
 | Cobro sin duplicados y nunca parcial (variante D) | Bloqueo de la billetera, suma de movimientos, `pago_pendiente`; test de dos cobros contra un saldo | [004](viajes-backend/docs/adr/004-concurrencia-asignacion-y-cobro.md), [008](viajes-backend/docs/adr/008-base-de-datos-por-servicio.md) |
 | Base de datos por servicio (tema 12) | Billetera en su propia base, con su rol y sin consultas cruzadas | [008](viajes-backend/docs/adr/008-base-de-datos-por-servicio.md) |
 | CQRS (tema 13) | Outbox + proyecciones en la base `lectura` (saldos e historial) | [009](viajes-backend/docs/adr/009-cqrs-proyecciones.md) |
-| Idempotencia y deduplicación (tema 3) | `Idempotency-Key` en los endpoints que crean o cobran; webhook y eventos deduplicados | [010](viajes-backend/docs/adr/010-idempotencia-y-deduplicacion.md) |
+| Idempotencia y deduplicación (tema 3) | `Idempotency-Key` en los 11 endpoints que crean, cobran o cambian la tarifa; webhook y eventos deduplicados | [010](viajes-backend/docs/adr/010-idempotencia-y-deduplicacion.md) |
+| Tarea pesada: 500 choferes cada 2 s (bloque 7) | Ubicación sin `FOR UPDATE` e historial por lotes; simulador y 3 corridas de 30 s por escenario | [005](viajes-backend/docs/adr/005-tarea-pesada-ubicaciones.md), [mediciones](viajes-backend/docs/mediciones.md) |
+| Cambio de tarifa sin carreras | Fila nueva activa con `LOCK TABLE ... IN EXCLUSIVE MODE`; test de 5 administradores a la vez | [modelo](viajes-backend/docs/modelo.md) |
 | Web mínima, consulta periódica y mapas | Consulta cada 2 s en lugar de SSE; OpenStreetMap en lugar de Google | [011](viajes-backend/docs/adr/011-web-minima-y-choques-de-consignas.md) |
 
 ## Calidad
 
 - **Tests** (`node --test`) en cinco niveles: dominio, aplicación (con adaptadores en memoria, sin base), integración (Postgres real), seguridad y concurrencia.
-- **CI** en GitHub Actions en cada PR: lint, tests y auditoría del backend, build y auditoría de la web y análisis estático con Semgrep.
+- **CI** en GitHub Actions en cada PR, obligatoria: lint, tests con PostGIS y auditoría del backend, build y auditoría de la web, análisis estático con Semgrep y la prueba de punta a punta con Playwright.
 - Errores con forma estable (`{ error: { codigo, requestId } }`), logs JSON con `requestId`, límites de tasa con `429` y cabeceras de seguridad.
 
 ## Documentación
@@ -123,7 +131,6 @@ El detalle de cada pantalla y sus endpoints está en el [README de la web](viaje
 - [Colección de pedidos](viajes-backend/docs/requests.http): el recorrido completo de un viaje para REST Client
 - [Decisiones de arquitectura (ADR 001 a 011)](viajes-backend/docs/adr/)
 - [Mediciones](viajes-backend/docs/mediciones.md)
-- [Bitácora del ataque cruzado](viajes-backend/docs/ataque.md)
 - [Diseño de la interfaz web](viajes-backend/docs/diseno-web/README.md)
 
 ## Forma de trabajo

@@ -60,12 +60,13 @@ importe    = base_centavos + ⌈kilómetros⌉ × por_kilometro_centavos + minut
 - Si el importe supera `maximo_viaje_centavos`, la solicitud se rechaza (`VIAJE_SUPERA_MAXIMO`). Si no hay tarifa activa, responde `TARIFA_NO_CONFIGURADA`.
 - Al finalizar se cobra `estimacion_centavos`: todavía no hay tarifa final calculada con el recorrido real.
 - Radio de búsqueda de choferes: 5 km fijos (`ST_DWithin` en `ofrecerAlChoferCercano`).
+- **Cambiar la tarifa** (`POST /admin/tarifa`) no edita la fila vigente: la desactiva e inserta una nueva activa, en una transacción con `LOCK TABLE parametros_tarifa IN EXCLUSIVE MODE`. Así queda el historial de tarifas, los viajes ya pedidos conservan su estimación y dos administradores guardando a la vez no chocan con `ux_parametros_tarifa_activo` (lo prueba `tests/integracion/administracion.test.js` con 5 guardados simultáneos). Las lecturas de la tarifa no se frenan.
 
 ## Idempotencia
 
 Ver el ADR 010. Hay tres niveles:
 
-1. **HTTP**: `Idempotency-Key` en las 5 operaciones que crean o cobran, guardada en `claves_idempotencia`.
+1. **HTTP**: `Idempotency-Key` en las 11 operaciones que crean, cobran o cambian la tarifa, guardada en `claves_idempotencia`.
 2. **Cobro**: a lo sumo un consumo por viaje, con `ux_un_consumo_por_viaje`.
 3. **Webhook**: `proveedor_evento_id` único.
 
@@ -93,9 +94,43 @@ El orden de bloqueo sigue siendo viaje → billetera. Con la billetera bloqueada
 - Si la billetera cobró y el COMMIT de `viajes` no llegó (una caída entre las dos bases), el viaje sigue en `pago_pendiente` y el reintento lo cierra sin debitar dos veces.
 - La billetera se crea por el evento `UsuarioRegistrado` (outbox de Viajes), unos cientos de milisegundos después del registro. Un viaje que se finaliza antes queda en `pago_pendiente` con motivo `BILLETERA_NO_ENCONTRADA`.
 
+## Estados del viaje
+
+Las reglas están en `src/dominio/viajes/estadosViaje.js` (`decidirCancelacion` y las transiciones). Cada cambio inserta una fila en `eventos_viaje` y, por el trigger de la migración `006`, una foto en `outbox_viajes`.
+
+```mermaid
+stateDiagram-v2
+  [*] --> solicitado: POST /viajes
+  solicitado --> asignado: el chofer acepta la oferta
+  solicitado --> sin_choferes_disponibles: rechazos o vencimientos sin más candidatos
+  asignado --> chofer_en_camino: chofer
+  chofer_en_camino --> en_curso: chofer (pasajero a bordo)
+  en_curso --> finalizado: finalizar con saldo
+  en_curso --> pago_pendiente: finalizar sin saldo (nunca parcial)
+  pago_pendiente --> finalizado: reintento (pasajero u operador)
+  solicitado --> cancelado_pasajero
+  asignado --> cancelado_pasajero
+  chofer_en_camino --> cancelado_pasajero
+  asignado --> cancelado_chofer
+  chofer_en_camino --> cancelado_chofer
+  solicitado --> cancelado_operador: con motivo
+  asignado --> cancelado_operador: con motivo
+  chofer_en_camino --> cancelado_operador: con motivo
+  en_curso --> cancelado_operador: con motivo
+  finalizado --> [*]
+  sin_choferes_disponibles --> [*]
+  cancelado_pasajero --> [*]
+  cancelado_chofer --> [*]
+  cancelado_operador --> [*]
+```
+
+- **Ofertas**: una oferta vale 30 s (`OFERTA_TTL_SEGUNDOS`). Si el chofer la rechaza o vence, en la misma transacción se le ofrece al siguiente chofer más cercano que no la haya tenido; si no queda ninguno, el viaje pasa a `sin_choferes_disponibles` (terminal).
+- **Cancelación**: el pasajero hasta que lo levantan (sin cobro) y el chofer antes de que suba; los dos sin motivo obligatorio. El operador, en cualquier estado activo y con motivo obligatorio. Cuando la cancela el pasajero o el operador con un chofer asignado, el chofer vuelve a quedar disponible; si cancela el chofer, queda no disponible hasta que vuelva a prender el interruptor.
+
 ## Decisiones pendientes
 
-- TODO: tarifa final desde el recorrido y la duración reales; radio de búsqueda administrable o constante; orden de ofertas al vencer una.
+- Tarifa final desde el recorrido y la duración reales: hoy se cobra la estimación.
+- Radio de búsqueda: queda como constante (5 km) hasta que haga falta administrarlo.
 
 ## Retención de historial de ubicaciones
 
@@ -106,7 +141,7 @@ Con 500 choferes reportando cada 2 segundos, `historial_ubicaciones_chofer` reci
 3. **Ventana caliente y compactación**: conservar **7 días** de detalle completo para auditoría, soporte de incidentes y resolución de disputas. Antes de retirar particiones antiguas, se puede compactar/archivar una muestra (p. ej. 1 punto cada 30 s o trayectoria simplificada con `ST_Simplify` por viaje cerrado) fuera de la tabla activa.
 4. **Purga sin bloqueo**: eliminar particiones expiradas (> 30 días) con `DROP TABLE` / `DETACH PARTITION` en lugar de `DELETE` masivo, evitando locks largos y *bloat* de índices.
 
-## Diagrama inicial
+## Diagrama de datos
 
 ```mermaid
 classDiagram

@@ -2,9 +2,13 @@
 
 Backend para solicitar, asignar y finalizar viajes, con una billetera basada en movimientos y cobros idempotentes. Es el TP final de Programación IV, variante D.
 
-## Estado inicial
+## Qué hace
 
-Esta primera base contiene la arquitectura, el arranque reproducible, salud del proceso, conexión a PostgreSQL y documentación de diseño. Los flujos de negocio están deliberadamente pendientes de definición e implementación.
+- **Viajes**: el pasajero pide un viaje con origen y destino (el servidor calcula la tarifa), se le ofrece al chofer habilitado y disponible más cercano a 5 km o menos, el chofer acepta o rechaza, y las ofertas vencen solas a los 30 s y pasan al siguiente. El viaje avanza por `asignado → chofer_en_camino → en_curso → finalizado`, y se puede cancelar según el rol.
+- **Billetera (variante D)**: saldo derivado de movimientos inmutables en centavos enteros, cargas por webhook firmado con HMAC y cobro al finalizar, que nunca es parcial: si no alcanza, el viaje queda en `pago_pendiente` y se reintenta.
+- **Concurrencia**: una sola aceptación gana entre muchas simultáneas, dos cobros no gastan el mismo saldo y la tarifa no se pisa entre dos administradores (ADR 004).
+- **Arquitectura**: hexagonal (dominio puro, casos de uso, adaptadores Postgres y en memoria), tres bases separadas por módulo (ADR 008), proyecciones CQRS (ADR 009) e idempotencia en 3 niveles (ADR 010).
+- **Operación**: `/health` y `/ready` (las tres bases y sus migraciones), logs JSON con `requestId`, apagado ordenado, límites de tasa y `GET /admin/metricas` (lag del event loop y memoria).
 
 ## Requisitos
 
@@ -46,7 +50,7 @@ Comprobar el proceso con `GET http://localhost:3000/health` y la disponibilidad 
 
 ## Acceso inicial
 
-El registro público admite pasajeros y choferes mediante `POST /auth/register`. La respuesta de registro y login contiene `accessToken`; enviarlo luego como `Authorization: Bearer <accessToken>`. Los usuarios operador y administrador se cargarán con los datos de demostración, no por registro público.
+El registro público admite pasajeros y choferes mediante `POST /auth/register`. La respuesta de registro y login contiene `accessToken` (JWT de 15 min); enviarlo luego como `Authorization: Bearer <accessToken>`. El operador y el administrador no se registran: los crea el seed. Un chofer registrado no recibe viajes hasta que el administrador lo habilita.
 
 Accesos de desarrollo que crea `npm run setup` (seed):
 
@@ -75,24 +79,39 @@ npm run cargar-saldo -- <pasajeroId> 50000 --url http://localhost:3000
 - Cada ejecución genera un `eventoExternoId` nuevo (`demo-<uuid>`), así que dos ejecuciones acreditan dos veces. El webhook sigue descartando un mismo evento repetido.
 - Se niega a correr con `NODE_ENV=production`.
 
-## Roles previstos
+## Roles y permisos
 
-| Rol | Alcance inicial |
-|---|---|
-| Pasajero | Solicita y consulta sus viajes; consulta su propia billetera. |
-| Chofer | Administra disponibilidad, ubicación y sus viajes asignados. |
-| Operador | Consulta viajes en curso y cancela con motivo. |
-| Administrador | Configura tarifas, zonas y parámetros. |
+Cada ruta verifica el rol antes que cualquier otra cosa (403 si no corresponde), y la propiedad del recurso se verifica en la consulta: un pasajero que pide un viaje ajeno recibe 404.
 
-La autenticación usa JWT y las contraseñas usarán Argon2id. La matriz detallada de permisos se completará antes de exponer los endpoints protegidos.
+| Rol | Qué puede hacer | Endpoints |
+|---|---|---|
+| Pasajero | Pedir viajes, buscar chofer, cancelar antes de que lo levanten, ver su historial, su billetera y sus movimientos, pagar una deuda | `POST /viajes`, `GET /viajes`, `GET /viajes/:id`, `POST /viajes/:id/ofertas`, `POST /viajes/:id/cancelar`, `POST /viajes/:id/reintentar-cobro`, `GET /billetera/me`, `GET /billetera/me/movimientos` |
+| Chofer | Disponibilidad y ubicación, ver y aceptar o rechazar ofertas, avanzar, finalizar (cobra) y cancelar en `asignado` o `chofer_en_camino` | `PUT /choferes/me/disponibilidad`, `PUT /choferes/me/ubicacion`, `GET /choferes/me/ofertas`, `GET /choferes/me/viaje-actual`, `POST /ofertas/:id/aceptar`, `POST /ofertas/:id/rechazar`, `POST /choferes/viajes/:id/estado`, `POST /choferes/viajes/:id/finalizar`, `POST /choferes/viajes/:id/cancelar` |
+| Operador | Ver los viajes activos, cancelar con motivo obligatorio, reintentar un cobro pendiente | `GET /operador/viajes?estado=activos`, `POST /operador/viajes/:id/cancelar`, `POST /operador/viajes/:id/reintentar-cobro` |
+| Administrador | Habilitar choferes, cambiar la tarifa (crea una nueva activa), ver métricas del proceso | `GET /admin/choferes`, `PATCH /admin/choferes/:id/habilitacion`, `GET /admin/tarifa`, `POST /admin/tarifa`, `GET /admin/metricas` |
+
+Las contraseñas se guardan con Argon2id (ADR 003). Los 11 endpoints que crean, cobran o cambian la tarifa exigen `Idempotency-Key` (ADR 010).
+
+## Carga de 500 choferes (bloque 7)
+
+Con el servidor levantado (`npm run dev`), en otra terminal:
+
+```bash
+npm run carga:ubicaciones -- --escenario=ubicaciones --duracion-s=30
+```
+
+Crea 500 choferes sintéticos que mandan su ubicación cada 2 s mientras otros pasajeros piden viajes, mide p50/p95/p99, tiempo de asignación y lag del event loop (desde `GET /admin/metricas`) y al terminar borra lo que creó. Sólo corre contra un servidor y un Postgres locales. Los resultados y el análisis están en [`docs/mediciones.md`](docs/mediciones.md) y la decisión en el ADR 005.
 
 ## Documentación
 
-- [Modelo de dominio](docs/modelo.md)
+- [Modelo de dominio](docs/modelo.md): estados del viaje, tarifa, billetera, bases y reglas
 - [Contrato HTTP (OpenAPI 3.1)](docs/openapi.yaml): resumen en [`api.md`](docs/api.md); Swagger UI con `docker compose --profile docs up -d docs` (http://localhost:8080)
 - [Colección de pedidos](docs/requests.http): el recorrido completo de un viaje para REST Client
 - [Mediciones](docs/mediciones.md)
 - [Bitácora de ataque](docs/ataque.md)
 - [Guía de implementación](docs/guia-implementacion.md)
-- [Decisiones de arquitectura](docs/adr/)
+- [Decisiones de arquitectura](docs/adr/):
+  - 001 ESM · 002 PostgreSQL con SQL parametrizado · 003 JWT, Argon2id y roles · 004 concurrencia (bloqueo pesimista y orden global)
+  - 005 ubicaciones sin bloqueo y por lotes · 006 HMAC del webhook (el SSE lo reemplaza el 011) · 007 PostGIS
+  - 008 base de datos por servicio · 009 CQRS · 010 idempotencia · 011 web mínima y choques entre consignas
 

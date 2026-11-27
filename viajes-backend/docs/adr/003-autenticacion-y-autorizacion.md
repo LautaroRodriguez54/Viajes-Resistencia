@@ -1,4 +1,4 @@
-# ADR 003 - Autenticación y autorización
+# ADR 003 - Usamos JWT de corta duración, Argon2id y autorización por rol y por recurso en el servidor
 
 - Estado: aceptado
 - Fecha: 2026-10-29
@@ -15,7 +15,7 @@ El sistema tiene cuatro roles y debe verificar autorización por rol y por recur
 
 ## Decisión
 
-Usaremos JWT firmado para los tokens de acceso. El token contendrá solamente el identificador del usuario (`sub`) y su rol; su duración se configura con `JWT_ACCESS_TOKEN_TTL` (15 minutos por defecto de desarrollo). Las contraseñas se almacenarán con Argon2id y los costos quedan configurados por entorno.
+Usaremos JWT firmado para los tokens de acceso. El token contendrá solamente el identificador del usuario (`sub`) y su rol; su duración se configura con `JWT_ACCESS_TOKEN_TTL` (15 minutos por defecto de desarrollo). Las contraseñas se almacenan con Argon2id y los costos quedan configurados por entorno.
 
 ## Consecuencias
 
