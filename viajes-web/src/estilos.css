@@ -886,3 +886,17 @@ h1 { margin: 0; font-weight: 600; }
   .pedir__resumen--estimacion .pedir__precio { font-size: 24px; }
   .lista__fila { gap: 10px; }
 }
+
+/* Carga de saldo (pasarela simulada) */
+.carga { display: flex; flex-direction: column; gap: 12px; }
+.carga__montos { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.carga__monto-elegido { border-color: var(--acento); background: var(--acento-fondo); color: var(--acento); }
+.carga__pasarela {
+  display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center;
+  padding: 18px; border: 1px dashed var(--borde-input); border-radius: var(--radio-control); background: var(--fondo);
+}
+.carga__monto { font-size: 30px; font-weight: 700; }
+.carga__tarjeta {
+  display: flex; justify-content: space-between; width: 100%; max-width: 280px;
+  padding: 12px 14px; border-radius: var(--radio-control); background: var(--texto); color: #FFFFFF; font-size: 14px;
+}

@@ -98,6 +98,9 @@ export const api = {
   ingresar: (email, password) => pedir('POST', '/auth/login', { cuerpo: { email, password } }),
   registrar: (datos) => pedir('POST', '/auth/register', { cuerpo: datos }),
   saldo: () => pedir('GET', '/billetera/me'),
+  // Carga desde la web con la pasarela simulada (demo): crear la carga pendiente y después pagarla.
+  iniciarCarga: (importeCentavos, clave) => pedir('POST', '/billetera/me/cargas', { cuerpo: { importeCentavos }, clave }),
+  pagarCarga: (cargaId, clave) => pedir('POST', `/billetera/me/cargas/${cargaId}/pagar`, { clave }),
   // Movimientos desde la base `billetera` (sin atraso) e historial desde la proyección (tema 13).
   movimientos: (limite = 20) => pedir('GET', `/billetera/me/movimientos?limite=${limite}`).then((r) => r.movimientos),
   historial: (limite = 20) => pedir('GET', `/viajes?limite=${limite}`).then((r) => r.viajes),

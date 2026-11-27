@@ -37,7 +37,7 @@ export function crearApp({ config, logger, verificarDisponibilidad, autenticacio
   });
 
   app.use('/auth', crearRutasAutenticacion({ ...autenticacion, limitadorLogin: limitadores.login }));
-  app.use('/billetera', crearRutasBilletera({ ...billetera, limitadorWebhook: limitadores.webhook }));
+  app.use('/billetera', crearRutasBilletera({ ...billetera, idempotente, limitadorWebhook: limitadores.webhook }));
   app.use('/viajes', crearRutasViajes({ ...viajes, idempotente }));
   app.use('/ofertas', crearRutasOfertas({ ...ofertas, idempotente }));
   app.use('/choferes', crearRutasChoferes({ ...choferes, idempotente, limitadorUbicacion: limitadores.ubicacion }));

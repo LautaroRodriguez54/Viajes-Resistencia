@@ -12,6 +12,9 @@ const cargaWebhook = z.object({
 
 // Paginación simple: sólo los últimos N (1 a 50, 20 por defecto). Un listado sin tope es un
 // hallazgo fácil en el ataque cruzado.
+// Carga desde la web: el importe en centavos enteros. Los límites ($ 100 a $ 500.000) los valida el caso de uso.
+const nuevaCarga = z.object({ importeCentavos: z.number().int().positive().max(2_000_000_000) }).strict();
+
 const listado = z.object({ limite: z.coerce.number().int().min(1).max(50).default(20) }).strict();
 
 function validarCarga(body) {
@@ -24,6 +27,9 @@ export function crearRutasBilletera({
   procesarCargaWebhook,
   consultarSaldoPorPasajero,
   listarMovimientosPorPasajero,
+  iniciarCargaDeSaldo,
+  confirmarCargaDeSaldo,
+  idempotente = () => (_req, _res, next) => next(),
   tokens,
   limitadorWebhook = (_req, _res, next) => next(),
 }) {
@@ -51,6 +57,23 @@ export function crearRutasBilletera({
     const movimientos = await listarMovimientosPorPasajero(req.autenticacion.usuarioId, consulta.data);
     res.status(200).json({ movimientos });
   });
+
+  // Carga de saldo desde la web con la pasarela de pagos simulada. Sólo se monta si la composición
+  // la arma (PASARELA_SIMULADA_HABILITADA): sin ella, la única carga es el webhook del proveedor.
+  if (iniciarCargaDeSaldo && confirmarCargaDeSaldo) {
+    router.post('/me/cargas', requiereAutenticacion(tokens), soloPasajero, idempotente('billetera.iniciar_carga'), async (req, res) => {
+      const cuerpo = nuevaCarga.safeParse(req.body);
+      if (!cuerpo.success) throw new ErrorDeDominio('ENTRADA_INVALIDA', 'El importe de la carga es inválido.');
+      const carga = await iniciarCargaDeSaldo({ pasajeroId: req.autenticacion.usuarioId, importeCentavos: cuerpo.data.importeCentavos });
+      res.status(201).json({ carga });
+    });
+
+    router.post('/me/cargas/:cargaId/pagar', requiereAutenticacion(tokens), soloPasajero, idempotente('billetera.pagar_carga'), async (req, res) => {
+      if (!z.string().uuid().safeParse(req.params.cargaId).success) throw new ErrorDeDominio('ENTRADA_INVALIDA', 'Identificador de carga inválido.');
+      const carga = await confirmarCargaDeSaldo({ intencionId: req.params.cargaId, pasajeroId: req.autenticacion.usuarioId });
+      res.status(200).json({ carga });
+    });
+  }
 
   return router;
 }
