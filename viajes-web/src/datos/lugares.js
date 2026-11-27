@@ -1,3 +1,5 @@
+import { URL_PHOTON_INVERSA, usarMapaReal } from '../mapas/config.js';
+
 // Lugares de Resistencia: los frecuentes del autocompletado y la lista fija cuando el mapa es el simulado.
 // Están todos a menos de 5 km de la plaza: el backend busca choferes a ≤ 5 km del origen.
 // El cliente manda sólo coordenadas; la tarifa la calcula siempre el servidor.
@@ -25,10 +27,12 @@ export function lugarMasCercano(punto) {
   return menor < 1e-6 ? mejor : null;
 }
 
-// El backend guarda coordenadas, no nombres. Con Places el pasajero elige cualquier dirección,
-// así que la web recuerda el nombre de lo que eligió, en la pestaña (sessionStorage: no queda en el
-// equipo al cerrarla). La clave es la coordenada redondeada a 5 decimales (~1 m), porque la base
-// la devuelve con otra precisión.
+// Desde la migración 007 el backend guarda el nombre que eligió el pasajero y lo devuelve en cada punto
+// (`punto.nombre`): es lo primero que se usa. Para los viajes anteriores (nombre null) quedan dos respaldos:
+// - lo que este pasajero eligió en esta pestaña (sessionStorage: no queda en el equipo al cerrarla);
+// - la dirección aproximada que devuelve Photon para esas coordenadas, pedida en segundo plano una sola vez
+//   por punto. Como las pantallas consultan cada 2 a 5 s, el nombre aparece solo en la consulta siguiente.
+// La clave es la coordenada redondeada a 5 decimales (~1 m), porque la base la devuelve con otra precisión.
 const CLAVE_NOMBRES = 'viajes.nombresDeLugares';
 
 function claveDe(punto) {
@@ -50,10 +54,31 @@ export function recordarNombre(punto, nombre) {
   globalThis.sessionStorage?.setItem(CLAVE_NOMBRES, JSON.stringify(nombres));
 }
 
-// Nombre conocido del punto (recordado o de la lista fija), o null si no se conoce.
+// Nombre conocido del punto (el del backend, recordado o de la lista fija), o null si no se conoce.
 export function nombreConocido(punto) {
   if (!punto) return null;
-  return nombresRecordados()[claveDe(punto)] ?? lugarMasCercano(punto)?.nombre ?? null;
+  return punto.nombre ?? nombresRecordados()[claveDe(punto)] ?? lugarMasCercano(punto)?.nombre ?? null;
+}
+
+// Dirección aproximada con Photon (búsqueda inversa). Sólo con el mapa real (con el simulado no hay red)
+// y una vez por punto: el servidor público pide uso moderado.
+const pedidos = new Set();
+function pedirDireccion(punto) {
+  if (!usarMapaReal || typeof fetch !== 'function') return;
+  const clave = claveDe(punto);
+  if (pedidos.has(clave)) return;
+  pedidos.add(clave);
+  const url = `${URL_PHOTON_INVERSA}?${new URLSearchParams({ lat: String(punto.latitud), lon: String(punto.longitud), limit: '1' })}`;
+  fetch(url)
+    .then((respuesta) => (respuesta.ok ? respuesta.json() : null))
+    .then((datos) => {
+      const p = datos?.features?.[0]?.properties;
+      if (!p) return;
+      const calle = p.street ? `${p.street}${p.housenumber ? ` ${p.housenumber}` : ''}` : null;
+      const nombre = p.name ?? calle;
+      if (nombre) recordarNombre(punto, nombre);
+    })
+    .catch(() => {}); // sin red: quedan las coordenadas
 }
 
 export function coordenadasComoTexto(punto) {
@@ -62,7 +87,10 @@ export function coordenadasComoTexto(punto) {
 
 export function nombreDelPunto(punto) {
   if (!punto) return '…';
-  return nombreConocido(punto) ?? coordenadasComoTexto(punto);
+  const conocido = nombreConocido(punto);
+  if (conocido) return conocido;
+  pedirDireccion(punto);
+  return coordenadasComoTexto(punto);
 }
 
 // Distancia en línea recta, sólo para mostrar (la tarifa la calcula el servidor).

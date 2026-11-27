@@ -36,6 +36,8 @@ Los 3 temas de Fernández se implementan **dentro** del backend y se documentan 
 | 6. Entrega final | 12 | 9–15/12 | Correcciones con tests, mediciones completas, todos los ADR, tag `entrega-final` |
 | 7. Defensa oral | 13 | 16–22/12 | Individual, 40 % de la nota, requiere 6 por sí sola |
 
+**Decisión del 27/11/2026:** lo de la rúbrica de Puljiz que no llegó a hacerse (ataque cruzado, Grafana, k6, ampliar E2E) **queda sin efecto** por falta de tiempo. Para Puljiz alcanza con que la app sea funcional y cumpla los demás requisitos obligatorios; si falta algo, se actualiza antes de su entrega (la semana que viene).
+
 Nota de Puljiz: grupal 40 % (problema central 30, seguridad 20, concurrencia 20, arquitectura 15, tests/docs 15) + artefactos 20 % (ADR 30, mediciones 30, ataque 30, Git 10) + defensa 40 %.
 
 Fernández no fija fechas en el Word ("se establecerán en el cronograma"): pedirlas y anotarlas acá.
@@ -64,11 +66,11 @@ Nosotros, por Puljiz, ya tenemos varios módulos en un mismo backend. Para Fern�
 |---|---|---|
 | M1 Identidad y Acceso | Credenciales, roles, revocación, OAuth/OIDC | `auth/*` (JWT propio, sin refresh ni revocación) |
 | M2 Clientes | Perfil, direcciones, preferencias, historial, calificaciones | Sólo `usuarios` (sin nombre, sin perfil ni calificaciones) |
-| M3 Conductores y Vehículos | Habilitación, vehículos auto/moto, documentación | Perfil de chofer + habilitación por admin (sin tipos de vehículo ni documentos) |
-| M4 Ubicación y Disponibilidad | Posición, cercanos, TTL de ubicación, ETA | `choferes/me/ubicacion`, PostGIS (sin TTL ni ETA) |
-| M5 Solicitud y Despacho | Candidatos, ofertas con vencimiento, asignación única | Ofertas a ≤5 km, aceptación (sin vencimiento ni rechazo) |
-| M6 Viajes y Ciclo de Vida | Estados, arribo, inicio con QR, cancelación, auditoría | Estados + `eventos_viaje` (sin QR ni cancelación) |
-| **M7 Tarifas, Pagos y Liquidaciones** | Estimación, cobro, cargo de cancelación, reintegro, liquidación al conductor, idempotencia | **Billetera (variante D)**: tarifa, webhook de carga, cobro sin parcial |
+| M3 Conductores y Vehículos | Habilitación, vehículos auto/moto, documentación | Perfil de chofer + habilitación por admin desde su pantalla (sin tipos de vehículo ni documentos) |
+| M4 Ubicación y Disponibilidad | Posición, cercanos, TTL de ubicación, ETA | `choferes/me/ubicacion` sin bloqueo e historial por lotes (ADR 005), PostGIS, TTL con `UBICACION_TTL_SEGUNDOS` (sin ETA) |
+| M5 Solicitud y Despacho | Candidatos, ofertas con vencimiento, asignación única | Ofertas a ≤5 km con vencimiento a 30 s, rechazo y re-oferta al siguiente, aceptación única (sin asignación automática) |
+| M6 Viajes y Ciclo de Vida | Estados, arribo, inicio con QR, cancelación, auditoría | Estados + `eventos_viaje`, cancelación de pasajero, chofer y operador con motivo (sin QR ni arribo) |
+| **M7 Tarifas, Pagos y Liquidaciones** | Estimación, cobro, cargo de cancelación, reintegro, liquidación al conductor, idempotencia | **Billetera (variante D)**: tarifa (administrable), webhook de carga, cobro sin parcial, reintento |
 | M8 Notificaciones, Documentos y Soporte | Avisos, QR, comprobante PDF, tickets, consumo desde cola | SSE previsto (no hecho) |
 | M9 Reservas | Viajes a futuro, recordatorio, activación idempotente | No existe |
 
@@ -145,6 +147,19 @@ Al 26/11/2026 (noche, después del #32): **la pila #14 → #19 está en `main`**
 - **#33 y #34** (Lucas, aprobados y fusionados por Agustín, `7f7f769`): `schema_migrations`, `/ready` con migraciones, timeouts del pool y apagado ordenado; `tieneOfertaVigente` en `GET /viajes/:viajeId` y `UBICACION_TTL_SEGUNDOS=60` activo. 248/248. **Cada clon: `npm run setup` y `npm run setup:test`** (crean `schema_migrations`) y sumar `UBICACION_TTL_SEGUNDOS=60` al `.env`.
 - **#36** `feat/web-operador-y-cancelacion` (Agustín, aprobado y fusionado por Lucas, `fc02e7f`): operador conectado (activos, cancelar con motivo, reintentar cobro), "Cancelar viaje" del pasajero y "Buscar chofer de nuevo" según `tieneOfertaVigente`. 21/21 contra el backend real.
 - **#37** `feat/web-mapa-osm` (Agustín, revisa Lucas; base `main` desde que entró el #35, CI en verde): mapa real con **OpenStreetMap** (Leaflet + Photon + OSRM, sin claves: Google pide tarjeta; ADR 011, Decisión 4), con el dibujo como respaldo y Pedir arrancando vacía con "Conectado".
-- **Hallazgo para Lucas**: ningún pool de `pg` tiene `pool.on('error')`. Si Postgres corta una conexión, el backend se cae (`REVISION-EQUIPO.md` 2.5).
+- **#37** fusionado (`bc23caf`). **#38** y **#39** (Lautaro, fusionados sin revisión registrada): Playwright con 1 test E2E obligatorio en la CI, `carga/viajes.js` (k6 de base) y `rateLimiting.test.js` (4 tests `skip`).
+- **#40** (Lucas, aprobado y fusionado por Agustín, `aa990e7`): `pool.on('error')` en los 3 pools (cierra el hallazgo 2.5), timeouts del pool en `env.js` y la paridad del adaptador en memoria. **#41** (Lucas, aprobado y fusionado por Agustín, `97bb5d7`): `GET /admin/metricas` (lag del event loop y memoria) y `npm run carga:ubicaciones` (500 choferes). 253 tests.
+- **#42** y **#43** (Lucas, aprobados y fusionados por Agustín a pedido del grupo, `ea93a06` y `b500e5a`): ubicaciones sin `FOR UPDATE` e historial por lotes, mediciones reales (3 corridas de 30 s por escenario), ADR 005 aceptado y retención del historial. **El bloque 7 está completo.** La carrera del recolector (`REVISION-EQUIPO.md` 2.6) la arregla el **#45** (Agustín, test que falla sin el arreglo, CI en verde; **falta fusionarlo**).
+- **#44** (Agustín, fusionado sin revisión por decisión de Agustín, `8a035cd`): el seed crea `pasajero@demo.local` y `chofer@demo.local` (ya habilitado) y los README listan los accesos de los 4 roles. Cada clon: `npm run setup`.
+- **`feat/web-chofer-cancelar-y-admin`** (Agustín, 27/11): el chofer cancela desde la web; el admin queda conectado con `GET /admin/choferes`, `GET` y `POST /admin/tarifa` (fila nueva activa con `LOCK TABLE ... IN EXCLUSIVE MODE`; test de 5 administradores a la vez). Ninguna pantalla usa datos de ejemplo. OpenAPI 0.10.0, 261 tests. Trae además la actualización de toda la documentación y borra el `package-lock.json` vacío de la raíz.
+- **#45** y **#46** fusionados (`d340958`, `bb287e8`). El filtro de la billetera ("Mis viajes" sólo con los completos) quedó afuera del #46 y entra con la rama siguiente.
+- **`feat/web-visual`** (Agustín, 27/11, fusionado sin revisión por decisión de Agustín; Lucas y Lautaro lo revisan después): **migración `007`** de `viajes` y `003` de `lectura` (nombres de los lugares; **la próxima de Lucas es la `008`**), `GET /viajes/:id` con vehículo y posición del chofer sólo mientras el viaje está activo (6.4, con test), `negocio` en `/admin/metricas`, y en la web el auto en movimiento, comprobantes, panel del admin, aviso de oferta y placeholders. OpenAPI 0.11.0, 266 tests. **Cada clon: `npm run setup` y `npm run setup:test`.**
+- **`feat/tarifa-realista`** (Agustín, 27/11): la tarifa estima por calles (línea recta × 1,3), cobra los km con decimales y redondea a pesos. El seed pone la tarifa 2026 (base $ 1.500, $ 900/km, $ 180/min, 25 km/h), calibrada con el promedio de UberX desde el aeropuerto ($ 13.379); reemplaza la vieja de desarrollo si sigue activa. Sin migración. **Cada clon: `npm run setup`.**
+- **`feat/estimacion-previa`** (Agustín, 27/11): `POST /viajes/estimacion` (sin Idempotency-Key, no escribe) y en Pedir el precio aproximado con km, minutos y aviso si el saldo no alcanza. OpenAPI 0.12.0, 273 tests.
+- **`feat/demo-y-pulido`** (Agustín, 27/11): `npm run demo:reiniciar -- --confirmar` (base de desarrollo como nueva), el auto del chofer entra en el encuadre del mapa, la línea del comprobante más visible y CSS de celular para el panel, el comprobante y el precio aproximado.
+- **#51** (Agustín, 27/11): en la demo el auto hace cada tramo en unos 20 s y la ruta se recorta detrás del auto.
+- **Cierre del 27/11**: `main` en `11f1ef4`, CI en verde, 273 tests. Antes del oral: `npm run demo:reiniciar -- --confirmar`, reiniciar el servidor y `npm run cargar-saldo -- pasajero@demo.local 5000000`. **Sigue (28/11)**: el TP de Fernández (Dockerfile, matriz de trazabilidad, validación contra el OpenAPI) y la prueba de clon limpio.
+- **Decisión del 27/11**: lo extra de la rúbrica de Puljiz (ataque cruzado, Grafana, k6, más E2E) queda sin efecto. Sigue el TP de Fernández (28/11).
+- La comparación de la auditoría del 26/11 con el código está en `REVISION-EQUIPO.md`, sección 8.
 - **Revisor**: desde el 26/11, Lucas revisa todos los PR de Agustín.
-- Pendiente de Lautaro: la suite E2E (el job de Playwright de la CI se saltea hasta que exista `e2e/package.json`) y una revisión registrada en el #20, que se fusionó sin revisión.
+- Pendiente de Lautaro: ampliar la suite E2E (hoy hay 1 test, que llega hasta `pago_pendiente`) y dejar una revisión registrada en el #20, el #38 y el #39, que se fusionaron sin revisión.

@@ -23,8 +23,8 @@ npm run lint      # ESLint con reglas de seguridad
 npm run dev       # node --watch src/servidor.js
 ```
 
-- Admin de desarrollo: `admin@demo.local` / `AdminDemo123!`.
-- `GET /health` (proceso) y `GET /ready` (hoy sólo hace `SELECT 1`).
+- Accesos de desarrollo (los crea el seed): `pasajero@demo.local` / `PasajeroDemo123!`, `chofer@demo.local` / `ChoferDemo123!` (ya habilitado), `operador@demo.local` / `OperadorDemo123!` y `admin@demo.local` / `AdminDemo123!`.
+- `GET /health` (proceso) y `GET /ready` (las tres bases y `schema_migrations`; 503 si falta alguna migración).
 - Express 5 propaga errores de handlers `async`; no hace falta `try/catch` ni `next(err)` en las rutas.
 - `http://localhost:3000/` responde 404 `RUTA_NO_ENCONTRADA`: es sólo API. Se prueba con `curl`, REST Client o Postman.
 
@@ -35,7 +35,7 @@ Hexagonal liviana:
 ```text
 src/
   dominio/      reglas puras: roles, estados de viaje, tarifa (Haversine), dinero, billetera, errores, puertos
-  aplicacion/   casos de uso (registrarUsuario, iniciarSesion, procesarCargaWebhook, solicitarViaje, finalizarViajeYCobrar, reintentarCobro)
+  aplicacion/   casos de uso (autenticación, billetera, y en viajes/: solicitar, ofrecer, aceptar, rechazar, vencer, avanzar, cancelar, finalizar y cobrar, reintentar cobro)
   infra/
     http/       Express: rutas*, middleware Bearer, contexto (requestId con AsyncLocalStorage), errores
     db/         pool, migraciones SQL, seed, repositorios Postgres
@@ -112,30 +112,31 @@ Hilo conductor: **"La billetera es un servicio dueño de sus datos (12); como ya
 
 ## Estado actual
 
-Al 26/11/2026 (`main` en `579a1cc`, más la rama 10). El contrato completo está en `docs/openapi.yaml` (0.7.0).
+Al 27/11/2026. El contrato completo está en `docs/openapi.yaml` (0.12.0). La próxima migración de `viajes` es la `008` (la `007` agrega los nombres de los lugares).
 
 | Área | Endpoints | Estado |
 |---|---|---|
 | Salud | `GET /health`, `GET /ready` (verifica las tres bases y `schema_migrations`) | Hecho |
 | Autenticación | `POST /auth/register` (pasajero/chofer), `POST /auth/login`, `GET /auth/me` | Hecho (sin refresh ni revocación) |
 | Billetera | `POST /billetera/webhooks/cargas` (HMAC + dedupe), `GET /billetera/me` (lee la proyección de `lectura`), `GET /billetera/me/movimientos` (lee la base `billetera`) | Hecho, en su propia base (ADR 008 y 009) |
-| Viajes | `POST /viajes`, `GET /viajes` (historial desde la proyección `historial_viajes`), `GET /viajes/:viajeId` (sólo el pasajero dueño), `POST /viajes/:viajeId/reintentar-cobro`, `POST /viajes/:viajeId/cancelar` | Hecho |
+| Viajes | `POST /viajes`, `GET /viajes` (historial desde la proyección `historial_viajes`), `GET /viajes/:viajeId` (sólo el pasajero dueño; con nombres de lugares y, mientras está activo, vehículo y posición del chofer), `POST /viajes/:viajeId/reintentar-cobro`, `POST /viajes/:viajeId/cancelar` | Hecho |
 | Ofertas | `POST /viajes/:viajeId/ofertas` (chofer más cercano a ≤5 km), `POST /ofertas/:ofertaId/aceptar`, `POST /ofertas/:ofertaId/rechazar` | Hecho, con vencimiento automático en el servidor (#22) |
-| Chofer | `PUT /choferes/me/disponibilidad`, `PUT /choferes/me/ubicacion`, `GET /choferes/me/ofertas`, `GET /choferes/me/viaje-actual`, `POST /choferes/viajes/:viajeId/estado`, `POST /choferes/viajes/:viajeId/finalizar` | Hecho |
-| Admin | `PATCH /admin/choferes/:choferId/habilitacion` | Hecho |
+| Chofer | `PUT /choferes/me/disponibilidad`, `PUT /choferes/me/ubicacion` (sin `FOR UPDATE` e historial por lotes, ADR 005), `GET /choferes/me/ofertas`, `GET /choferes/me/viaje-actual`, `POST /choferes/viajes/:viajeId/estado`, `POST /choferes/viajes/:viajeId/finalizar`, `POST /choferes/viajes/:viajeId/cancelar` | Hecho |
+| Operador | `GET /operador/viajes?estado=activos`, `POST /operador/viajes/:viajeId/cancelar` (motivo obligatorio), `POST /operador/viajes/:viajeId/reintentar-cobro` | Hecho (#24–#26) |
+| Admin | `GET /admin/choferes`, `PATCH /admin/choferes/:choferId/habilitacion`, `GET /admin/tarifa`, `POST /admin/tarifa` (fila nueva activa, `LOCK TABLE`), `GET /admin/metricas` | Hecho |
 
-- Los 5 endpoints que crean o cobran exigen `Idempotency-Key` (ADR 010).
-- **Tests**: 214, en `tests/dominio`, `aplicacion`, `infra`, `integracion`, `seguridad` y `concurrencia`. Un solo comando: `npm test` con `DATABASE_URL` apuntando a `viajes_test`.
-- **Lint**: ESLint con `eslint-plugin-security`, 0 errores. **CI** en GitHub Actions: lint, tests, auditoría, Semgrep y un job de Playwright que se saltea hasta que exista `e2e/package.json`.
-- **ADR**: 001 a 011. El 004 y el 005 siguen "propuesto" (son de Lucas) y el 008 reemplaza en parte al 004.
+- Los 11 endpoints que crean, cobran o cambian la tarifa exigen `Idempotency-Key` (ADR 010). El rol se verifica antes que la clave.
+- **Tests**: 273, en `tests/dominio`, `aplicacion`, `infra`, `integracion`, `seguridad` y `concurrencia`. Un solo comando: `npm test` con `DATABASE_URL` apuntando a `viajes_test`.
+- **Lint**: ESLint con `eslint-plugin-security`, 0 errores. **CI** en GitHub Actions, obligatoria en cada PR: lint, tests con PostGIS, auditoría, Semgrep y Playwright (`e2e/`, 1 recorrido hasta `pago_pendiente`).
+- **ADR**: 001 a 011. El 004 y el 005 ya están "aceptado" (el 008 reemplaza en parte al 004).
 
 ## Lo que falta (por bloque del enunciado)
 
-Prioridad: lo que pide el **control 3** de Puljiz (carrera con test concurrente + tarea pesada medida) y los temas de Fernández; después lo del TP1 de Fernández (OpenAPI, Dockerfile, trazabilidad). La web va al final.
+Prioridad (27/11): lo de la rúbrica de Puljiz que no llegó (ataque cruzado, Grafana, k6, más E2E) **quedó sin efecto** por decisión del grupo; lo que importa es que la app sea funcional y cumpla los demás requisitos obligatorios. Lo siguiente es el TP1 de Fernández (Dockerfile, trazabilidad, validación contra el OpenAPI).
 
 ### Bloque 1 — Proyecto y arranque
 - [x] `npm run lint` real (ESLint con reglas de seguridad).
-- [ ] README: sacar "Estado inicial / flujos pendientes", agregar tabla de roles con permisos, usuarios de prueba con credenciales (operador incluido) e índice de `docs/`.
+- [x] README: qué hace, tabla de roles con permisos, accesos de prueba de los 4 roles e índice de `docs/`.
 - [ ] Probar la secuencia de clon limpio en otra máquina.
 
 ### Bloque 2 — Arquitectura hexagonal
@@ -164,7 +165,7 @@ Prioridad: lo que pide el **control 3** de Puljiz (carrera con test concurrente 
 - [x] Vencimiento de ofertas en el servidor, siguiente candidato y `sin_choferes_disponibles` al agotar la lista (PR #22).
 - [x] Ofertas duplicadas y choferes con oferta pendiente con `FOR UPDATE SKIP LOCKED` + revalidación después del bloqueo (PR #21, que arregla el test intermitente).
 - [x] Rechazo explícito de oferta por el chofer (PR #22).
-- [ ] ADR 004 completo: qué se bloquea, en qué orden, por qué no hay doble asignación ni interbloqueo.
+- [x] ADR 004 completo: qué se bloquea, en qué orden, por qué no hay doble asignación ni interbloqueo.
 
 ### Variante D — Billetera
 - [x] Separación en base propia (tema 12, ADR 008) y proyección de saldos (tema 13, ADR 009).
@@ -175,32 +176,32 @@ Prioridad: lo que pide el **control 3** de Puljiz (carrera con test concurrente 
 - [x] Carga de saldo para la demo sin exponer el secreto HMAC: `npm run cargar-saldo`.
 
 ### 6.2, 6.4 y 6.5 — Alcance funcional
-- [ ] Estimación previa sin crear el viaje (`POST /viajes/estimacion`) y tarifa final desde recorrido y duración reales con la misma función. Tests de tarifa con distancia cero y con máximo permitido.
+- [~] Estimación previa sin crear el viaje: **hecha** (`POST /viajes/estimacion`, misma función y tarifa que la solicitud; la web la muestra en Pedir). Falta la tarifa final desde el recorrido y la duración reales. (Los tests de tarifa con distancia cero y con máximo permitido ya están en `tests/dominio/tarifa.test.js`.)
 - [ ] Asignación automática al crear el viaje (hoy el pasajero llama a mano a `/ofertas`).
 - [ ] Tiempo real por SSE con `Last-Event-ID` (estado del viaje + posición del chofer). `EventSource` no permite el header `Authorization`: ticket corto de un solo uso, nunca el JWT en la URL.
-- [ ] Test: la ubicación del chofer no se expone a quien no es su pasajero actual (ni la del pasajero a quien no es su chofer).
+- [x] Test: la ubicación del chofer sólo la ve su pasajero y sólo mientras el viaje está activo (`tests/integracion/nombresYUbicacionChofer.test.js`). La del pasajero no se expone en ningún endpoint.
 - [~] Historiales (pasajero y chofer) y panel del operador: salen de las proyecciones del tema 13. Hecho: el del pasajero (`GET /viajes`, rama 10) y los movimientos de la billetera. Falta el del chofer y que el panel del operador lea la proyección.
-- [ ] Administración de tarifas, zonas y parámetros.
+- [x] Administración de tarifas: `GET` y `POST /admin/tarifa` (la tarifa nunca se edita, se crea una nueva activa) y listado de choferes por habilitar. Zonas y radio siguen fijos.
 - [ ] Campo `nombre` en `usuarios` (migración nueva) y pedirlo en `POST /auth/register`. Hoy sólo hay email, y la proyección `historial_viajes` (tema 13) y las pantallas muestran nombre de pasajero y chofer.
 - [x] Usuario operador en el seed (`operador@demo.local`) y endpoints del operador: `GET /operador/viajes?estado=activos`, cancelar con motivo, reintentar cobro de un `pago_pendiente` (#24–#26).
 - [ ] La oferta le llega al chofer por SSE con origen, destino, polilínea de la ruta, distancia/tiempo hasta el retiro y tarifa estimada (la web la previsualiza en el mapa).
 - [ ] Decidir si el radio de búsqueda (hoy fijo en 5 km) pasa a parámetros administrables o queda como constante.
-- [ ] Política de retención/agregación de `historial_ubicaciones_chofer` (con 500 choferes son ~21 M filas/día).
+- [x] Política de retención/agregación de `historial_ubicaciones_chofer` (con 500 choferes son ~21 M filas/día) — definida en `docs/modelo.md`.
 
 ### Bloque 7 y 6.6 — Tarea pesada
-- [ ] Simulador de 500 choferes enviando ubicación cada 2 s durante varios minutos, mientras se asignan viajes.
-- [ ] Versión ingenua y versión final (ADR 005: worker threads, cola u optimización de consultas). Medir p50/p95/p99 de solicitud de viaje, tiempo hasta asignación, req/s, lag del event loop con `monitorEventLoopDelay` (expuesto por el propio servidor), memoria; 3 corridas de ≥30 s cada una.
-- [ ] Declarar el tiempo de asignación objetivo del grupo.
+- [x] Simulador de 500 choferes enviando ubicación cada 2 s durante varios minutos, mientras se asignan viajes (`npm run carga:ubicaciones`).
+- [x] Versión ingenua y versión final (ADR 005: sin `FOR UPDATE` en pings + batching asíncrono con `unnest` drenado en apagado). Medido p50/p95/p99 de solicitud de viaje, tiempo hasta asignación, req/s, lag del event loop con `monitorEventLoopDelay` (`GET /admin/metricas`), memoria; 3 corridas de ≥30 s cada una.
+- [x] Declarar el tiempo de asignación objetivo del grupo (p95 ≤ 500 ms, lag p99 < 50 ms en `docs/mediciones.md`).
 
 ### Bloque 8 — Tests
 - [x] Tres niveles con un solo comando: `tests/dominio`, `tests/aplicacion`, `tests/integracion` (Postgres real en Docker, estado conocido por test), `tests/seguridad` y `tests/concurrencia`.
 
 ### Documentación y proceso
-- [~] ADR: participantes y fecha completos en 001–003 y 006–011 (rama 8); 008–011 escritos. Falta cerrar el 004 y el 005 (Lucas).
-- [ ] `docs/mediciones.md`: hipótesis con número antes de medir, entorno, comando exacto, tabla ingenua vs final, conclusión.
-- [ ] `docs/ataque.md`: bitácora (número, hipótesis, petición exacta, esperado, obtenido, veredicto, severidad, impacto) y respuesta del defensor (causa raíz, commit, test que falla antes y pasa después).
+- [x] ADR: participantes y fecha completos en 001–011 (004 y 005 cerrados por Lucas).
+- [x] `docs/mediciones.md`: hipótesis con número antes de medir, entorno, comando exacto, tabla ingenua vs final, conclusión.
+- [—] **Sin efecto (27/11)** · `docs/ataque.md`: bitácora (número, hipótesis, petición exacta, esperado, obtenido, veredicto, severidad, impacto) y respuesta del defensor (causa raíz, commit, test que falla antes y pasa después).
 - [x] `docs/api.md` como índice del OpenAPI (rama `docs/api-openapi`). Quedan prefijo/versión de API y eventos SSE.
-- [ ] `docs/modelo.md`: diagrama, transiciones de `pago_pendiente`, reglas de tarifa y radio, retención de ubicaciones, separación de bases.
+- [x] `docs/modelo.md`: diagrama de estados del viaje, transiciones de `pago_pendiente`, reglas de tarifa (y su cambio por el admin) y radio, retención de ubicaciones, separación de bases.
 - [ ] Git: commits de los tres a lo largo del cuatrimestre, PR con revisión real de otro integrante, tag `entrega-final`.
 
 ## Lo que falta para el TP integrador de Fernández
@@ -208,7 +209,7 @@ Prioridad: lo que pide el **control 3** de Puljiz (carrera con test concurrente 
 Además de lo de Puljiz. Códigos RF/RNF del Word. El alcance exacto de cada entrega lo fija el Acta de Alcance: esto es el máximo posible, no todo es obligatorio para TP1.
 
 ### TP1 · Contrato ejecutable
-- [~] **OpenAPI** versionado (hecho: `docs/openapi.yaml` 0.7.0, + Swagger UI en el compose con `--profile docs`; falta validar las respuestas en los tests) (`docs/openapi.yaml`) con parámetros, esquemas, validaciones, ejemplos, respuestas de éxito y error (`{ error: { codigo, requestId } }`) y esquema de seguridad Bearer; visualización local (p. ej. Swagger UI en `GET /docs`, deshabilitada en producción). Los esquemas Zod y el contrato no pueden divergir.
+- [~] **OpenAPI** versionado (hecho: `docs/openapi.yaml` 0.12.0, + Swagger UI en el compose con `--profile docs`; falta validar las respuestas en los tests) (`docs/openapi.yaml`) con parámetros, esquemas, validaciones, ejemplos, respuestas de éxito y error (`{ error: { codigo, requestId } }`) y esquema de seguridad Bearer; visualización local (p. ej. Swagger UI en `GET /docs`, deshabilitada en producción). Los esquemas Zod y el contrato no pueden divergir.
 - [ ] Tests de integración que validen las respuestas contra el OpenAPI.
 - [ ] Mocks/stubs de las dependencias de otros módulos hechos desde **sus** OpenAPI, con casos de éxito, error y demora. Encajan como adaptadores en memoria de los puertos (también cumplen el bloque 2 de Puljiz).
 - [ ] **Dockerfile** del backend (multi-stage, usuario no root, `HEALTHCHECK` contra `/health`) y servicio `api` en `docker-compose.yml`. La secuencia de clon limpio de Puljiz tiene que seguir funcionando igual.

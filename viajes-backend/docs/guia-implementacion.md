@@ -22,7 +22,7 @@ finaliza                        → pago_pendiente → la billetera cobra → fi
 pasajero sin saldo              → carga y "reintentar cobro"
 ```
 
-Los 5 endpoints que crean o cobran exigen `Idempotency-Key` (ADR 010).
+Los 11 endpoints que crean, cobran o cambian la tarifa exigen `Idempotency-Key` (ADR 010).
 
 ## 2. Arquitectura y recorrido de una petición
 
@@ -123,7 +123,7 @@ El body parser de `src/infra/http/app.js` guarda `req.cuerpoCrudo`: volver a ser
 
 **Solicitud.** `POST /viajes` exige un pasajero, valida las coordenadas, toma los parámetros de tarifa activos y crea el viaje en `solicitado` con su estimación.
 
-**Chofer y PostGIS.** Con `PUT /choferes/me/disponibilidad` y `PUT /choferes/me/ubicacion`, la posición actual va a `ubicaciones_actuales_chofer` (índice GiST) y el historial a otra tabla. Con `UBICACION_TTL_SEGUNDOS`, un chofer que no reporta hace rato deja de ser candidato.
+**Chofer y PostGIS.** Con `PUT /choferes/me/disponibilidad` y `PUT /choferes/me/ubicacion`, la posición actual va a `ubicaciones_actuales_chofer` (índice GiST) con una sola sentencia sin `FOR UPDATE`, y el historial lo junta `recolectorHistorialUbicaciones.js` y lo inserta por lotes con `unnest` (ADR 005, bloque 7). Con `UBICACION_TTL_SEGUNDOS`, un chofer que no reporta hace rato deja de ser candidato.
 
 **Oferta.** `POST /viajes/:viajeId/ofertas` busca con `ST_DWithin` el chofer habilitado, disponible y sin viaje activo más cercano a ≤5 km, con `FOR UPDATE OF p SKIP LOCKED`. Después de bloquearlo **revalida** que siga elegible con una sentencia nueva: en READ COMMITTED, la primera vio una foto anterior al bloqueo. Por último crea una oferta de 30 s (configurable con `OFERTA_TTL_SEGUNDOS`).
 
@@ -136,15 +136,24 @@ El body parser de `src/infra/http/app.js` guarda `req.cuerpoCrudo`: volver a ser
 
 **Lecturas del chofer.** `GET /choferes/me/ofertas` y `GET /choferes/me/viaje-actual`, para la web, que consulta cada 2 s (ADR 011).
 
+**Cancelación.** `cancelarViaje.js` con las reglas por rol de `decidirCancelacion`: pasajero, chofer (en `asignado` o `chofer_en_camino`) y operador (con motivo obligatorio). Bloquea viaje → ofertas → chofer, como la aceptación.
+
+**Administración.** `GET /admin/choferes` lista los pendientes de habilitar. `POST /admin/tarifa` crea una tarifa nueva activa con `LOCK TABLE ... IN EXCLUSIVE MODE` (dos administradores a la vez quedan en fila). `GET /admin/metricas` expone el lag del event loop y la memoria.
+
 | Archivo | Responsabilidad |
 |---|---|
 | `src/aplicacion/viajes/solicitarViaje.js` | Caso de uso de la solicitud: tarifa y viaje. |
 | `src/infra/db/repositorioViajesPostgres.js` | SQL de viajes, búsqueda geográfica, ofertas, aceptación, rechazo y vencimiento, estados, lecturas del chofer, y la parte de cobro de viajes (`crearCobroViajesPostgres`). |
-| `src/infra/db/repositorioChoferesPostgres.js` | Disponibilidad, habilitación y ubicación. |
+| `src/infra/db/repositorioChoferesPostgres.js` | Disponibilidad, habilitación, ubicación (CTE sin bloqueo) y listado para el administrador. |
+| `src/infra/db/recolectorHistorialUbicaciones.js` | Historial de ubicaciones por lotes (`unnest`), con los volcados en fila y drenado al apagar. |
+| `src/infra/db/repositorioTarifasPostgres.js` | Tarifa activa y su reemplazo por una fila nueva. |
+| `src/infra/db/resumenOperativoPostgres.js` | Conteos del panel del admin (viajes activos, choferes disponibles, pagos pendientes). |
+| `src/infra/observabilidad/metricasProceso.js` | `monitorEventLoopDelay` y memoria para `GET /admin/metricas`. |
 | `src/infra/http/rutasViajes.js` | Solicitar, consultar el viaje propio, ofrecer y reintentar el cobro. |
 | `src/infra/http/rutasOfertas.js` | Aceptar y rechazar. |
 | `src/infra/http/rutasChoferes.js` | Disponibilidad, ubicación, lecturas, estado y finalización. |
-| `src/infra/http/rutasAdministracion.js` | Habilitar o deshabilitar choferes. |
+| `src/infra/http/rutasAdministracion.js` | Choferes por habilitar, habilitación, tarifa y métricas. |
+| `src/infra/http/rutasOperador.js` | Viajes activos, cancelar con motivo y reintentar un cobro. |
 
 ## 8. Finalización y cobro (dos pasos, ADR 008)
 
@@ -176,13 +185,17 @@ La carrera de la variante D, dos viajes contra un saldo que alcanza para uno, se
 |---|---|
 | `src/infra/db/postgres.js` | Crea los pools y verifica la conexión (`/ready` chequea las tres bases). |
 | `src/infra/db/migrate.js` | Crea los roles y las bases si faltan, aplica las migraciones de cada base con el superusuario y le da al rol de cada módulo sólo permisos de lectura y escritura de filas (DML). `--pruebas` prepara las bases `_test`. |
-| `src/infra/db/seed.js` | Tarifa de desarrollo y administrador `admin@demo.local`. |
+| `src/infra/db/seed.js` | Tarifa de desarrollo y los 4 usuarios de demo (pasajero, chofer habilitado, operador y administrador). |
 | `migraciones/001_inicial.sql` | Esquema inicial, índices únicos parciales, `claves_idempotencia`. |
 | `migraciones/002-parametros-tarifa-y-viajes.sql` | Velocidad promedio en la tarifa. |
 | `migraciones/003-ofertas-unicidad-pendiente.sql` | `ux_oferta_pendiente_viaje_chofer`: una sola oferta pendiente por chofer y viaje. |
 | `migraciones/004-billetera-fuera-de-viajes.sql` | Borra las tablas de billetera de `viajes` y crea `outbox_viajes`. |
+| `migraciones/005-viajes-cancelacion.sql` | Estado `cancelado_operador` y columnas de la cancelación. |
+| `migraciones/006-outbox-viaje-cambiado.sql` | Trigger que deja `ViajeCambiado` en `outbox_viajes` en cada cambio de `viajes` (ADR 009). |
+| `migraciones/007-viajes-nombres-de-lugares.sql` | `origen_nombre` y `destino_nombre` (opcionales) y la foto del viaje con el nombre. |
 | `migraciones-billetera/001-billetera.sql` | Base `billetera`. |
 | `migraciones-lectura/001-lectura.sql` | Base `lectura`. |
+| `migraciones-lectura/003-historial-nombres-de-lugares.sql` | Los nombres en `historial_viajes`. |
 | `src/infra/db/despachadorOutbox.js` | Toma eventos con `FOR UPDATE SKIP LOCKED`, los entrega y los marca. |
 | `src/infra/db/despachadorVencimientoOfertas.js` | Vence ofertas y vuelve a ofrecer. |
 | `src/infra/db/repositorioIdempotenciaPostgres.js` | `reservar`, `completar` y `liberar` sobre `claves_idempotencia`. |
@@ -200,26 +213,24 @@ La carrera de la variante D, dos viajes contra un saldo que alcanza para uno, se
 
 ## 11. Tests
 
-`npm test` corre todo. Con `DATABASE_URL` apuntando a `viajes_test` corren también los que usan base (antes, `npm run setup:test`). Son 214.
+`npm test` corre todo. Con `DATABASE_URL` apuntando a `viajes_test` corren también los que usan base (antes, `npm run setup:test`). Son 266.
 
 | Carpeta | Qué prueba |
 |---|---|
 | `tests/dominio` | Saldo derivado, por qué no float, `decidirCobro`, roles, tarifa. |
 | `tests/aplicacion` | Cobro sin Postgres: orden de bloqueo, caída entre bases, carrera de la variante D, dobles simultáneos. |
 | `tests/infra` | JWT, HMAC, carga de demo, idempotencia (middleware), cabeceras, SQL de ofertas con un pool simulado. |
-| `tests/integracion` | Con Postgres real: repositorios, idempotencia HTTP (10 pedidos simultáneos → 1 viaje), outbox, proyección, propiedad de datos, vencimiento y rechazo. |
-| `tests/concurrencia` | 50 aceptaciones simultáneas (gana una), SKIP LOCKED en ráfaga, carreras de vencimiento y rechazo. |
+| `tests/integracion` | Con Postgres real: repositorios, idempotencia HTTP (10 pedidos simultáneos → 1 viaje), outbox, proyección, propiedad de datos, vencimiento y rechazo, ubicaciones por lotes, administración (5 cambios de tarifa a la vez → 1 activa). |
+| `tests/concurrencia` | 50 aceptaciones simultáneas (gana una), SKIP LOCKED en ráfaga, carreras de vencimiento y rechazo, cancelación contra aceptación. |
 | `tests/seguridad` | Autenticación, autorización por rol y recurso, validación, prototype pollution, inyección SQL, CORS, rate limiting. |
 
 ## 12. Pendiente
 
 Está en `viajes-backend/CLAUDE.md`, sección "Lo que falta", que se mantiene al día. Lo más grande:
-- cancelaciones y operador;
-- SSE;
-- tarifa final real;
-- simulador de 500 choferes y mediciones;
-- ataque cruzado;
-- Dockerfile, trazabilidad y validación contra el OpenAPI (TP1 de Fernández).
+- Dockerfile, trazabilidad y validación contra el OpenAPI (TP1 de Fernández);
+- SSE (hoy la web consulta cada 2 s, ADR 011);
+- tarifa final con el recorrido real y estimación sin crear el viaje;
+- historial del chofer.
 
 ## 13. Orden recomendado para estudiar
 
@@ -227,7 +238,7 @@ Está en `viajes-backend/CLAUDE.md`, sección "Lo que falta", que se mantiene al
 2. Autenticación: ruta → caso de uso → repositorio → outbox `UsuarioRegistrado`.
 3. Webhook de la billetera y `cobrar` (`repositorioBilleterasPostgres.js`).
 4. El cobro en `aplicacion/viajes/` y su test en memoria (`tests/aplicacion/cobroDeViajes.test.js`).
-5. `repositorioViajesPostgres.js`: `ofrecerAlChoferCercano` y `aceptarOferta`.
+5. Despacho y aceptación: `aplicacion/viajes/ofrecerAlChoferCercano.js` y `aceptarOferta.js`, con su SQL en `repositorioViajesPostgres.js` (`unidadDeTrabajoViajes`).
 6. `idempotencia.js` y el ADR 010.
 7. Las migraciones y los índices únicos parciales.
-8. Los ADR 004, 007, 008, 009 y 011 antes de explicar concurrencia, geolocalización, bases separadas y la web.
+8. Los ADR 004, 005, 007, 008, 009 y 011 antes de explicar concurrencia, ubicaciones y carga, geolocalización, bases separadas y la web.

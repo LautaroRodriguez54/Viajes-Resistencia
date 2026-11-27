@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Viajes Resistencia · API del backend
-  version: 0.8.0
+  version: 0.12.0
   summary: Viajes a demanda con billetera y pagos (grupo 4, variante D).
   description: |
     Contrato HTTP del backend. Es la **fuente de verdad** de la API: `docs/api.md` sólo lo resume.
@@ -234,6 +234,54 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
         '503':
           description: '`TARIFA_NO_CONFIGURADA`: no hay parámetros de tarifa activos (`npm run setup` los carga).'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /viajes/estimacion:
+    post:
+      tags: [Viajes]
+      summary: Precio aproximado antes de pedir (pasajero)
+      description: >-
+        Calcula la estimación con la misma función y la misma tarifa activa que `POST /viajes`, pero no crea el viaje
+        ni escribe nada, así que no lleva `Idempotency-Key`. Acepta el mismo cuerpo que la solicitud.
+      operationId: estimarViaje
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SolicitudViaje' }
+            example:
+              origen: { latitud: -27.4514, longitud: -58.9867, nombre: Plaza 25 de Mayo }
+              destino: { latitud: -27.4562, longitud: -59.0225, nombre: Terminal de Ómnibus }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [estimacion]
+                properties:
+                  estimacion:
+                    type: object
+                    additionalProperties: false
+                    required: [importeCentavos, kilometros, minutos]
+                    properties:
+                      importeCentavos: { type: integer, minimum: 0, description: Redondeado a pesos enteros (múltiplo de 100). }
+                      kilometros: { type: number, description: 'Distancia estimada por calles (línea recta × 1,3).' }
+                      minutos: { type: integer, minimum: 1 }
+              example: { estimacion: { importeCentavos: 784000, kilometros: 4.64, minutos: 12 } }
+        '400': { $ref: '#/components/responses/EntradaInvalida' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+        '422':
+          description: '`VIAJE_SUPERA_MAXIMO`: la estimación supera el máximo de la tarifa activa.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '503':
+          description: '`TARIFA_NO_CONFIGURADA`'
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -862,6 +910,151 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /admin/metricas:
+    get:
+      tags: [Administración]
+      summary: Métricas del proceso (lag del event loop y memoria)
+      operationId: obtenerMetricasProceso
+      parameters:
+        - name: reiniciar
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [eventLoopLagMs, memoriaMb, uptimeSegundos]
+                properties:
+                  eventLoopLagMs:
+                    type: object
+                    required: [min, max, media, p50, p95, p99]
+                    properties:
+                      min: { type: number }
+                      max: { type: number }
+                      media: { type: number }
+                      p50: { type: number }
+                      p95: { type: number }
+                      p99: { type: number }
+                  memoriaMb:
+                    type: object
+                    required: [rss, heapTotal, heapUsed, external]
+                    properties:
+                      rss: { type: number }
+                      heapTotal: { type: number }
+                      heapUsed: { type: number }
+                      external: { type: number }
+                  uptimeSegundos: { type: number }
+                  negocio:
+                    type: object
+                    description: Conteos para el panel del administrador (sin bloqueos). "Disponibles" son los habilitados, disponibles y con ubicación reciente.
+                    additionalProperties: false
+                    required: [viajesActivos, pagosPendientes, choferesHabilitados, choferesPorHabilitar, choferesDisponibles]
+                    properties:
+                      viajesActivos: { type: integer, minimum: 0 }
+                      pagosPendientes: { type: integer, minimum: 0 }
+                      choferesHabilitados: { type: integer, minimum: 0 }
+                      choferesPorHabilitar: { type: integer, minimum: 0 }
+                      choferesDisponibles: { type: integer, minimum: 0 }
+        '400': { $ref: '#/components/responses/EntradaInvalida' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+
+  /admin/choferes:
+    get:
+      tags: [Administración]
+      summary: Choferes para habilitar (administrador)
+      description: Por defecto sólo los pendientes (no habilitados), los más viejos primero. Con `estado=todos`, también los habilitados.
+      operationId: listarChoferesAdministracion
+      parameters:
+        - name: estado
+          in: query
+          required: false
+          schema: { type: string, enum: [pendientes, todos], default: pendientes }
+        - name: limite
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 50, default: 50 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [choferes]
+                properties:
+                  choferes:
+                    type: array
+                    maxItems: 50
+                    items: { $ref: '#/components/schemas/ChoferAdministracion' }
+        '400': { $ref: '#/components/responses/EntradaInvalida' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+
+  /admin/tarifa:
+    get:
+      tags: [Administración]
+      summary: Tarifa activa (administrador)
+      operationId: obtenerTarifaActiva
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [tarifa]
+                properties:
+                  tarifa: { $ref: '#/components/schemas/Tarifa' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+        '503':
+          description: '`TARIFA_NO_CONFIGURADA`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    post:
+      tags: [Administración]
+      summary: Crear una tarifa nueva activa (administrador)
+      description: >-
+        No edita la tarifa vigente: la desactiva e inserta una fila nueva activa, en la misma transacción y con
+        `LOCK TABLE parametros_tarifa IN EXCLUSIVE MODE`, así dos administradores guardando a la vez quedan en fila
+        y siempre hay exactamente una activa. Los viajes ya pedidos conservan su estimación. Sin `velocidadPromedioKmh`,
+        se mantiene la de la tarifa anterior.
+      operationId: reemplazarTarifa
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SolicitudTarifa' }
+            example: { baseCentavos: 150000, porKilometroCentavos: 90000, porMinutoCentavos: 18000, maximoViajeCentavos: 10000000 }
+      responses:
+        '201':
+          description: Tarifa nueva activa
+          headers: { Idempotency-Replayed: { $ref: '#/components/headers/IdempotencyReplayed' } }
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [tarifa]
+                properties:
+                  tarifa: { $ref: '#/components/schemas/Tarifa' }
+        '400': { $ref: '#/components/responses/EntradaOClaveInvalida' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+        '409': { $ref: '#/components/responses/PedidoEnCurso' }
+        '422': { $ref: '#/components/responses/ClaveReutilizada' }
+
   /operador/viajes:
     get:
       tags: [Operador]
@@ -1062,6 +1255,47 @@ components:
           example: { error: { codigo: ERROR_INTERNO, requestId: 6f1c2d4e-8a0b-4c3d-9e2f-1a2b3c4d5e6f } }
 
   schemas:
+    ChoferAdministracion:
+      type: object
+      additionalProperties: false
+      required: [choferId, email, vehiculo, habilitado, disponible, registradoAt]
+      properties:
+        choferId: { type: string, format: uuid }
+        email: { type: string, format: email }
+        vehiculo:
+          type: object
+          additionalProperties: false
+          required: [patente, marca, modelo]
+          properties:
+            patente: { type: string }
+            marca: { type: string }
+            modelo: { type: string }
+        habilitado: { type: boolean }
+        disponible: { type: boolean }
+        registradoAt: { type: string, format: date-time }
+    SolicitudTarifa:
+      type: object
+      additionalProperties: false
+      required: [baseCentavos, porKilometroCentavos, porMinutoCentavos, maximoViajeCentavos]
+      description: Centavos enteros (nunca decimales). `maximoViajeCentavos` tiene que ser mayor o igual que `baseCentavos`.
+      properties:
+        baseCentavos: { type: integer, minimum: 0, maximum: 100000000 }
+        porKilometroCentavos: { type: integer, minimum: 0, maximum: 100000000 }
+        porMinutoCentavos: { type: integer, minimum: 0, maximum: 100000000 }
+        maximoViajeCentavos: { type: integer, minimum: 1, maximum: 100000000 }
+        velocidadPromedioKmh: { type: integer, minimum: 1, maximum: 120 }
+    Tarifa:
+      type: object
+      additionalProperties: false
+      required: [id, baseCentavos, porKilometroCentavos, porMinutoCentavos, maximoViajeCentavos, velocidadPromedioKmh, vigenteDesde]
+      properties:
+        id: { type: string, format: uuid }
+        baseCentavos: { type: integer }
+        porKilometroCentavos: { type: integer }
+        porMinutoCentavos: { type: integer }
+        maximoViajeCentavos: { type: integer }
+        velocidadPromedioKmh: { type: integer }
+        vigenteDesde: { type: string, format: date-time }
     Ok:
       type: object
       additionalProperties: false
@@ -1128,20 +1362,38 @@ components:
       properties:
         latitud: { type: number, minimum: -90, maximum: 90 }
         longitud: { type: number, minimum: -180, maximum: 180 }
+    PuntoConNombre:
+      description: Punto de la solicitud. `nombre` es opcional y sólo para mostrar (lo ven el chofer, el operador y el historial); la tarifa usa las coordenadas.
+      type: object
+      additionalProperties: false
+      required: [latitud, longitud]
+      properties:
+        latitud: { type: number, minimum: -90, maximum: 90 }
+        longitud: { type: number, minimum: -180, maximum: 180 }
+        nombre: { type: string, minLength: 1, maxLength: 120, description: 'Se recorta; sin caracteres de control.' }
+    PuntoDelViaje:
+      description: Punto de un viaje en las respuestas. `nombre` es null si el pasajero no lo mandó (o si el viaje es anterior a la migración 007).
+      type: object
+      additionalProperties: false
+      required: [latitud, longitud, nombre]
+      properties:
+        latitud: { type: number }
+        longitud: { type: number }
+        nombre: { type: [string, 'null'] }
     SolicitudViaje:
       type: object
       additionalProperties: false
       required: [origen, destino]
       properties:
-        origen: { $ref: '#/components/schemas/Punto' }
-        destino: { $ref: '#/components/schemas/Punto' }
+        origen: { $ref: '#/components/schemas/PuntoConNombre' }
+        destino: { $ref: '#/components/schemas/PuntoConNombre' }
     EstadoViaje:
       type: string
       enum: [solicitado, asignado, chofer_en_camino, en_curso, finalizado, pago_pendiente, cancelado_pasajero, cancelado_chofer, cancelado_operador, sin_choferes_disponibles]
     Viaje:
       type: object
       additionalProperties: false
-      required: [id, estado, pasajeroId, choferId, estimacionCentavos, tarifaFinalCentavos, solicitadoAt, tieneOfertaVigente]
+      required: [id, estado, pasajeroId, choferId, estimacionCentavos, tarifaFinalCentavos, solicitadoAt, origen, destino, tieneOfertaVigente, chofer]
       properties:
         id: { type: string, format: uuid }
         estado: { $ref: '#/components/schemas/EstadoViaje' }
@@ -1150,12 +1402,42 @@ components:
         estimacionCentavos: { type: integer, minimum: 0 }
         tarifaFinalCentavos: { type: [integer, 'null'], minimum: 0 }
         solicitadoAt: { type: string, format: date-time }
+        origen: { $ref: '#/components/schemas/PuntoDelViaje' }
+        destino: { $ref: '#/components/schemas/PuntoDelViaje' }
         tieneOfertaVigente: { type: boolean, description: Indica si existe una oferta pendiente no vencida para el viaje. }
+        chofer:
+          description: >-
+            Vehículo y última posición del chofer, sólo mientras el viaje está `asignado`, `chofer_en_camino` o `en_curso`.
+            Antes de la asignación y después de terminar es null: la posición del chofer no se expone fuera del viaje (6.4).
+          oneOf:
+            - type: 'null'
+            - type: object
+              additionalProperties: false
+              required: [vehiculo, ubicacion]
+              properties:
+                vehiculo:
+                  type: object
+                  additionalProperties: false
+                  required: [patente, marca, modelo]
+                  properties:
+                    patente: { type: string }
+                    marca: { type: string }
+                    modelo: { type: string }
+                ubicacion:
+                  oneOf:
+                    - type: 'null'
+                    - type: object
+                      additionalProperties: false
+                      required: [latitud, longitud, reportadaAt]
+                      properties:
+                        latitud: { type: number }
+                        longitud: { type: number }
+                        reportadaAt: { type: string, format: date-time }
     ViajeConEstimacion:
       description: Lo mismo que `Viaje` más el detalle de la estimación (sólo al crearlo).
       type: object
       additionalProperties: false
-      required: [id, estado, pasajeroId, choferId, estimacionCentavos, tarifaFinalCentavos, solicitadoAt, estimacion]
+      required: [id, estado, pasajeroId, choferId, estimacionCentavos, tarifaFinalCentavos, solicitadoAt, origen, destino, estimacion]
       properties:
         id: { type: string, format: uuid }
         estado: { $ref: '#/components/schemas/EstadoViaje' }
@@ -1164,6 +1446,8 @@ components:
         estimacionCentavos: { type: integer, minimum: 0 }
         tarifaFinalCentavos: { type: [integer, 'null'], minimum: 0 }
         solicitadoAt: { type: string, format: date-time }
+        origen: { $ref: '#/components/schemas/PuntoDelViaje' }
+        destino: { $ref: '#/components/schemas/PuntoDelViaje' }
         estimacion:
           type: object
           additionalProperties: false
@@ -1199,8 +1483,8 @@ components:
         viajeId: { type: string, format: uuid }
         venceAt: { type: string, format: date-time }
         estimacionCentavos: { type: integer, minimum: 0 }
-        origen: { $ref: '#/components/schemas/Punto' }
-        destino: { $ref: '#/components/schemas/Punto' }
+        origen: { $ref: '#/components/schemas/PuntoDelViaje' }
+        destino: { $ref: '#/components/schemas/PuntoDelViaje' }
     ViajeDelChofer:
       type: object
       additionalProperties: false
@@ -1209,8 +1493,8 @@ components:
         id: { type: string, format: uuid }
         estado: { type: string, enum: [asignado, chofer_en_camino, en_curso] }
         estimacionCentavos: { type: integer, minimum: 0 }
-        origen: { $ref: '#/components/schemas/Punto' }
-        destino: { $ref: '#/components/schemas/Punto' }
+        origen: { $ref: '#/components/schemas/PuntoDelViaje' }
+        destino: { $ref: '#/components/schemas/PuntoDelViaje' }
     ResultadoCobro:
       type: object
       additionalProperties: false
@@ -1227,8 +1511,8 @@ components:
         viajeId: { type: string, format: uuid }
         choferId: { type: [string, 'null'], format: uuid }
         estado: { $ref: '#/components/schemas/EstadoViaje' }
-        origen: { $ref: '#/components/schemas/Punto' }
-        destino: { $ref: '#/components/schemas/Punto' }
+        origen: { $ref: '#/components/schemas/PuntoDelViaje' }
+        destino: { $ref: '#/components/schemas/PuntoDelViaje' }
         estimacionCentavos: { type: integer, minimum: 0 }
         tarifaFinalCentavos: { type: [integer, 'null'], minimum: 0 }
         solicitadoAt: { type: string, format: date-time }
@@ -1288,5 +1572,5 @@ components:
         estimacionCentavos: { type: integer, minimum: 0 }
         tarifaFinalCentavos: { type: [integer, 'null'], minimum: 0 }
         solicitadoAt: { type: string, format: date-time }
-        origen: { $ref: '#/components/schemas/Punto' }
-        destino: { $ref: '#/components/schemas/Punto' }
+        origen: { $ref: '#/components/schemas/PuntoDelViaje' }
+        destino: { $ref: '#/components/schemas/PuntoDelViaje' }

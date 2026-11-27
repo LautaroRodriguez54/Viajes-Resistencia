@@ -16,8 +16,9 @@
 |---|---|---|---|
 | Salud | `GET /health`, `GET /ready` | — | |
 | Autenticación | `POST /auth/register`, `POST /auth/login`, `GET /auth/me` | — / cualquiera | |
+| Viajes | `POST /viajes/estimacion` (precio aproximado, no crea nada) | pasajero | no |
 | Viajes | `POST /viajes` | pasajero | **sí** |
-| Viajes | `GET /viajes/:viajeId` | pasajero dueño | |
+| Viajes | `GET /viajes/:viajeId` (con origen y destino con nombre; mientras está activo, el vehículo y la posición del chofer) | pasajero dueño | |
 | Viajes | `POST /viajes/:viajeId/cancelar` | pasajero dueño | **sí** |
 | Ofertas | `POST /viajes/:viajeId/ofertas` | pasajero dueño | **sí** |
 | Ofertas | `POST /ofertas/:ofertaId/aceptar` | chofer de la oferta | **sí** |
@@ -35,9 +36,13 @@
 | Operador | `GET /operador/viajes?estado=activos` | operador | |
 | Operador | `POST /operador/viajes/:viajeId/cancelar` (motivo obligatorio) | operador | **sí** |
 | Operador | `POST /operador/viajes/:viajeId/reintentar-cobro` | operador | **sí** |
+| Administración | `GET /admin/choferes?estado=&limite=` (`pendientes` por defecto, o `todos`) | administrador | |
 | Administración | `PATCH /admin/choferes/:choferId/habilitacion` | administrador | |
+| Administración | `GET /admin/tarifa` (tarifa activa) | administrador | |
+| Administración | `POST /admin/tarifa` (crea una tarifa nueva activa; la anterior queda en el historial) | administrador | **sí** |
+| Administración | `GET /admin/metricas?reiniciar=` (lag del event loop, memoria y conteos del negocio para el panel, bloque 7) | administrador | |
 
-**Pendientes** (se agregan al OpenAPI cuando existan): estimación sin crear el viaje, historial del chofer y SSE.
+**Pendientes** (se agregan al OpenAPI cuando existan): historial del chofer y SSE.
 
 ## Convenciones
 
@@ -48,6 +53,7 @@
   - repetida mientras la primera sigue en curso: `409 PEDIDO_EN_CURSO`;
   - repetida ya completada: la misma respuesta con `Idempotency-Replayed: true`.
 - **Entrada estricta**: los cuerpos se validan con Zod `.strict()`, así que un campo de más da `400 ENTRADA_INVALIDA`. JSON mal formado da `400 JSON_INVALIDO`; un cuerpo de más de 100 kB, `413`.
+- **Puntos**: en la solicitud, `origen` y `destino` pueden traer `nombre` (opcional, 1 a 120 caracteres, sin caracteres de control); en las respuestas el nombre viene siempre (`null` si no se mandó).
 - **Dinero** en centavos enteros. La tarifa la calcula el servidor (ver `modelo.md`).
 - **Webhook**: HMAC-SHA256 sobre los bytes exactos del cuerpo, en `X-Webhook-Signature: sha256=<hex>`, con `WEBHOOK_HMAC_SECRET`.
 - **Autenticación**: JWT Bearer HS256 de 15 min, sin refresh ni revocación todavía. Contraseñas de 12 a 128 caracteres, guardadas con Argon2id. El registro público admite sólo pasajero y chofer; el chofer queda sin habilitar.

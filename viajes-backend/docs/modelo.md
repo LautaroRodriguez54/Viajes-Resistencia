@@ -51,21 +51,25 @@ Hay tres bases en el mismo contenedor, cada una con su rol (ADR 008): `viajes` (
 La calcula **siempre el servidor**; el cliente sólo manda coordenadas (`src/dominio/viajes/tarifa.js`). Con los parámetros activos de `parametros_tarifa` (hay uno solo activo, por el índice único parcial):
 
 ```text
-kilómetros = distancia Haversine entre origen y destino (línea recta)
+kilómetros = distancia Haversine entre origen y destino × 1,3   (por calles, no en línea recta)
 minutos    = max(1, ⌈kilómetros / velocidad_promedio_kmh × 60⌉)
-importe    = base_centavos + ⌈kilómetros⌉ × por_kilometro_centavos + minutos × por_minuto_centavos
+importe    = redondeo a pesos( base + kilómetros × por_km + minutos × por_minuto )   (en centavos enteros)
 ```
 
-- Con el seed de desarrollo (base 500, 250 por km, 100 por minuto, 30 km/h), un viaje de 1,4 km da 500 + 2 × 250 + 3 × 100 = **1300 centavos**.
+- **Por qué × 1,3**: el auto va por calles. Resistencia es una cuadrícula, y en una cuadrícula el camino es en promedio ~1,27 veces la línea recta (4/π); con semáforos y desvíos se usa 1,3. Así no depende de un servicio de rutas externo (OSRM es sólo visual en la web). El radio de búsqueda de choferes sigue en línea recta.
+- Los kilómetros se cobran **con decimales** (antes se redondeaban para arriba y 1,1 km costaba como 2), y el total se redondea a pesos enteros, como lo muestran las apps.
+- **Tarifa del seed (2026)**: base $ 1.500, $ 900 por km, $ 180 por minuto, 25 km/h y un máximo de $ 100.000. Está calibrada con el único dato público de Uber para la ciudad: UberX desde el aeropuerto, 19 minutos y **$ 13.379** en promedio (página de Uber del aeropuerto RES). Nuestra estimación para aeropuerto → plaza da unos $ 13.500 (8,9 km, 22 min), y `tests/dominio/tarifa.test.js` verifica que quede a menos del 10 %. Ejemplos desde la plaza: UTN ≈ $ 2.900, Hospital Perrando ≈ $ 3.900, Sarmiento Shopping ≈ $ 7.000 y Terminal ≈ $ 7.800.
+- El seed reemplaza la tarifa vieja de desarrollo ($ 5 + $ 2,50 por km) si sigue activa; si el admin ya la cambió, no la toca.
 - Si el importe supera `maximo_viaje_centavos`, la solicitud se rechaza (`VIAJE_SUPERA_MAXIMO`). Si no hay tarifa activa, responde `TARIFA_NO_CONFIGURADA`.
 - Al finalizar se cobra `estimacion_centavos`: todavía no hay tarifa final calculada con el recorrido real.
 - Radio de búsqueda de choferes: 5 km fijos (`ST_DWithin` en `ofrecerAlChoferCercano`).
+- **Cambiar la tarifa** (`POST /admin/tarifa`) no edita la fila vigente: la desactiva e inserta una nueva activa, en una transacción con `LOCK TABLE parametros_tarifa IN EXCLUSIVE MODE`. Así queda el historial de tarifas, los viajes ya pedidos conservan su estimación y dos administradores guardando a la vez no chocan con `ux_parametros_tarifa_activo` (lo prueba `tests/integracion/administracion.test.js` con 5 guardados simultáneos). Las lecturas de la tarifa no se frenan.
 
 ## Idempotencia
 
 Ver el ADR 010. Hay tres niveles:
 
-1. **HTTP**: `Idempotency-Key` en las 5 operaciones que crean o cobran, guardada en `claves_idempotencia`.
+1. **HTTP**: `Idempotency-Key` en las 11 operaciones que crean, cobran o cambian la tarifa, guardada en `claves_idempotencia`.
 2. **Cobro**: a lo sumo un consumo por viaje, con `ux_un_consumo_por_viaje`.
 3. **Webhook**: `proveedor_evento_id` único.
 
@@ -93,12 +97,59 @@ El orden de bloqueo sigue siendo viaje → billetera. Con la billetera bloqueada
 - Si la billetera cobró y el COMMIT de `viajes` no llegó (una caída entre las dos bases), el viaje sigue en `pago_pendiente` y el reintento lo cierra sin debitar dos veces.
 - La billetera se crea por el evento `UsuarioRegistrado` (outbox de Viajes), unos cientos de milisegundos después del registro. Un viaje que se finaliza antes queda en `pago_pendiente` con motivo `BILLETERA_NO_ENCONTRADA`.
 
+## Nombres de lugares y privacidad de la ubicación
+
+- El viaje guarda el nombre del origen y del destino que eligió el pasajero (migración `007`, opcional, 1 a 120 caracteres). Es sólo para mostrar: la tarifa y la búsqueda usan las coordenadas.
+- `GET /viajes/:viajeId` le muestra al pasajero el vehículo y la última posición de **su** chofer **sólo** mientras el viaje está `asignado`, `chofer_en_camino` o `en_curso`. Antes de la asignación y después de terminar es `null`, y otro pasajero recibe 404. La posición del pasajero no se expone en ningún endpoint. Lo prueba `tests/integracion/nombresYUbicacionChofer.test.js`.
+
+## Estados del viaje
+
+Las reglas están en `src/dominio/viajes/estadosViaje.js` (`decidirCancelacion` y las transiciones). Cada cambio inserta una fila en `eventos_viaje` y, por el trigger de la migración `006`, una foto en `outbox_viajes`.
+
+```mermaid
+stateDiagram-v2
+  [*] --> solicitado: POST /viajes
+  solicitado --> asignado: el chofer acepta la oferta
+  solicitado --> sin_choferes_disponibles: rechazos o vencimientos sin más candidatos
+  asignado --> chofer_en_camino: chofer
+  chofer_en_camino --> en_curso: chofer (pasajero a bordo)
+  en_curso --> finalizado: finalizar con saldo
+  en_curso --> pago_pendiente: finalizar sin saldo (nunca parcial)
+  pago_pendiente --> finalizado: reintento (pasajero u operador)
+  solicitado --> cancelado_pasajero
+  asignado --> cancelado_pasajero
+  chofer_en_camino --> cancelado_pasajero
+  asignado --> cancelado_chofer
+  chofer_en_camino --> cancelado_chofer
+  solicitado --> cancelado_operador: con motivo
+  asignado --> cancelado_operador: con motivo
+  chofer_en_camino --> cancelado_operador: con motivo
+  en_curso --> cancelado_operador: con motivo
+  finalizado --> [*]
+  sin_choferes_disponibles --> [*]
+  cancelado_pasajero --> [*]
+  cancelado_chofer --> [*]
+  cancelado_operador --> [*]
+```
+
+- **Ofertas**: una oferta vale 30 s (`OFERTA_TTL_SEGUNDOS`). Si el chofer la rechaza o vence, en la misma transacción se le ofrece al siguiente chofer más cercano que no la haya tenido; si no queda ninguno, el viaje pasa a `sin_choferes_disponibles` (terminal).
+- **Cancelación**: el pasajero hasta que lo levantan (sin cobro) y el chofer antes de que suba; los dos sin motivo obligatorio. El operador, en cualquier estado activo y con motivo obligatorio. Cuando la cancela el pasajero o el operador con un chofer asignado, el chofer vuelve a quedar disponible; si cancela el chofer, queda no disponible hasta que vuelva a prender el interruptor.
+
 ## Decisiones pendientes
 
-- TODO: tarifa final desde el recorrido y la duración reales; radio de búsqueda administrable o constante; orden de ofertas al vencer una.
-- TODO: definir retención/agregación de ubicaciones históricas.
+- Tarifa final desde el recorrido y la duración reales: hoy se cobra la estimación.
+- Radio de búsqueda: queda como constante (5 km) hasta que haga falta administrarlo.
 
-## Diagrama inicial
+## Retención de historial de ubicaciones
+
+Con 500 choferes reportando cada 2 segundos, `historial_ubicaciones_chofer` recibe ~250 filas/s, equivalentes a **~21,6 millones de filas por día** (~2–3 GiB diarios considerando fila + índices). Para evitar crecimiento ilimitado y degradación de `autovacuum`:
+
+1. **Separación operacional**: la búsqueda geográfica en tiempo real lee únicamente `ubicaciones_actuales_chofer` (1 fila por chofer); el historial se inserta de forma asíncrona por lotes (ADR 005) y nunca bloquea el despacho.
+2. **Particionado declarativo por fecha (producción)**: particionar `historial_ubicaciones_chofer` por rango diario de `reportada_at` (`PARTITION BY RANGE (reportada_at)`).
+3. **Ventana caliente y compactación**: conservar **7 días** de detalle completo para auditoría, soporte de incidentes y resolución de disputas. Antes de retirar particiones antiguas, se puede compactar/archivar una muestra (p. ej. 1 punto cada 30 s o trayectoria simplificada con `ST_Simplify` por viaje cerrado) fuera de la tabla activa.
+4. **Purga sin bloqueo**: eliminar particiones expiradas (> 30 días) con `DROP TABLE` / `DETACH PARTITION` en lugar de `DELETE` masivo, evitando locks largos y *bloat* de índices.
+
+## Diagrama de datos
 
 ```mermaid
 classDiagram

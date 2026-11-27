@@ -52,6 +52,10 @@ Content-Type: application/json
 GET {{base}}/auth/me
 Authorization: Bearer {{pasajero.response.body.accessToken}}
 
+### 7a. Choferes que esperan habilitación (el del paso 4 aparece acá)
+GET {{base}}/admin/choferes?estado=pendientes
+Authorization: Bearer {{admin.response.body.accessToken}}
+
 ### 7. El administrador habilita al chofer
 PATCH {{base}}/admin/choferes/{{chofer.response.body.usuario.id}}/habilitacion
 Authorization: Bearer {{admin.response.body.accessToken}}
@@ -74,8 +78,8 @@ Content-Type: application/json
 { "latitud": -27.4510, "longitud": -58.9860 }
 
 ### 10. Saldo del pasajero (arranca en 0)
-# Para cargarle saldo, en una terminal (centavos; 150000 = $1500):
-#   npm run cargar-saldo -- <email del paso 3> 150000
+# Para cargarle saldo, en una terminal (centavos; 5000000 = $ 50.000):
+#   npm run cargar-saldo -- <email del paso 3> 5000000
 # Sin carga, el paso 16 deja el viaje en pago_pendiente y sirve para probar el 18.
 GET {{base}}/billetera/me
 Authorization: Bearer {{pasajero.response.body.accessToken}}
@@ -138,6 +142,19 @@ Authorization: Bearer {{pasajero.response.body.accessToken}}
 POST {{base}}/viajes/{{viaje.response.body.viaje.id}}/reintentar-cobro
 Authorization: Bearer {{pasajero.response.body.accessToken}}
 Idempotency-Key: reintento-{{$guid}}
+
+### 19. Tarifa activa (administrador)
+GET {{base}}/admin/tarifa
+Authorization: Bearer {{admin.response.body.accessToken}}
+
+### 20. Tarifa nueva (crea otra fila activa; la anterior queda en el historial)
+# La de desarrollo (seed, 2026): base 150000, por km 90000, por minuto 18000, máximo 10000000.
+POST {{base}}/admin/tarifa
+Authorization: Bearer {{admin.response.body.accessToken}}
+Content-Type: application/json
+Idempotency-Key: tarifa-{{$guid}}
+
+{ "baseCentavos": 160000, "porKilometroCentavos": 95000, "porMinutoCentavos": 19000, "maximoViajeCentavos": 10000000 }
 
 ### ---------------------------------------------------------------------
 ### Errores esperados (para ver el formato { error: { codigo, requestId } })

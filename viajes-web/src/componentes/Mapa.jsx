@@ -7,13 +7,13 @@ import MapaSimulado from './MapaSimulado.jsx';
 // carguen (sin internet). En ese caso la pantalla sigue andando con el dibujo del diseño en lugar de
 // quedar en gris.
 // Props: las de MapaSimulado (conRuta, etiquetaDestino, chofer, oferta) y las del mapa real
-// (origen, destino, posicion, tarjeta). Cada mapa usa las suyas.
-export default function Mapa({ origen, destino, posicion, tarjeta, ...props }) {
+// (origen, destino, posicion, auto, tarjeta). Cada mapa usa las suyas.
+export default function Mapa({ origen, destino, posicion, auto, consumir, tarjeta, ...props }) {
   const [sinRed, setSinRed] = useState(false);
   if (!usarMapaReal || sinRed) return <MapaSimulado {...props} />;
   return (
     <MapaReal
-      origen={origen} destino={destino} posicion={posicion} tarjeta={tarjeta}
+      origen={origen} destino={destino} posicion={posicion} auto={auto} consumir={consumir} tarjeta={tarjeta}
       chofer={Boolean(props.oferta)} alFallar={() => setSinRed(true)}
     >
       {props.children}

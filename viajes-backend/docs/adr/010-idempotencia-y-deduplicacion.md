@@ -1,4 +1,4 @@
-# ADR 010 - Idempotencia y deduplicación
+# ADR 010 - Toda operación que crea o cobra exige Idempotency-Key, y cada nivel deduplica con una restricción única
 
 - Estado: aceptado
 - Fecha: 2026-11-26
@@ -24,7 +24,7 @@ Los tres se complementan. El nivel HTTP le devuelve al cliente **la misma respue
 
 ## Nivel HTTP: cómo funciona
 
-Se aplica, después de `requiereAutenticacion`, a:
+Se aplica después de `requiereAutenticacion` y del rol (#29: un rol equivocado da 403 sin reservar la clave), a las 11 operaciones que crean, cobran o cambian la tarifa:
 
 | Endpoint | `ambito` |
 |---|---|
@@ -33,6 +33,14 @@ Se aplica, después de `requiereAutenticacion`, a:
 | `POST /viajes/:viajeId/reintentar-cobro` | `viajes.reintentar_cobro` |
 | `POST /ofertas/:ofertaId/aceptar` | `ofertas.aceptar` |
 | `POST /choferes/viajes/:viajeId/finalizar` | `choferes.finalizar` |
+| `POST /ofertas/:ofertaId/rechazar` | `ofertas.rechazar` |
+| `POST /viajes/:viajeId/cancelar` | `viajes.cancelar_pasajero` |
+| `POST /choferes/viajes/:viajeId/cancelar` | `choferes.cancelar_viaje` |
+| `POST /operador/viajes/:viajeId/cancelar` | `operador.cancelar_viaje` |
+| `POST /operador/viajes/:viajeId/reintentar-cobro` | `operador.reintentar_cobro` |
+| `POST /admin/tarifa` | `admin.reemplazar_tarifa` |
+
+Las primeras 5 son las de la decisión original (26/11); las otras 6 se sumaron con el rechazo (#22), las cancelaciones y el operador (#24–#26) y la tarifa del administrador, siguiendo la misma regla.
 
 El webhook de carga no lo usa: ya tiene su propia clave (`eventoExternoId`), y quien llama es el proveedor, no un usuario con JWT.
 
@@ -63,7 +71,7 @@ La clave es **por actor** (`actor_id` sale del JWT, nunca del cuerpo). Dos usuar
 - Una repetición devuelve exactamente la misma respuesta y no vuelve a ejecutar. Lo prueban:
   - `tests/integracion/idempotenciaHttp.test.js`: un solo viaje persistido, también con 10 pedidos simultáneos; `finalizar` repetido devuelve el mismo cobro con un solo consumo.
   - `tests/infra/idempotenciaHttp.test.js`: 400, 409, 422, 4xx guardado, 5xx liberado, clave por actor y vencimiento.
-- **Clientes**: la web y los E2E tienen que mandar `Idempotency-Key` en esos 5 endpoints. Se genera un UUID por intención (por ejemplo, al tocar "Pedir viaje") y se reutiliza en sus reintentos.
+- **Clientes**: la web y los E2E tienen que mandar `Idempotency-Key` en esos 11 endpoints. Se genera un UUID por intención (por ejemplo, al tocar "Pedir viaje") y se reutiliza en sus reintentos.
 - **Ventana sin atomicidad**: la clave se guarda en una sentencia aparte, después de la operación. Si el proceso se cae entre el COMMIT de la operación y el guardado de la respuesta, la clave queda `procesando`. Los reintentos reciben 409 hasta que venza el TTL, y después la operación se puede ejecutar de nuevo. En el cobro y la aceptación, el segundo nivel lo frena igual: el viaje ya no está `en_curso`, o ya tiene una oferta aceptada. En `POST /viajes` podría crear un segundo viaje, pero sólo después de 24 h. Pasa lo mismo si falla el `UPDATE` que guarda la respuesta: se responde igual al cliente y se loguea el error, en lugar de liberar la clave y arriesgar una segunda ejecución.
 - JSONB no conserva el orden de las propiedades: la respuesta repetida tiene el mismo contenido, pero puede traer los campos en otro orden.
 - La tabla crece una fila por operación. Las filas vencidas sólo se borran cuando se reusa su clave, así que falta una limpieza periódica (`DELETE ... WHERE created_at < now() - TTL`). Se deja para cuando exista el proceso de fondo del tema 13.

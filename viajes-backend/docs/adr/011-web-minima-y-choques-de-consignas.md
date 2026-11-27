@@ -21,7 +21,7 @@ El mismo repo también tiene que cumplir el TP integrador, que en algunos puntos
 La web (`viajes-web/`, React + Vite) tiene lo justo para recorrer los flujos y explicar el backend en la defensa:
 
 - **Conectados a la API**: pasajero (pedir, mi viaje y billetera con "Pagar ahora") y chofer (disponibilidad, oferta con la carrera de la aceptación, avanzar y finalizar).
-- **Con datos de ejemplo y un aviso visible**: operador y admin, hasta que existan sus endpoints.
+- **Con datos de ejemplo y un aviso visible**: operador y admin, hasta que existan sus endpoints. *(Actualización del 27/11: el operador está conectado desde el #36 y el admin desde que existen `GET /admin/choferes` y `/admin/tarifa`; ninguna pantalla usa datos de ejemplo.)*
 - `src/api/cliente.js` es el único lugar que llama a la API: agrega el JWT, manda `Idempotency-Key` (ADR 010) y traduce `error.codigo` a un mensaje. La web nunca decide por el texto del error.
 - La tarifa, el saldo y la elegibilidad se calculan **siempre en el servidor**. El cliente sólo manda coordenadas e intenciones.
 - La sesión vive en `sessionStorage`, una por pestaña: en la demo el pasajero y el chofer están abiertos a la vez.
@@ -92,7 +92,7 @@ Opciones descartadas: **Google Maps** (tarjeta obligatoria); **MapLibre con mosa
 
 ## Consecuencias
 
-- Los recorridos 1 a 5 (pedir, ofertar, aceptar con carrera, avanzar, finalizar y cobrar, incluido `pago_pendiente` y "Pagar ahora") se pueden hacer desde la web. El recorrido 6 (operador) todavía no.
+- Los recorridos 1 a 5 (pedir, ofertar, aceptar con carrera, avanzar, finalizar y cobrar, incluido `pago_pendiente` y "Pagar ahora") se pueden hacer desde la web. El recorrido 6 (operador) todavía no. *(Actualización del 27/11: ya se pueden hacer todos, también el operador, la cancelación del chofer y el admin.)*
 - Cada consulta de 2 s abierta suma 0,5 pedidos por segundo: un chofer disponible hace 1 por segundo entre la oferta y el viaje actual. Para la demo no importa. Con muchos choferes conectados, la consulta suma carga de lectura que el SSE no tendría, y conviene tenerla en cuenta al medir el bloque 7.
 - La web todavía no es responsiva, que es obligatorio en el TP3, y le faltan Google Maps, el historial y los movimientos. Está en `viajes-web/README.md`. *(Actualización del 26/11: la responsiva está en el #35, el historial y los movimientos en el #28, y los mapas con OpenStreetMap en la Decisión 4.)*
 - Los choques marcados "a confirmar" no se tocan en el código hasta tener la respuesta de Fernández. Si cambian, se modifica el adaptador correspondiente, no el dominio.

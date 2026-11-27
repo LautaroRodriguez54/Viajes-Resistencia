@@ -20,6 +20,7 @@ import { crearRegistrarUsuario } from './aplicacion/autenticacion/registrarUsuar
 import { crearIniciarSesion } from './aplicacion/autenticacion/iniciarSesion.js';
 import { crearProcesarCargaWebhook } from './aplicacion/billetera/procesarCargaWebhook.js';
 import { crearSolicitarViaje } from './aplicacion/viajes/solicitarViaje.js';
+import { crearEstimarViaje } from './aplicacion/viajes/estimarViaje.js';
 import { crearFinalizarViajeYCobrar } from './aplicacion/viajes/finalizarViajeYCobrar.js';
 import { crearReintentarCobro } from './aplicacion/viajes/reintentarCobro.js';
 import { crearReintentarCobroOperador } from './aplicacion/viajes/reintentarCobroOperador.js';
@@ -30,20 +31,31 @@ import { crearOfrecerAlChoferCercano } from './aplicacion/viajes/ofrecerAlChofer
 import { crearRechazarOferta } from './aplicacion/viajes/rechazarOferta.js';
 import { crearProcesarOfertasVencidas } from './aplicacion/viajes/procesarOfertasVencidas.js';
 import { crearVerificadorWebhookHmac } from './infra/externos/verificadorWebhookHmac.js';
+import { crearMetricasProceso } from './infra/observabilidad/metricasProceso.js';
+import { crearRecolectorHistorialUbicaciones } from './infra/db/recolectorHistorialUbicaciones.js';
+import { crearRepositorioTarifasPostgres } from './infra/db/repositorioTarifasPostgres.js';
+import { crearResumenOperativoPostgres } from './infra/db/resumenOperativoPostgres.js';
 
 export function componerAplicacion() {
   const config = leerConfiguracion();
   const logger = pino({ level: config.LOG_LEVEL });
   // Un pool por base, cada uno con el rol de su módulo (tema 12): Viajes no puede conectarse a la base de la billetera.
-  const pool = crearPoolPostgres(config);
-  const poolBilletera = crearPoolPostgres({ ...config, DATABASE_URL: config.BILLETERA_DATABASE_URL });
-  const poolLectura = crearPoolPostgres({ ...config, DATABASE_URL: config.LECTURA_DATABASE_URL });
+  const pool = crearPoolPostgres(config, { logger, nombre: 'viajes' });
+  const poolBilletera = crearPoolPostgres({ ...config, DATABASE_URL: config.BILLETERA_DATABASE_URL }, { logger, nombre: 'billetera' });
+  const poolLectura = crearPoolPostgres({ ...config, DATABASE_URL: config.LECTURA_DATABASE_URL }, { logger, nombre: 'lectura' });
   const proyectorSaldos = crearProyectorSaldosPostgres(poolLectura);
   const proyectorHistorial = crearProyectorHistorialPostgres(poolLectura);
   const usuarios = crearRepositorioUsuariosPostgres(pool);
   const billeteras = crearRepositorioBilleterasPostgres(poolBilletera);
   const viajes = crearRepositorioViajesPostgres(pool);
-  const choferes = crearRepositorioChoferesPostgres(pool);
+  const recolectorHistorial = crearRecolectorHistorialUbicaciones({
+    pool,
+    logger,
+    intervaloMs: config.HISTORIAL_UBICACIONES_FLUSH_MS,
+    loteMax: config.HISTORIAL_UBICACIONES_LOTE_MAX,
+    bufferMax: config.HISTORIAL_UBICACIONES_BUFFER_MAX,
+  });
+  const choferes = crearRepositorioChoferesPostgres(pool, { recolectorHistorial });
   const hasheador = crearHasheadorArgon2(config);
   const tokens = crearServicioJwt(config);
   const autenticacion = {
@@ -76,10 +88,20 @@ export function componerAplicacion() {
   const ofrecerAlChoferCercano = crearOfrecerAlChoferCercano({ unidadDeTrabajo: unidadDeTrabajoViajes });
   const rechazarOferta = crearRechazarOferta({ unidadDeTrabajo: unidadDeTrabajoViajes });
   const procesarOfertasVencidas = crearProcesarOfertasVencidas({ unidadDeTrabajo: unidadDeTrabajoViajes });
-  const viajesHttp = { solicitarViaje: crearSolicitarViaje({ viajes }), buscarViajePropio: viajes.buscarPorIdDelPasajero, ofrecerAlChoferCercano, reintentarCobro, cancelarViaje, listarHistorial: proyectorHistorial.listarPorPasajero, tokens };
+  const viajesHttp = { solicitarViaje: crearSolicitarViaje({ viajes }), estimarViaje: crearEstimarViaje({ viajes }), buscarViajePropio: viajes.buscarPorIdDelPasajero, ofrecerAlChoferCercano, reintentarCobro, cancelarViaje, listarHistorial: proyectorHistorial.listarPorPasajero, tokens };
   const ofertasHttp = { aceptarOferta, rechazarOferta, tokens };
   const choferesHttp = { cambiarDisponibilidad: choferes.cambiarDisponibilidad, registrarUbicacion: choferes.registrarUbicacion, avanzarEstado, finalizarYCobrar, cancelarViaje, buscarOfertaPendiente: viajes.buscarOfertaPendienteDelChofer, buscarViajeActual: viajes.buscarViajeActualDelChofer, tokens };
-  const administracion = { establecerHabilitacion: choferes.establecerHabilitacion, tokens };
+  const metricasProceso = crearMetricasProceso();
+  const tarifas = crearRepositorioTarifasPostgres(pool);
+  const resumenOperativo = crearResumenOperativoPostgres(pool, { ubicacionTtlSegundos: config.UBICACION_TTL_SEGUNDOS ?? null });
+  const administracion = {
+    establecerHabilitacion: choferes.establecerHabilitacion,
+    listarChoferes: choferes.listarParaAdministracion,
+    obtenerTarifa: tarifas.obtenerActiva,
+    reemplazarTarifa: tarifas.reemplazarActiva,
+    obtenerMetricas: async (opciones) => ({ ...metricasProceso.obtenerInstantanea(opciones), negocio: await resumenOperativo.obtener() }),
+    tokens,
+  };
   const operadorHttp = { listarViajesActivos: viajes.listarViajesActivos, cancelarViaje, reintentarCobro: crearReintentarCobroOperador(dependenciasCobro), tokens };
   const verificarDisponibilidad = () => Promise.all([
     verificarMigracionesAplicadas(pool, DIRECTORIOS_MIGRACIONES.viajes),
@@ -111,11 +133,12 @@ export function componerAplicacion() {
     logger,
     intervaloMs: config.OFERTA_VERIFICACION_MS,
   });
-  const procesos = [...despachadores, despachadorVencimiento];
+  const procesos = [...despachadores, despachadorVencimiento, recolectorHistorial];
   return {
     app, config, logger,
     iniciarProcesos: () => procesos.forEach((p) => p.iniciar()),
     async cerrar() {
+      metricasProceso.cerrar();
       await Promise.all(procesos.map((p) => p.detener()));
       await Promise.all([pool.end(), poolBilletera.end(), poolLectura.end()]);
     },

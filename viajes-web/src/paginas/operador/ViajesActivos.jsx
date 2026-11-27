@@ -3,6 +3,7 @@ import { api } from '../../api/cliente.js';
 import { nombreDelPunto } from '../../datos/lugares.js';
 import { formatearFecha, formatearPesos } from '../../formato.js';
 import { conClave, usarClaveIdempotente, usarConsultaPeriodica } from '../../ganchos.js';
+import { FilasCargando } from '../../componentes/Cargando.jsx';
 
 // Pantalla 6 del diseño: viajes activos del operador (#26).
 // - GET /operador/viajes?estado=activos cada 5 s (sin SSE, como el resto de la web: ADR 011).
@@ -87,8 +88,13 @@ export default function ViajesActivos() {
       {error && <p role="alert" className="aviso aviso--peligro">{error.message} Reintentamos solos cada 5 s.</p>}
       <section className="tarjeta lista" aria-labelledby="titulo-activos" data-testid="operador-viajes">
         <h1 id="titulo-activos">Viajes activos {viajes && <span className="lista__cantidad">· {viajes.length}</span>}</h1>
-        {!viajes && !error && <p className="pedir__detalle">Cargando…</p>}
-        {viajes?.length === 0 && <p className="pedir__detalle">No hay viajes activos.</p>}
+        {!viajes && !error && <FilasCargando />}
+        {viajes?.length === 0 && (
+          <div className="vacio">
+            <span className="vacio__icono vacio__icono--choferes" aria-hidden="true" />
+            <p className="pedir__detalle">No hay viajes activos. Cuando un pasajero pida uno, aparece acá.</p>
+          </div>
+        )}
         {viajes?.length > 0 && (
           <ul>
             {viajes.map((viaje) => {
