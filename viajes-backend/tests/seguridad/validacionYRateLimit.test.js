@@ -113,7 +113,11 @@ async function conServidor(app, fn) {
 }
 
 test('validación de UUID y cuerpo estricto en rutasChoferes devuelve 400 ENTRADA_INVALIDA (nunca 500)', async () => {
-  const { app, tokens } = crearDependenciasPrueba();
+  let llamadas = 0;
+  const { app, tokens } = crearDependenciasPrueba({ choferes: {
+    avanzarEstado: async () => { llamadas += 1; },
+    finalizarYCobrar: async () => { llamadas += 1; },
+  } });
   const tokenChofer = tokens.crearTokenDeAcceso({ usuarioId: crypto.randomUUID(), rol: Rol.CHOFER });
   const viajeId = crypto.randomUUID();
 
@@ -151,6 +155,7 @@ test('validación de UUID y cuerpo estricto en rutasChoferes devuelve 400 ENTRAD
       assert.equal(res.status, 400);
       assert.equal(json.error?.codigo, 'ENTRADA_INVALIDA');
       assert.ok(json.error?.requestId);
+      assert.equal(llamadas, 0);
     }
   });
 });

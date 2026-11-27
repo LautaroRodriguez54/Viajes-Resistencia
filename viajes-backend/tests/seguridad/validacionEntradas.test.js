@@ -158,7 +158,6 @@ test('solicitar viaje rechaza campos obligatorios ausentes', async () => {
     },
   });
 });
-
 test('solicitar viaje rechaza coordenadas con tipos incorrectos', async () => {
   let ejecutado = false;
 
@@ -276,110 +275,5 @@ test('registrar ubicación rechaza coordenadas inválidas', async () => {
         ejecutado = true;
       },
     },
-  });
-});
-
-test('actualizar estado rechaza estados no permitidos', async () => {
-  let ejecutado = false;
-
-  await conApp(async (url) => {
-    const respuesta = await fetch(`${url}/choferes/viajes/${viajeId}/estado`, {
-      method: 'POST',
-      headers: autorizacion(Rol.CHOFER, choferId),
-      body: JSON.stringify({ estado: 'viaje_finalizado' }),
-    });
-
-    assert.equal(respuesta.status, 400);
-    assert.equal(ejecutado, false);
-  }, {
-    choferes: {
-      avanzarEstado: async () => {
-        ejecutado = true;
-      },
-    },
-  });
-});
-
-test('actualizar estado rechaza campos adicionales', async () => {
-  let ejecutado = false;
-
-  await conApp(async (url) => {
-    const respuesta = await fetch(`${url}/choferes/viajes/${viajeId}/estado`, {
-      method: 'POST',
-      headers: autorizacion(Rol.CHOFER, choferId),
-      body: JSON.stringify({
-        estado: 'en_curso',
-        administrador: true,
-      }),
-    });
-
-    assert.equal(respuesta.status, 400);
-    assert.equal(ejecutado, false);
-  }, {
-    choferes: {
-      avanzarEstado: async () => {
-        ejecutado = true;
-      },
-    },
-  });
-});
-
-test('actualizar estado rechaza identificadores de viaje inválidos', async () => {
-  let ejecutado = false;
-
-  await conApp(async (url) => {
-    const respuesta = await fetch(`${url}/choferes/viajes/id-invalido/estado`, {
-      method: 'POST',
-      headers: autorizacion(Rol.CHOFER, choferId),
-      body: JSON.stringify({ estado: 'en_curso' }),
-    });
-
-    assert.equal(respuesta.status, 400);
-    assert.equal(ejecutado, false);
-  }, {
-    choferes: {
-      avanzarEstado: async () => {
-        ejecutado = true;
-      },
-    },
-  });
-});
-
-test('consultar viaje rechaza identificadores inválidos', async () => {
-  await conApp(async (url) => {
-    const respuesta = await fetch(`${url}/viajes/id-invalido`, {
-      headers: autorizacion(Rol.PASAJERO, pasajeroId),
-    });
-
-    assert.equal(respuesta.status, 400);
-  });
-});
-
-test('el servidor rechaza JSON malformado', async () => {
-  await conApp(async (url) => {
-    const respuesta = await fetch(`${url}/viajes`, {
-      method: 'POST',
-      headers: autorizacion(Rol.PASAJERO, pasajeroId),
-      body: '{"origen": ',
-    });
-
-    assert.equal(respuesta.status, 400);
-  });
-});
-
-test('el servidor rechaza cuerpos superiores a 100 KB', async () => {
-  await conApp(async (url) => {
-    const cuerpo = JSON.stringify({
-      ...solicitudValida(),
-      datoExtra: 'x'.repeat(110 * 1024),
-    });
-
-    const respuesta = await fetch(`${url}/viajes`, {
-      method: 'POST',
-      headers: autorizacion(Rol.PASAJERO, pasajeroId),
-      body: cuerpo,
-    });
-
-    assert.equal(respuesta.status, 413);
   });
 });

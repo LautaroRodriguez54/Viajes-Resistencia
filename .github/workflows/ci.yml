@@ -34,8 +34,16 @@ jobs:
       - name: Ejecutar ESLint y reglas de seguridad
         run: npm run lint
 
+      - name: Preparar PostgreSQL de integración
+        run: |
+          cp .env.example .env
+          docker compose up -d --wait postgres
+          npm run setup:test
+
       - name: Ejecutar tests del backend
         run: npm test
+        env:
+          DATABASE_URL: postgres://viajes:viajes@localhost:5433/viajes_test
 
       - name: Auditar vulnerabilidades de dependencias
         run: npm audit --audit-level=high
@@ -101,6 +109,31 @@ jobs:
       - name: Clonar repositorio
         uses: actions/checkout@v4
 
+      - name: Configurar Node.js 22 para servicios
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Preparar servicios de prueba
+        env:
+          VITE_MAPA: simulado
+        run: |
+          cd viajes-backend
+          cp .env.example .env
+          docker compose up -d --wait postgres
+          npm ci
+          npm run setup
+          nohup npm run start > /tmp/viajes-api.log 2>&1 &
+          cd ../viajes-web
+          npm ci
+          nohup npm run dev -- --host 127.0.0.1 > /tmp/viajes-web.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:3000/ready && curl -fsS http://localhost:5173/ >/dev/null; then exit 0; fi
+            sleep 2
+          done
+          cat /tmp/viajes-api.log /tmp/viajes-web.log
+          exit 1
+
       - name: Verificar existencia de suite Playwright
         id: verificar-e2e
         run: |
@@ -130,6 +163,8 @@ jobs:
         if: steps.verificar-e2e.outputs.habilitado == 'true'
         working-directory: e2e
         run: npm test
+        env:
+          E2E_ENTORNO_DESCARTABLE: '1'
 
       - name: Subir reporte de Playwright
         if: always() && steps.verificar-e2e.outputs.habilitado == 'true'

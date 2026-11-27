@@ -59,13 +59,18 @@ function inyectarCspEnBuild(cspMeta) {
 
 export default defineConfig(({ mode }) => {
   // Lee .env, .env.local, etc. de viajes-web (sólo las VITE_*), igual que la app.
-  const conMapaReal = loadEnv(mode, process.cwd()).VITE_MAPA !== 'simulado';
+  const env = loadEnv(mode, process.cwd());
+  const conMapaReal = env.VITE_MAPA !== 'simulado';
+  // Sólo se amplía la CSP de desarrollo para un backend local configurado.
+  const origenApiLocal = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(env.VITE_API_URL ?? '')
+    ? [env.VITE_API_URL]
+    : [];
   const cspProduccion = construirCsp({ conMapaReal });
   const cspMetaProduccion = construirCsp({ incluirFrameAncestors: false, conMapaReal });
   const cspDesarrollo = construirCsp({
     // En desarrollo Vite/React Fast Refresh requiere script inline y WebSocket HMR.
     incluirUnsafeInlineScript: true,
-    origenesConexionExtra: ['ws://localhost:5173'],
+    origenesConexionExtra: ['ws://localhost:5173', ...origenApiLocal],
     conMapaReal,
   });
 
