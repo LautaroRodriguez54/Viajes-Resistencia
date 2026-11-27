@@ -27,8 +27,8 @@ npm run dev                      # http://localhost:5173
 
 ## Recorrido de la demo
 
-1. **Chofer**: registrate como chofer en `/registro`. Un admin lo habilita: con `admin@demo.local` / `AdminDemo123!`, `PATCH /admin/choferes/:choferId/habilitacion` desde `viajes-backend/docs/requests.http` (la pantalla Admin todavía no está conectada). Volvé a ingresar y prendé **Disponible**: la web manda la ubicación cada 10 s, junto a la Plaza 25 de Mayo.
-2. **Pasajero**: registrate como pasajero. Al entrar, la billetera está en 0.
+1. **Chofer**: ingresá con `chofer@demo.local` / `ChoferDemo123!` (lo crea el seed, ya habilitado) y prendé **Disponible**: la web manda la ubicación cada 10 s, junto a la Plaza 25 de Mayo. Un chofer registrado en `/registro` lo tiene que habilitar un admin (`admin@demo.local` / `AdminDemo123!`, `PATCH /admin/choferes/:choferId/habilitacion` desde `viajes-backend/docs/requests.http`; la pantalla Admin todavía no está conectada).
+2. **Pasajero**: en otra pestaña, ingresá con `pasajero@demo.local` / `PasajeroDemo123!` (o registrá uno nuevo). La billetera arranca en 0.
 3. **Pedir**: escribí Desde y Hasta (o elegí un lugar frecuente). Se marca la ruta y tocás **Pedir viaje**. La web hace `POST /viajes` (el servidor calcula el precio) y `POST /viajes/:id/ofertas` (le ofrece el viaje al chofer más cercano), cada uno con su `Idempotency-Key`.
 4. **Chofer**: en menos de 2 s aparece la oferta con el monto y la cuenta regresiva de 30 s, que sale de `venceAt`. **Aceptar**. Si otro chofer la aceptó antes, aparece "Otro chofer lo aceptó primero".
    - **Rechazar** (`POST /ofertas/:id/rechazar`): el backend se la ofrece al siguiente chofer cercano y a éste no se la vuelve a ofrecer. Si no queda ninguno, el viaje pasa a `sin_choferes_disponibles` y el pasajero ve "No encontramos chofer" con **Pedir otro viaje**.
