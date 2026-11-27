@@ -157,6 +157,8 @@ Al 26/11/2026 (noche, después del #32): **la pila #14 → #19 está en `main`**
 - **`feat/tarifa-realista`** (Agustín, 27/11): la tarifa estima por calles (línea recta × 1,3), cobra los km con decimales y redondea a pesos. El seed pone la tarifa 2026 (base $ 1.500, $ 900/km, $ 180/min, 25 km/h), calibrada con el promedio de UberX desde el aeropuerto ($ 13.379); reemplaza la vieja de desarrollo si sigue activa. Sin migración. **Cada clon: `npm run setup`.**
 - **`feat/estimacion-previa`** (Agustín, 27/11): `POST /viajes/estimacion` (sin Idempotency-Key, no escribe) y en Pedir el precio aproximado con km, minutos y aviso si el saldo no alcanza. OpenAPI 0.12.0, 273 tests.
 - **`feat/demo-y-pulido`** (Agustín, 27/11): `npm run demo:reiniciar -- --confirmar` (base de desarrollo como nueva), el auto del chofer entra en el encuadre del mapa, la línea del comprobante más visible y CSS de celular para el panel, el comprobante y el precio aproximado.
+- **#51** (Agustín, 27/11): en la demo el auto hace cada tramo en unos 20 s y la ruta se recorta detrás del auto.
+- **Cierre del 27/11**: `main` en `11f1ef4`, CI en verde, 273 tests. Antes del oral: `npm run demo:reiniciar -- --confirmar`, reiniciar el servidor y `npm run cargar-saldo -- pasajero@demo.local 5000000`. **Sigue (28/11)**: el TP de Fernández (Dockerfile, matriz de trazabilidad, validación contra el OpenAPI) y la prueba de clon limpio.
 - **Decisión del 27/11**: lo extra de la rúbrica de Puljiz (ataque cruzado, Grafana, k6, más E2E) queda sin efecto. Sigue el TP de Fernández (28/11).
 - La comparación de la auditoría del 26/11 con el código está en `REVISION-EQUIPO.md`, sección 8.
 - **Revisor**: desde el 26/11, Lucas revisa todos los PR de Agustín.
