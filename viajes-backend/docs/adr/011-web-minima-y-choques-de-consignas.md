@@ -25,7 +25,7 @@ La web (`viajes-web/`, React + Vite) tiene lo justo para recorrer los flujos y e
 - `src/api/cliente.js` es el único lugar que llama a la API: agrega el JWT, manda `Idempotency-Key` (ADR 010) y traduce `error.codigo` a un mensaje. La web nunca decide por el texto del error.
 - La tarifa, el saldo y la elegibilidad se calculan **siempre en el servidor**. El cliente sólo manda coordenadas e intenciones.
 - La sesión vive en `sessionStorage`, una por pestaña: en la demo el pasajero y el chofer están abiertos a la vez.
-- Mientras no haya Places ni claves de Google, se usan una lista fija de lugares de Resistencia, todos a 5 km o menos de la plaza, y un mapa simulado. El chofer está en una posición fija junto a la plaza: con el GPS real de la PC de la demo quedaría fuera del radio de búsqueda.
+- Al principio se usaban una lista fija de lugares de Resistencia, todos a 5 km o menos de la plaza, y un mapa simulado. Desde la Decisión 4 hay un mapa real con búsqueda de direcciones, y la lista y el dibujo quedan como respaldo. El chofer está en una posición fija junto a la plaza: con el GPS real de la PC de la demo quedaría fuera del radio de búsqueda.
 
 Se hizo **después** de la billetera, la idempotencia y el OpenAPI, que eran lo obligatorio para Puljiz.
 
@@ -63,11 +63,38 @@ El chofer, además, manda su ubicación cada 10 s (`PUT /choferes/me/ubicacion`)
 | Forma del sistema | Un backend con todo | 9 módulos de distintos grupos | Monolito modular con una base por módulo (ADR 008). Nuestro módulo del Word se publica como imagen propia; el resto queda como mock o alternativa | Depende del Acta |
 | Documentación de la API | `docs/api.md` | OpenAPI versionado | `docs/openapi.yaml` es la fuente; `api.md` es un índice. Swagger UI en un contenedor aparte | Hecho |
 
+## Decisión 4: mapas con OpenStreetMap en lugar de Google Maps (26/11/2026)
+
+El diseño de la web pedía Google Maps (mapa, Places y Routes). Google exige una cuenta de facturación con tarjeta aunque el uso quede dentro del crédito gratis, y no tiene sentido pedírsela a un integrante para un TP. Por eso se usa **OpenStreetMap**, gratis, sin cuenta y sin clave:
+
+| Para qué | Con Google (descartado) | Elegido |
+|---|---|---|
+| Mapa | Maps JavaScript API | **Leaflet 1.9.4** (BSD-2, versión fija) con los mosaicos de `tile.openstreetmap.org` |
+| Buscar direcciones mientras se escribe | Places Autocomplete | **Photon** (`photon.komoot.io`), sobre datos de OSM. Nominatim, el buscador oficial, prohíbe el autocompletado en su política de uso |
+| Ruta por calles | Routes API desde el backend | **OSRM** (`router.project-osrm.org`), el servidor público de demostración |
+
+Cómo se usa, en `viajes-web/src/mapas/` y `src/componentes/`:
+
+- `Mapa.jsx` elige el mapa. Usa `MapaReal.jsx` (Leaflet) salvo que `VITE_MAPA=simulado`, o que los mosaicos no carguen porque no hay internet. En esos casos vuelve solo al dibujo del diseño (`MapaSimulado.jsx`) y a la lista fija de lugares. **El clon limpio, la CI y los E2E no dependen de ningún servicio externo.**
+- El buscador (`CampoLugar.jsx`) busca dentro del rectángulo de Resistencia, desde 3 letras, con 300 ms de espera entre teclas y cancelando el pedido anterior. Con el campo vacío ofrece los lugares frecuentes.
+- La ruta (`rutas.js`) se pide una vez por par de puntos y queda en memoria: la consulta periódica de 2 s no la vuelve a pedir. Si OSRM no responde, quedan sólo los marcadores, nunca una línea recta, que sería engañosa.
+- **La tarifa no cambia**: la sigue calculando el backend con sus reglas. La ruta es sólo visual.
+- **CSP**: sólo se agregan las imágenes de `tile.openstreetmap.org` y las conexiones a `photon.komoot.io` y `router.project-osrm.org`. No entra ningún script de terceros. Con `VITE_MAPA=simulado` no se agrega nada.
+- La atribución "© OpenStreetMap" es obligatoria: se ubica en la esquina que la tarjeta no tapa.
+
+Costos y riesgos a defender:
+
+- **Uso moderado**: los servidores públicos de OSM, Photon y OSRM son para tráfico bajo (OSRM, como mucho 1 consulta por segundo). Alcanza para el TP. Un producto real usaría servidores propios (las tres cosas se pueden instalar con Docker) o un proveedor pago.
+- **Privacidad**: lo que el pasajero escribe en "Desde"/"Hasta" va a Photon, y los puntos del viaje van a OSRM. Son servicios de terceros, igual que lo habría sido Google. Al backend sólo van coordenadas.
+- **Nombres**: el backend guarda coordenadas, no nombres. La web recuerda en la pestaña (`sessionStorage`) el nombre de lo que eligió el pasajero. El chofer no lo conoce, así que, si la dirección no es un lugar frecuente, ve las coordenadas, hasta que el backend guarde la dirección del viaje.
+
+Opciones descartadas: **Google Maps** (tarjeta obligatoria); **MapLibre con mosaicos vectoriales** (más pesado y con más piezas que defender para lo mismo); **sólo el dibujo** (no cumple el "mapa con la ruta" del diseño ni se ve real en la demo).
+
 ## Consecuencias
 
 - Los recorridos 1 a 5 (pedir, ofertar, aceptar con carrera, avanzar, finalizar y cobrar, incluido `pago_pendiente` y "Pagar ahora") se pueden hacer desde la web. El recorrido 6 (operador) todavía no.
 - Cada consulta de 2 s abierta suma 0,5 pedidos por segundo: un chofer disponible hace 1 por segundo entre la oferta y el viaje actual. Para la demo no importa. Con muchos choferes conectados, la consulta suma carga de lectura que el SSE no tendría, y conviene tenerla en cuenta al medir el bloque 7.
-- La web todavía no es responsiva, que es obligatorio en el TP3, y le faltan Google Maps, el historial y los movimientos. Está en `viajes-web/README.md`.
+- La web todavía no es responsiva, que es obligatorio en el TP3, y le faltan Google Maps, el historial y los movimientos. Está en `viajes-web/README.md`. *(Actualización del 26/11: la responsiva está en el #35, el historial y los movimientos en el #28, y los mapas con OpenStreetMap en la Decisión 4.)*
 - Los choques marcados "a confirmar" no se tocan en el código hasta tener la respuesta de Fernández. Si cambian, se modifica el adaptador correspondiente, no el dominio.
 
 ## Qué nos haría cambiar

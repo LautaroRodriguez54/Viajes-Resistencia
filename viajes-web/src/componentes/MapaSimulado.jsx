@@ -1,5 +1,5 @@
 // Dibujo fijo de Resistencia copiado del diseño (docs/diseno-web/02-pasajero-pedir.html).
-// Ocupa el lugar del mapa de Google hasta que se conecte @vis.gl/react-google-maps.
+// Respaldo del mapa real (MapaReal, Leaflet + OpenStreetMap): se usa con VITE_MAPA=simulado o si los mosaicos no cargan.
 const fuente = 'Outfit, Arial, sans-serif';
 const ruta = 'M710 350 V410 H830 V170 H1070';
 const avenidas = 'M0 410 H1280 M830 0 V800 M710 290 L1050 -50 M560 410 L130 840';
@@ -19,7 +19,7 @@ export default function MapaSimulado({ conRuta = true, etiquetaDestino = 'Termin
       : conRuta ? `Mapa de Resistencia con la ruta hasta ${etiquetaDestino}` : 'Mapa de Resistencia';
 
   return (
-    <main className="mapa">
+    <main className={oferta ? 'mapa mapa--chofer' : 'mapa'}>
       <svg viewBox="0 0 1280 800" preserveAspectRatio="xMidYMid slice" role="img" aria-label={descripcion}>
         <rect width="1280" height="800" fill="#F1F3F4" />
         <rect x="566" y="296" width="138" height="108" rx="4" fill="#C8E6C9" />

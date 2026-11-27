@@ -29,7 +29,7 @@ La base de este proyecto se publica en el puerto local `5433` para no interferir
 El contenedor tiene tres bases, una por módulo, y cada una con su propio rol: `viajes` (`viajes_app`), `billetera` (`billetera_app`) y `lectura` (`lectura_app`, proyecciones del ADR 009). `npm run setup` las crea junto con sus roles y migraciones. Se puede correr las veces que haga falta, y en un volumen ya existente no hace falta `docker compose down -v`. Las URL están en `.env.example`. `ADMIN_DATABASE_URL` (el superusuario del contenedor) sólo la usa `npm run migrate`, no la app.
 
 - `npm run demo:propiedad-datos`: muestra que cada rol entra sólo a su base (`permission denied` entre módulos).
-- `npm run proyecciones:reconstruir`: rearma la proyección de saldos desde el outbox de la billetera.
+- `npm run proyecciones:reconstruir`: rearma las proyecciones de saldos e historial de viajes desde los outbox.
 
 ### Tests de integración
 

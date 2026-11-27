@@ -1,5 +1,6 @@
 import cors from 'cors';
 import express from 'express';
+import { ErrorDeDominio } from '../../dominio/errores.js';
 import { crearCabecerasSeguridad } from './cabecerasSeguridad.js';
 import { contexto, crearContextoPorPedido } from './contexto.js';
 import { manejadorDeErrores } from './errores.js';
@@ -26,7 +27,12 @@ export function crearApp({ config, logger, verificarDisponibilidad, autenticacio
 
   app.get('/health', (_req, res) => res.status(200).json({ ok: true }));
   app.get('/ready', async (_req, res) => {
-    await verificarDisponibilidad();
+    try {
+      await verificarDisponibilidad();
+    } catch (error) {
+      if (error instanceof ErrorDeDominio) throw error;
+      throw new ErrorDeDominio('SERVICIO_NO_DISPONIBLE', 'El servicio no está listo para atender pedidos.');
+    }
     res.status(200).json({ ok: true });
   });
 

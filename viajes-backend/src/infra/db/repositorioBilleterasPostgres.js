@@ -86,6 +86,22 @@ export function crearRepositorioBilleterasPostgres(pool) {
       return { saldoCentavos: Number(rows[0].saldo_centavos) };
     },
 
+    // Movimientos del pasajero, del más nuevo al más viejo (GET /billetera/me/movimientos). Se leen
+    // de la base `billetera`, que es la fuente de verdad del dinero: sin proyección y sin atraso.
+    async listarMovimientosPorPasajero(pasajeroId, { limite }) {
+      const billetera = await pool.query('SELECT id FROM billeteras WHERE pasajero_id = $1', [pasajeroId]);
+      if (!billetera.rows[0]) throw new ErrorDeDominio('BILLETERA_NO_ENCONTRADA', 'El pasajero no tiene billetera.');
+      const { rows } = await pool.query(
+        `SELECT id, tipo, importe_centavos AS "importeCentavos", viaje_id AS "viajeId", created_at AS "creadoAt"
+         FROM movimientos_billetera
+         WHERE billetera_id = $1
+         ORDER BY created_at DESC, id
+         LIMIT $2`,
+        [billetera.rows[0].id, limite],
+      );
+      return rows;
+    },
+
     // Cobro con su propia transacción en la base `billetera`.
     // - FOR UPDATE sobre la billetera: dos cobros del mismo pasajero van de a uno y el segundo ve el
     //   consumo del primero (la carrera de la variante D se sigue resolviendo dentro de una sola base).

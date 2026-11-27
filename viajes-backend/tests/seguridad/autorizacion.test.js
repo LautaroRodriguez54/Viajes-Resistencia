@@ -76,6 +76,13 @@ async function levantarApp(overrides = {}) {
       establecerHabilitacion: async () => ({}),
       tokens,
     },
+
+    operador: {
+      listarViajesActivos: async () => [],
+      cancelarViaje: async () => ({}),
+      reintentarCobro: async () => ({}),
+      tokens,
+    },
   };
 
   const app = crearApp({
@@ -349,4 +356,56 @@ test('un pasajero no puede consultar una billetera ajena mediante otro rol', asy
       },
     },
   });
+});
+
+test('rol prohibido en rutas idempotentes devuelve 403 antes de exigir o consumir Idempotency-Key', async () => {
+  let reservas = 0;
+  const baseIdempotencia = crearRepositorioIdempotenciaEnMemoria();
+  const idempotenciaEspia = {
+    ...baseIdempotencia,
+    async reservar(entrada) {
+      reservas += 1;
+      return baseIdempotencia.reservar(entrada);
+    },
+  };
+
+  const casos = [
+    { ruta: '/viajes', rol: Rol.CHOFER, body: { origen: { latitud: -27.45, longitud: -58.98 }, destino: { latitud: -27.44, longitud: -58.97 } } },
+    { ruta: `/viajes/${viajeId}/ofertas`, rol: Rol.CHOFER },
+    { ruta: `/viajes/${viajeId}/cancelar`, rol: Rol.CHOFER, body: {} },
+    { ruta: `/ofertas/${ofertaId}/aceptar`, rol: Rol.PASAJERO },
+    { ruta: `/ofertas/${ofertaId}/rechazar`, rol: Rol.PASAJERO },
+    { ruta: `/choferes/viajes/${viajeId}/finalizar`, rol: Rol.PASAJERO },
+    { ruta: `/choferes/viajes/${viajeId}/cancelar`, rol: Rol.PASAJERO, body: {} },
+    { ruta: `/operador/viajes/${viajeId}/cancelar`, rol: Rol.PASAJERO, body: { motivo: 'motivo válido' } },
+    { ruta: `/operador/viajes/${viajeId}/reintentar-cobro`, rol: Rol.CHOFER },
+  ];
+
+  await conApp(async (url) => {
+    for (const caso of casos) {
+      const sinClave = await fetch(`${url}${caso.ruta}`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${crearToken(caso.rol, pasajeroId)}`,
+          'Content-Type': 'application/json',
+        },
+        body: caso.body ? JSON.stringify(caso.body) : undefined,
+      });
+      assert.equal(sinClave.status, 403, `${caso.ruta} sin Idempotency-Key`);
+      assert.equal((await sinClave.json()).error?.codigo, 'RECURSO_PROHIBIDO');
+
+      const conClave = await fetch(`${url}${caso.ruta}`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${crearToken(caso.rol, pasajeroId)}`,
+          'Idempotency-Key': crypto.randomUUID(),
+          'Content-Type': 'application/json',
+        },
+        body: caso.body ? JSON.stringify(caso.body) : undefined,
+      });
+      assert.equal(conClave.status, 403, `${caso.ruta} con Idempotency-Key`);
+      assert.equal((await conClave.json()).error?.codigo, 'RECURSO_PROHIBIDO');
+    }
+    assert.equal(reservas, 0);
+  }, { idempotencia: idempotenciaEspia });
 });

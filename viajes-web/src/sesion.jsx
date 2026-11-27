@@ -25,7 +25,6 @@ export function ProveedorSesion({ children }) {
 
   const salir = useCallback(() => {
     guardarSesion(null);
-    sessionStorage.removeItem('viajes.viajeActual');
     setSesion(null);
   }, []);
 

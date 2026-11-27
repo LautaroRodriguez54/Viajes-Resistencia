@@ -1,6 +1,5 @@
 import { ErrorDeDominio } from '../../dominio/errores.js';
-import { decidirCancelacion, ESTADOS_ACTIVOS_OPERADOR } from '../../dominio/viajes/estadosViaje.js';
-import { Rol } from '../../dominio/usuarios/roles.js';
+import { ESTADOS_ACTIVOS_OPERADOR } from '../../dominio/viajes/estadosViaje.js';
 
 function mapearViaje(row) {
   return {
@@ -10,213 +9,122 @@ function mapearViaje(row) {
   };
 }
 
-export function crearRepositorioViajesPostgres(pool, opciones = {}) {
-  const { ofertaTtlSegundos = 30, ubicacionTtlSegundos = null } = opciones;
-  const ubicacionTtl = ubicacionTtlSegundos ?? null;
-
-  async function vencerOfertasExpiradasDelViaje(client, viajeId) {
-    const { rows } = await client.query(
-      `WITH vencidas AS (
-         SELECT id FROM ofertas_viaje
-         WHERE viaje_id = $1 AND estado = 'pendiente' AND vence_at <= now()
-         ORDER BY id
-         FOR UPDATE
-       )
-       UPDATE ofertas_viaje o
-       SET estado = 'vencida', respondida_at = now()
-       FROM vencidas
-       WHERE o.id = vencidas.id
-       RETURNING o.id, o.chofer_id`,
-      [viajeId],
-    );
-    for (const fila of rows) {
-      await client.query(
-        "INSERT INTO eventos_viaje (viaje_id, tipo, datos) VALUES ($1, 'oferta_vencida', $2::jsonb)",
-        [viajeId, JSON.stringify({ ofertaId: fila.id, choferId: fila.chofer_id })],
-      );
-    }
-    return rows;
-  }
-
-  async function seleccionarYCrearOferta(client, { viajeId, origen, estadosExcluidos }) {
-    const MAX_INTENTOS_CANDIDATO = 10;
-    let choferId = null;
-    for (let intento = 0; intento < MAX_INTENTOS_CANDIDATO; intento += 1) {
-      await client.query('SAVEPOINT buscar_candidato');
-      const candidato = await client.query(
-        `SELECT p.usuario_id
-         FROM perfiles_chofer p
-         JOIN ubicaciones_actuales_chofer u ON u.chofer_id = p.usuario_id
-         WHERE p.habilitado = TRUE AND p.disponible = TRUE
-           AND ST_DWithin(u.ubicacion, $1::geography, 5000)
-           AND ($3::int IS NULL OR u.reportada_at >= now() - make_interval(secs => $3))
-           AND NOT EXISTS (
-             SELECT 1 FROM viajes v
-             WHERE v.chofer_id = p.usuario_id
-               AND v.estado IN ('asignado', 'chofer_en_camino', 'en_curso')
-           )
-           AND NOT EXISTS (
-             SELECT 1 FROM ofertas_viaje o
-             WHERE o.viaje_id = $2
-               AND o.chofer_id = p.usuario_id
-               AND o.estado = ANY($4::text[])
-           )
-           AND NOT EXISTS (
-             SELECT 1 FROM ofertas_viaje o
-             WHERE o.chofer_id = p.usuario_id
-               AND o.estado = 'pendiente'
-               AND o.vence_at > now()
-           )
-         ORDER BY ST_Distance(u.ubicacion, $1::geography)
-         LIMIT 1 FOR UPDATE OF p SKIP LOCKED`,
-        [origen, viajeId, ubicacionTtl, estadosExcluidos],
-      );
-      if (!candidato.rows[0]) {
-        await client.query('RELEASE SAVEPOINT buscar_candidato');
-        break;
-      }
-
-      // En READ COMMITTED, el NOT EXISTS del SELECT anterior usa el snapshot previo al bloqueo.
-      // Con el bloqueo exclusivo sobre `p` ya tomado, esta segunda sentencia toma un snapshot
-      // nuevo que ve cualquier oferta recién confirmada por otra transacción concurrente.
-      const candidatoId = candidato.rows[0].usuario_id;
-      const sigueElegible = await client.query(
-        `SELECT 1
-         FROM perfiles_chofer p
-         JOIN ubicaciones_actuales_chofer u ON u.chofer_id = p.usuario_id
-         WHERE p.usuario_id = $1
-           AND p.habilitado = TRUE
-           AND p.disponible = TRUE
-           AND ($3::int IS NULL OR u.reportada_at >= now() - make_interval(secs => $3))
-           AND NOT EXISTS (
-             SELECT 1 FROM viajes v
-             WHERE v.chofer_id = p.usuario_id
-               AND v.estado IN ('asignado', 'chofer_en_camino', 'en_curso')
-           )
-           AND NOT EXISTS (
-             SELECT 1 FROM ofertas_viaje o
-             WHERE o.viaje_id = $2
-               AND o.chofer_id = p.usuario_id
-               AND o.estado = ANY($4::text[])
-           )
-           AND NOT EXISTS (
-             SELECT 1 FROM ofertas_viaje o
-             WHERE o.chofer_id = p.usuario_id
-               AND o.estado = 'pendiente'
-               AND o.vence_at > now()
-           )`,
-        [candidatoId, viajeId, ubicacionTtl, estadosExcluidos],
-      );
-      if (sigueElegible.rowCount === 1) {
-        await client.query('RELEASE SAVEPOINT buscar_candidato');
-        choferId = candidatoId;
-        break;
-      }
-      await client.query('ROLLBACK TO SAVEPOINT buscar_candidato');
-      await client.query('RELEASE SAVEPOINT buscar_candidato');
-    }
-    if (!choferId) return null;
-    const oferta = await client.query(
-      `INSERT INTO ofertas_viaje (viaje_id, chofer_id, estado, vence_at)
-       VALUES ($1, $2, 'pendiente', now() + make_interval(secs => $3))
-       RETURNING id, chofer_id, vence_at`,
-      [viajeId, choferId, ofertaTtlSegundos],
-    );
+async function vencerOfertasExpiradasDelViaje(client, viajeId) {
+  const { rows } = await client.query(
+    `WITH vencidas AS (
+       SELECT id FROM ofertas_viaje
+       WHERE viaje_id = $1 AND estado = 'pendiente' AND vence_at <= now()
+       ORDER BY id
+       FOR UPDATE
+     )
+     UPDATE ofertas_viaje o
+     SET estado = 'vencida', respondida_at = now()
+     FROM vencidas
+     WHERE o.id = vencidas.id
+     RETURNING o.id, o.chofer_id`,
+    [viajeId],
+  );
+  for (const fila of rows) {
     await client.query(
-      "INSERT INTO eventos_viaje (viaje_id, tipo, datos) VALUES ($1, 'oferta_creada', $2::jsonb)",
-      [viajeId, JSON.stringify({ ofertaId: oferta.rows[0].id, choferId: oferta.rows[0].chofer_id })],
+      "INSERT INTO eventos_viaje (viaje_id, tipo, datos) VALUES ($1, 'oferta_vencida', $2::jsonb)",
+      [viajeId, JSON.stringify({ ofertaId: fila.id, choferId: fila.chofer_id })],
     );
-    return { ofertaId: oferta.rows[0].id, choferId: oferta.rows[0].chofer_id, venceAt: oferta.rows[0].vence_at };
   }
+  return rows.map((fila) => ({ id: fila.id, choferId: fila.chofer_id }));
+}
 
-  async function procesarUnViajeConOfertasVencidas() {
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      // Orden global de bloqueos: viajes -> ofertas_viaje (ORDER BY id) -> perfiles_chofer.
-      const viaje = await client.query(
-        `SELECT v.id, v.estado, v.origen
-         FROM viajes v
-         WHERE EXISTS (
-           SELECT 1 FROM ofertas_viaje o
-           WHERE o.viaje_id = v.id
-             AND o.estado = 'pendiente'
-             AND o.vence_at <= now()
+async function seleccionarYCrearOferta(client, { ofertaTtlSegundos = 30, ubicacionTtl = null }, { viajeId, origen, estadosExcluidos }) {
+  const MAX_INTENTOS_CANDIDATO = 10;
+  let choferId = null;
+  for (let intento = 0; intento < MAX_INTENTOS_CANDIDATO; intento += 1) {
+    await client.query('SAVEPOINT buscar_candidato');
+    const candidato = await client.query(
+      `SELECT p.usuario_id
+       FROM perfiles_chofer p
+       JOIN ubicaciones_actuales_chofer u ON u.chofer_id = p.usuario_id
+       WHERE p.habilitado = TRUE AND p.disponible = TRUE
+         AND ST_DWithin(u.ubicacion, $1::geography, 5000)
+         AND ($3::int IS NULL OR u.reportada_at >= now() - make_interval(secs => $3))
+         AND NOT EXISTS (
+           SELECT 1 FROM viajes v
+           WHERE v.chofer_id = p.usuario_id
+             AND v.estado IN ('asignado', 'chofer_en_camino', 'en_curso')
          )
-         ORDER BY v.solicitado_at, v.id
-         LIMIT 1
-         FOR UPDATE OF v SKIP LOCKED`,
-      );
-      if (!viaje.rows[0]) {
-        await client.query('COMMIT');
-        return { encontrada: false };
-      }
-
-      const viajeId = viaje.rows[0].id;
-      const ofertas = await client.query(
-        `SELECT id, chofer_id, (vence_at <= now()) AS vencida
-         FROM ofertas_viaje
-         WHERE viaje_id = $1 AND estado = 'pendiente'
-         ORDER BY id
-         FOR UPDATE`,
-        [viajeId],
-      );
-      const vencidas = ofertas.rows.filter((fila) => fila.vencida);
-      const vigentes = ofertas.rows.filter((fila) => !fila.vencida);
-      if (vencidas.length === 0) {
-        await client.query('COMMIT');
-        return { encontrada: true, procesada: false };
-      }
-
-      await client.query(
-        "UPDATE ofertas_viaje SET estado = 'vencida', respondida_at = now() WHERE id = ANY($1::uuid[])",
-        [vencidas.map((fila) => fila.id)],
-      );
-      for (const fila of vencidas) {
-        await client.query(
-          "INSERT INTO eventos_viaje (viaje_id, tipo, datos) VALUES ($1, 'oferta_vencida', $2::jsonb)",
-          [viajeId, JSON.stringify({ ofertaId: fila.id, choferId: fila.chofer_id })],
-        );
-      }
-
-      let viajeEstado = viaje.rows[0].estado;
-      let reofrecida = false;
-      let nuevaOferta = null;
-      if (viajeEstado === 'solicitado' && vigentes.length === 0) {
-        nuevaOferta = await seleccionarYCrearOferta(client, {
-          viajeId,
-          origen: viaje.rows[0].origen,
-          estadosExcluidos: ['pendiente', 'rechazada', 'vencida'],
-        });
-        if (nuevaOferta) {
-          reofrecida = true;
-        } else {
-          await client.query(
-            "UPDATE viajes SET estado = 'sin_choferes_disponibles', version = version + 1 WHERE id = $1",
-            [viajeId],
-          );
-          await client.query(
-            "INSERT INTO eventos_viaje (viaje_id, tipo, datos) VALUES ($1, 'viaje_sin_choferes_disponibles', $2::jsonb)",
-            [viajeId, JSON.stringify({ motivo: 'sin_candidatos_tras_vencimiento', ofertasVencidas: vencidas.map((f) => f.id) })],
-          );
-          viajeEstado = 'sin_choferes_disponibles';
-        }
-      }
-
-      await client.query('COMMIT');
-      return {
-        encontrada: true,
-        procesada: true,
-        resultado: { viajeId, vencidas: vencidas.length, reofrecida, viajeEstado, nuevaOferta },
-      };
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
+         AND NOT EXISTS (
+           SELECT 1 FROM ofertas_viaje o
+           WHERE o.viaje_id = $2
+             AND o.chofer_id = p.usuario_id
+             AND o.estado = ANY($4::text[])
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM ofertas_viaje o
+           WHERE o.chofer_id = p.usuario_id
+             AND o.estado = 'pendiente'
+             AND o.vence_at > now()
+         )
+       ORDER BY ST_Distance(u.ubicacion, $1::geography)
+       LIMIT 1 FOR UPDATE OF p SKIP LOCKED`,
+      [origen, viajeId, ubicacionTtl, estadosExcluidos],
+    );
+    if (!candidato.rows[0]) {
+      await client.query('RELEASE SAVEPOINT buscar_candidato');
+      break;
     }
-  }
 
+    // En READ COMMITTED, el NOT EXISTS del SELECT anterior usa el snapshot previo al bloqueo.
+    // Con el bloqueo exclusivo sobre `p` ya tomado, esta segunda sentencia toma un snapshot
+    // nuevo que ve cualquier oferta recién confirmada por otra transacción concurrente.
+    const candidatoId = candidato.rows[0].usuario_id;
+    const sigueElegible = await client.query(
+      `SELECT 1
+       FROM perfiles_chofer p
+       JOIN ubicaciones_actuales_chofer u ON u.chofer_id = p.usuario_id
+       WHERE p.usuario_id = $1
+         AND p.habilitado = TRUE
+         AND p.disponible = TRUE
+         AND ($3::int IS NULL OR u.reportada_at >= now() - make_interval(secs => $3))
+         AND NOT EXISTS (
+           SELECT 1 FROM viajes v
+           WHERE v.chofer_id = p.usuario_id
+             AND v.estado IN ('asignado', 'chofer_en_camino', 'en_curso')
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM ofertas_viaje o
+           WHERE o.viaje_id = $2
+             AND o.chofer_id = p.usuario_id
+             AND o.estado = ANY($4::text[])
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM ofertas_viaje o
+           WHERE o.chofer_id = p.usuario_id
+             AND o.estado = 'pendiente'
+             AND o.vence_at > now()
+         )`,
+      [candidatoId, viajeId, ubicacionTtl, estadosExcluidos],
+    );
+    if (sigueElegible.rowCount === 1) {
+      await client.query('RELEASE SAVEPOINT buscar_candidato');
+      choferId = candidatoId;
+      break;
+    }
+    await client.query('ROLLBACK TO SAVEPOINT buscar_candidato');
+    await client.query('RELEASE SAVEPOINT buscar_candidato');
+  }
+  if (!choferId) return null;
+  const oferta = await client.query(
+    `INSERT INTO ofertas_viaje (viaje_id, chofer_id, estado, vence_at)
+     VALUES ($1, $2, 'pendiente', now() + make_interval(secs => $3))
+     RETURNING id, chofer_id, vence_at`,
+    [viajeId, choferId, ofertaTtlSegundos],
+  );
+  await client.query(
+    "INSERT INTO eventos_viaje (viaje_id, tipo, datos) VALUES ($1, 'oferta_creada', $2::jsonb)",
+    [viajeId, JSON.stringify({ ofertaId: oferta.rows[0].id, choferId: oferta.rows[0].chofer_id })],
+  );
+  return { ofertaId: oferta.rows[0].id, choferId: oferta.rows[0].chofer_id, venceAt: oferta.rows[0].vence_at };
+}
+
+export function crearRepositorioViajesPostgres(pool) {
   return {
     async obtenerParametrosTarifaActivos() {
       const { rows } = await pool.query(
@@ -257,261 +165,20 @@ export function crearRepositorioViajesPostgres(pool, opciones = {}) {
     },
     async buscarPorIdDelPasajero(viajeId, pasajeroId) {
       const { rows } = await pool.query(
-        `SELECT id, estado, pasajero_id, chofer_id, estimacion_centavos, tarifa_final_centavos, solicitado_at
-         FROM viajes WHERE id = $1 AND pasajero_id = $2`, [viajeId, pasajeroId],
+        `SELECT v.id, v.estado, v.pasajero_id, v.chofer_id, v.estimacion_centavos,
+                v.tarifa_final_centavos, v.solicitado_at,
+                EXISTS (
+                  SELECT 1 FROM ofertas_viaje o
+                  WHERE o.viaje_id = v.id
+                    AND o.estado = 'pendiente'
+                    AND o.vence_at > now()
+                ) AS tiene_oferta_vigente
+         FROM viajes v
+         WHERE v.id = $1 AND v.pasajero_id = $2`,
+        [viajeId, pasajeroId],
       );
-      return rows[0] ? mapearViaje(rows[0]) : null;
-    },
-    async ofrecerAlChoferCercano(viajeId, pasajeroId) {
-      const client = await pool.connect();
-      try {
-        await client.query('BEGIN');
-        const viaje = await client.query(
-          "SELECT id, origen FROM viajes WHERE id = $1 AND pasajero_id = $2 AND estado = 'solicitado' FOR UPDATE",
-          [viajeId, pasajeroId],
-        );
-        if (!viaje.rows[0]) throw new ErrorDeDominio('RECURSO_NO_ENCONTRADO', 'El viaje no está disponible para recibir ofertas.');
-        // Limpia ofertas ya vencidas de este viaje para no bloquear al único chofer disponible en demos.
-        await vencerOfertasExpiradasDelViaje(client, viajeId);
-        const oferta = await seleccionarYCrearOferta(client, {
-          viajeId,
-          origen: viaje.rows[0].origen,
-          estadosExcluidos: ['pendiente', 'rechazada'],
-        });
-        if (!oferta) throw new ErrorDeDominio('SIN_CHOFERES_CERCANOS', 'No hay choferes disponibles en el radio configurado.');
-        await client.query('COMMIT');
-        return oferta;
-      } catch (error) {
-        await client.query('ROLLBACK');
-        if (error?.code === '23505' && error.constraint === 'ux_oferta_pendiente_viaje_chofer') {
-          throw new ErrorDeDominio('OFERTA_NO_DISPONIBLE', 'Ya existe una oferta pendiente para ese chofer en este viaje.');
-        }
-        throw error;
-      } finally { client.release(); }
-    },
-    async rechazarOferta(ofertaId, choferId) {
-      const client = await pool.connect();
-      try {
-        await client.query('BEGIN');
-        const referencia = await client.query('SELECT id, viaje_id, chofer_id FROM ofertas_viaje WHERE id = $1', [ofertaId]);
-        if (!referencia.rows[0]) throw new ErrorDeDominio('OFERTA_NO_ENCONTRADA', 'La oferta no existe.');
-        if (referencia.rows[0].chofer_id !== choferId) throw new ErrorDeDominio('RECURSO_PROHIBIDO', 'La oferta pertenece a otro chofer.');
-        const viajeId = referencia.rows[0].viaje_id;
-
-        // Orden global de bloqueos: viajes -> ofertas_viaje (ORDER BY id) -> perfiles_chofer.
-        const viaje = await client.query('SELECT id, estado, origen FROM viajes WHERE id = $1 FOR UPDATE', [viajeId]);
-        const ofertas = await client.query(
-          `SELECT id, viaje_id, chofer_id, estado, (vence_at <= now()) AS vencida
-           FROM ofertas_viaje
-           WHERE viaje_id = $1 AND (estado = 'pendiente' OR id = $2)
-           ORDER BY id
-           FOR UPDATE`,
-          [viajeId, ofertaId],
-        );
-        const actual = ofertas.rows.find((fila) => fila.id === ofertaId);
-        if (!actual) throw new ErrorDeDominio('OFERTA_NO_ENCONTRADA', 'La oferta no existe.');
-        if (actual.chofer_id !== choferId) throw new ErrorDeDominio('RECURSO_PROHIBIDO', 'La oferta pertenece a otro chofer.');
-        if (actual.estado !== 'pendiente' || actual.vencida) throw new ErrorDeDominio('OFERTA_NO_DISPONIBLE', 'La oferta venció o ya fue respondida.');
-        if (!viaje.rows[0] || viaje.rows[0].estado !== 'solicitado') throw new ErrorDeDominio('OFERTA_NO_DISPONIBLE', 'El viaje ya no admite respuestas sobre ofertas.');
-
-        await client.query("UPDATE ofertas_viaje SET estado = 'rechazada', respondida_at = now() WHERE id = $1", [ofertaId]);
-        await client.query(
-          "INSERT INTO eventos_viaje (viaje_id, tipo, datos) VALUES ($1, 'oferta_rechazada', $2::jsonb)",
-          [viajeId, JSON.stringify({ ofertaId, choferId })],
-        );
-
-        const otrasVencidas = ofertas.rows.filter(
-          (fila) => fila.id !== ofertaId && fila.estado === 'pendiente' && fila.vencida,
-        );
-        if (otrasVencidas.length > 0) {
-          await client.query(
-            "UPDATE ofertas_viaje SET estado = 'vencida', respondida_at = now() WHERE id = ANY($1::uuid[])",
-            [otrasVencidas.map((fila) => fila.id)],
-          );
-          for (const fila of otrasVencidas) {
-            await client.query(
-              "INSERT INTO eventos_viaje (viaje_id, tipo, datos) VALUES ($1, 'oferta_vencida', $2::jsonb)",
-              [viajeId, JSON.stringify({ ofertaId: fila.id, choferId: fila.chofer_id })],
-            );
-          }
-        }
-
-        const quedaVigente = ofertas.rows.some(
-          (fila) => fila.id !== ofertaId && fila.estado === 'pendiente' && !fila.vencida,
-        );
-        let viajeEstado = viaje.rows[0].estado;
-        let reofrecida = false;
-        if (!quedaVigente) {
-          const nuevaOferta = await seleccionarYCrearOferta(client, {
-            viajeId,
-            origen: viaje.rows[0].origen,
-            estadosExcluidos: ['pendiente', 'rechazada', 'vencida'],
-          });
-          if (nuevaOferta) {
-            reofrecida = true;
-          } else {
-            await client.query(
-              "UPDATE viajes SET estado = 'sin_choferes_disponibles', version = version + 1 WHERE id = $1",
-              [viajeId],
-            );
-            await client.query(
-              "INSERT INTO eventos_viaje (viaje_id, tipo, datos) VALUES ($1, 'viaje_sin_choferes_disponibles', $2::jsonb)",
-              [viajeId, JSON.stringify({ motivo: 'sin_candidatos_tras_rechazo', ofertaId })],
-            );
-            viajeEstado = 'sin_choferes_disponibles';
-          }
-        }
-
-        await client.query('COMMIT');
-        return { viajeId, ofertaId, estado: 'rechazada', viajeEstado, reofrecida };
-      } catch (error) {
-        await client.query('ROLLBACK');
-        throw error;
-      } finally { client.release(); }
-    },
-    async procesarOfertasVencidas({ maxPorVuelta = 100 } = {}) {
-      const resultados = [];
-      for (let i = 0; i < maxPorVuelta; i += 1) {
-        const vuelta = await procesarUnViajeConOfertasVencidas();
-        if (!vuelta.encontrada) break;
-        if (vuelta.procesada) resultados.push(vuelta.resultado);
-      }
-      return resultados;
-    },
-    async aceptarOferta(ofertaId, choferId) {
-      const client = await pool.connect();
-      try {
-        await client.query('BEGIN');
-        const referencia = await client.query('SELECT id, viaje_id, chofer_id FROM ofertas_viaje WHERE id = $1', [ofertaId]);
-        if (!referencia.rows[0]) throw new ErrorDeDominio('OFERTA_NO_ENCONTRADA', 'La oferta no existe.');
-        if (referencia.rows[0].chofer_id !== choferId) throw new ErrorDeDominio('RECURSO_PROHIBIDO', 'La oferta pertenece a otro chofer.');
-        const viajeId = referencia.rows[0].viaje_id;
-
-        // Orden global de bloqueos: viajes -> ofertas_viaje (ORDER BY id) -> perfiles_chofer.
-        const viaje = await client.query('SELECT id, estado FROM viajes WHERE id = $1 FOR UPDATE', [viajeId]);
-        const ofertas = await client.query(
-          `SELECT id, viaje_id, chofer_id, estado, (vence_at <= now()) AS vencida
-           FROM ofertas_viaje
-           WHERE viaje_id = $1 AND (estado = 'pendiente' OR id = $2)
-           ORDER BY id
-           FOR UPDATE`,
-          [viajeId, ofertaId],
-        );
-        const actual = ofertas.rows.find((fila) => fila.id === ofertaId);
-        if (!actual) throw new ErrorDeDominio('OFERTA_NO_ENCONTRADA', 'La oferta no existe.');
-        if (actual.chofer_id !== choferId) throw new ErrorDeDominio('RECURSO_PROHIBIDO', 'La oferta pertenece a otro chofer.');
-        if (actual.estado !== 'pendiente' || actual.vencida) throw new ErrorDeDominio('OFERTA_NO_DISPONIBLE', 'La oferta venció o ya fue respondida.');
-        if (!viaje.rows[0] || viaje.rows[0].estado !== 'solicitado') throw new ErrorDeDominio('OFERTA_NO_DISPONIBLE', 'El viaje ya no puede asignarse.');
-
-        const chofer = await client.query('SELECT habilitado, disponible FROM perfiles_chofer WHERE usuario_id = $1 FOR UPDATE', [choferId]);
-        if (!chofer.rows[0]?.habilitado) throw new ErrorDeDominio('CHOFER_NO_HABILITADO', 'El chofer no está habilitado.');
-        const viajeActivo = await client.query(
-          "SELECT 1 FROM viajes WHERE chofer_id = $1 AND estado IN ('asignado', 'chofer_en_camino', 'en_curso') LIMIT 1",
-          [choferId],
-        );
-        if (viajeActivo.rows[0]) throw new ErrorDeDominio('CHOFER_CON_VIAJE_ACTIVO', 'El chofer ya tiene un viaje activo.');
-        if (!chofer.rows[0].disponible) throw new ErrorDeDominio('CHOFER_NO_DISPONIBLE', 'El chofer no está disponible.');
-
-        await client.query("UPDATE viajes SET chofer_id = $2, estado = 'asignado', asignado_at = now(), version = version + 1 WHERE id = $1", [viajeId, choferId]);
-        await client.query("UPDATE ofertas_viaje SET estado = 'aceptada', respondida_at = now() WHERE id = $1", [ofertaId]);
-        await client.query(
-          "UPDATE ofertas_viaje SET estado = 'vencida', respondida_at = now() WHERE viaje_id = $1 AND id <> $2 AND estado = 'pendiente'",
-          [viajeId, ofertaId],
-        );
-        await client.query('UPDATE perfiles_chofer SET disponible = FALSE, updated_at = now() WHERE usuario_id = $1', [choferId]);
-        await client.query("INSERT INTO eventos_viaje (viaje_id, tipo, datos) VALUES ($1, 'viaje_asignado', $2::jsonb)", [viajeId, JSON.stringify({ choferId, ofertaId })]);
-        await client.query('COMMIT');
-        return { viajeId, ofertaId, estado: 'asignado' };
-      } catch (error) {
-        await client.query('ROLLBACK');
-        if (error?.code === '23505') {
-          if (error.constraint === 'ux_chofer_un_viaje_activo') {
-            throw new ErrorDeDominio('CHOFER_CON_VIAJE_ACTIVO', 'El chofer ya tiene un viaje activo.');
-          }
-          if (error.constraint === 'ux_una_oferta_aceptada_por_viaje') {
-            throw new ErrorDeDominio('OFERTA_NO_DISPONIBLE', 'El viaje ya fue asignado a otro chofer.');
-          }
-        }
-        throw error;
-      } finally { client.release(); }
-    },
-    async avanzarEstado(viajeId, choferId, nuevoEstado) {
-      const anteriores = { chofer_en_camino: 'asignado', en_curso: 'chofer_en_camino' };
-      const client = await pool.connect();
-      try {
-        await client.query('BEGIN');
-        const actual = await client.query('SELECT estado, chofer_id FROM viajes WHERE id = $1 FOR UPDATE', [viajeId]);
-        if (!actual.rows[0] || actual.rows[0].chofer_id !== choferId) throw new ErrorDeDominio('RECURSO_NO_ENCONTRADO', 'El viaje no pertenece al chofer.');
-        if (anteriores[nuevoEstado] !== actual.rows[0].estado) throw new ErrorDeDominio('TRANSICION_INVALIDA', 'La transición de estado no es válida.');
-        const columna = nuevoEstado === 'en_curso' ? 'iniciado_at' : null;
-        await client.query(`UPDATE viajes SET estado = $2, ${columna ? `${columna} = now(), ` : ''}version = version + 1 WHERE id = $1`, [viajeId, nuevoEstado]);
-        await client.query('INSERT INTO eventos_viaje (viaje_id, tipo) VALUES ($1, $2)', [viajeId, `estado_${nuevoEstado}`]);
-        await client.query('COMMIT');
-        return { viajeId, estado: nuevoEstado };
-      } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
-    },
-    async cancelarViaje({ viajeId, actorId, rol, motivo = null }) {
-      const client = await pool.connect();
-      try {
-        await client.query('BEGIN');
-        // Orden global de bloqueos: viajes -> ofertas_viaje (ORDER BY id) -> perfiles_chofer.
-        const actual = await client.query(
-          'SELECT id, estado, pasajero_id, chofer_id FROM viajes WHERE id = $1 FOR UPDATE',
-          [viajeId],
-        );
-        const fila = actual.rows[0];
-        if (!fila) throw new ErrorDeDominio('RECURSO_NO_ENCONTRADO', 'El viaje no existe.');
-        if (rol === Rol.PASAJERO && fila.pasajero_id !== actorId) {
-          throw new ErrorDeDominio('RECURSO_NO_ENCONTRADO', 'El viaje no existe o no pertenece al pasajero.');
-        }
-        if (rol === Rol.CHOFER && fila.chofer_id !== actorId) {
-          throw new ErrorDeDominio('RECURSO_NO_ENCONTRADO', 'El viaje no pertenece al chofer.');
-        }
-
-        const decision = decidirCancelacion({ estadoActual: fila.estado, rol, motivo });
-
-        const ofertasPendientes = await client.query(
-          "SELECT id FROM ofertas_viaje WHERE viaje_id = $1 AND estado = 'pendiente' ORDER BY id FOR UPDATE",
-          [viajeId],
-        );
-        if (ofertasPendientes.rows.length > 0) {
-          await client.query(
-            "UPDATE ofertas_viaje SET estado = 'vencida', respondida_at = now() WHERE id = ANY($1::uuid[])",
-            [ofertasPendientes.rows.map((o) => o.id)],
-          );
-        }
-
-        if (decision.liberarChofer && fila.chofer_id) {
-          await client.query(
-            'UPDATE perfiles_chofer SET disponible = habilitado, updated_at = now() WHERE usuario_id = $1',
-            [fila.chofer_id],
-          );
-        }
-
-        const { rows } = await client.query(
-          `UPDATE viajes
-           SET estado = $2, cancelado_at = now(), cancelado_por_id = $3, motivo_cancelacion = $4, version = version + 1
-           WHERE id = $1
-           RETURNING id, estado, cancelado_at, motivo_cancelacion`,
-          [viajeId, decision.nuevoEstado, actorId, decision.motivo],
-        );
-        await client.query(
-          'INSERT INTO eventos_viaje (viaje_id, tipo, datos) VALUES ($1, $2, $3::jsonb)',
-          [viajeId, decision.nuevoEstado, JSON.stringify({ actorId, rol, motivo: decision.motivo })],
-        );
-        await client.query('COMMIT');
-        return {
-          viajeId: rows[0].id,
-          estado: rows[0].estado,
-          canceladoAt: rows[0].cancelado_at,
-          motivo: rows[0].motivo_cancelacion,
-        };
-      } catch (error) {
-        await client.query('ROLLBACK');
-        throw error;
-      } finally {
-        client.release();
-      }
+      if (!rows[0]) return null;
+      return { ...mapearViaje(rows[0]), tieneOfertaVigente: Boolean(rows[0].tiene_oferta_vigente) };
     },
     // Lecturas del chofer (sin bloqueos): la web las consulta cada 2 s mientras no haya SSE.
     // Sólo devuelve una oferta pendiente, vigente y de un viaje que todavía se puede asignar.
@@ -612,6 +279,205 @@ export function crearCobroViajesPostgres(client) {
     // El viaje sigue en pago_pendiente; sólo queda registrado por qué no se cobró.
     async registrarCobroPendiente(viajeId, { importeCentavos, motivo }) {
       await client.query("INSERT INTO eventos_viaje (viaje_id, tipo, datos) VALUES ($1, 'cobro_pendiente', $2::jsonb)", [viajeId, JSON.stringify({ importeCentavos, motivo })]);
+    },
+  };
+}
+
+// Operaciones de viajes sobre el `client` de la transacción abierta por unidadDeTrabajoViajesPostgres.
+export function crearOperacionesViajesPostgres(client, opciones = {}) {
+  const { ofertaTtlSegundos = 30, ubicacionTtlSegundos = null } = opciones;
+  const ubicacionTtl = ubicacionTtlSegundos ?? null;
+
+  return {
+    async bloquearViaje(viajeId) {
+      const { rows } = await client.query(
+        'SELECT id, estado, pasajero_id, chofer_id, origen FROM viajes WHERE id = $1 FOR UPDATE',
+        [viajeId],
+      );
+      const fila = rows[0];
+      if (!fila) return null;
+      return {
+        id: fila.id,
+        estado: fila.estado,
+        pasajeroId: fila.pasajero_id,
+        choferId: fila.chofer_id,
+        origen: fila.origen,
+      };
+    },
+    async actualizarEstadoViaje(viajeId, { nuevoEstado, registrarInicio }) {
+      const sql = registrarInicio
+        ? 'UPDATE viajes SET estado = $2, iniciado_at = now(), version = version + 1 WHERE id = $1'
+        : 'UPDATE viajes SET estado = $2, version = version + 1 WHERE id = $1';
+      await client.query(sql, [viajeId, nuevoEstado]);
+    },
+    async vencerOfertasPendientesDelViaje(viajeId) {
+      const pendientes = await client.query(
+        "SELECT id FROM ofertas_viaje WHERE viaje_id = $1 AND estado = 'pendiente' ORDER BY id FOR UPDATE",
+        [viajeId],
+      );
+      if (pendientes.rows.length > 0) {
+        await client.query(
+          "UPDATE ofertas_viaje SET estado = 'vencida', respondida_at = now() WHERE id = ANY($1::uuid[])",
+          [pendientes.rows.map((o) => o.id)],
+        );
+      }
+    },
+    async liberarChoferSiHabilitado(choferId) {
+      await client.query(
+        'UPDATE perfiles_chofer SET disponible = habilitado, updated_at = now() WHERE usuario_id = $1',
+        [choferId],
+      );
+    },
+    async registrarCancelacionViaje(viajeId, { nuevoEstado, actorId, motivo }) {
+      const { rows } = await client.query(
+        `UPDATE viajes
+         SET estado = $2, cancelado_at = now(), cancelado_por_id = $3, motivo_cancelacion = $4, version = version + 1
+         WHERE id = $1
+         RETURNING id, estado, cancelado_at, motivo_cancelacion`,
+        [viajeId, nuevoEstado, actorId, motivo],
+      );
+      return {
+        viajeId: rows[0].id,
+        estado: rows[0].estado,
+        canceladoAt: rows[0].cancelado_at,
+        motivo: rows[0].motivo_cancelacion,
+      };
+    },
+    async registrarEventoViaje(viajeId, tipo, datos = null) {
+      if (datos === null) {
+        await client.query('INSERT INTO eventos_viaje (viaje_id, tipo) VALUES ($1, $2)', [viajeId, tipo]);
+        return;
+      }
+      await client.query(
+        'INSERT INTO eventos_viaje (viaje_id, tipo, datos) VALUES ($1, $2, $3::jsonb)',
+        [viajeId, tipo, JSON.stringify(datos)],
+      );
+    },
+    async buscarReferenciaOferta(ofertaId) {
+      const { rows } = await client.query(
+        'SELECT id, viaje_id, chofer_id FROM ofertas_viaje WHERE id = $1',
+        [ofertaId],
+      );
+      const fila = rows[0];
+      if (!fila) return null;
+      return { id: fila.id, viajeId: fila.viaje_id, choferId: fila.chofer_id };
+    },
+    async bloquearOfertasDelViaje(viajeId, ofertaId = null) {
+      const { rows } = ofertaId
+        ? await client.query(
+          `SELECT id, viaje_id, chofer_id, estado, (vence_at <= now()) AS vencida
+           FROM ofertas_viaje
+           WHERE viaje_id = $1 AND (estado = 'pendiente' OR id = $2)
+           ORDER BY id
+           FOR UPDATE`,
+          [viajeId, ofertaId],
+        )
+        : await client.query(
+          `SELECT id, viaje_id, chofer_id, estado, (vence_at <= now()) AS vencida
+           FROM ofertas_viaje
+           WHERE viaje_id = $1 AND estado = 'pendiente'
+           ORDER BY id
+           FOR UPDATE`,
+          [viajeId],
+        );
+      return rows.map((fila) => ({
+        id: fila.id,
+        viajeId: fila.viaje_id,
+        choferId: fila.chofer_id,
+        estado: fila.estado,
+        vencida: Boolean(fila.vencida),
+      }));
+    },
+    async bloquearChofer(choferId) {
+      const { rows } = await client.query(
+        'SELECT habilitado, disponible FROM perfiles_chofer WHERE usuario_id = $1 FOR UPDATE',
+        [choferId],
+      );
+      const perfil = rows[0];
+      if (!perfil) return null;
+      const activo = await client.query(
+        "SELECT 1 FROM viajes WHERE chofer_id = $1 AND estado IN ('asignado', 'chofer_en_camino', 'en_curso') LIMIT 1",
+        [choferId],
+      );
+      return {
+        habilitado: perfil.habilitado,
+        disponible: perfil.disponible,
+        tieneViajeActivo: Boolean(activo.rows[0]),
+      };
+    },
+    async registrarAceptacionOferta({ viajeId, ofertaId, choferId }) {
+      await client.query(
+        "UPDATE viajes SET chofer_id = $2, estado = 'asignado', asignado_at = now(), version = version + 1 WHERE id = $1",
+        [viajeId, choferId],
+      );
+      await client.query("UPDATE ofertas_viaje SET estado = 'aceptada', respondida_at = now() WHERE id = $1", [ofertaId]);
+      await client.query(
+        "UPDATE ofertas_viaje SET estado = 'vencida', respondida_at = now() WHERE viaje_id = $1 AND id <> $2 AND estado = 'pendiente'",
+        [viajeId, ofertaId],
+      );
+      await client.query('UPDATE perfiles_chofer SET disponible = FALSE, updated_at = now() WHERE usuario_id = $1', [choferId]);
+      await client.query(
+        "INSERT INTO eventos_viaje (viaje_id, tipo, datos) VALUES ($1, 'viaje_asignado', $2::jsonb)",
+        [viajeId, JSON.stringify({ choferId, ofertaId })],
+      );
+    },
+    async bloquearViajeSolicitadoDelPasajero(viajeId, pasajeroId) {
+      const { rows } = await client.query(
+        "SELECT id, origen FROM viajes WHERE id = $1 AND pasajero_id = $2 AND estado = 'solicitado' FOR UPDATE",
+        [viajeId, pasajeroId],
+      );
+      return rows[0] ?? null;
+    },
+    vencerOfertasExpiradasDelViaje(viajeId) {
+      return vencerOfertasExpiradasDelViaje(client, viajeId);
+    },
+    seleccionarYCrearOferta({ viajeId, origen, estadosExcluidos }) {
+      return seleccionarYCrearOferta(client, { ofertaTtlSegundos, ubicacionTtl }, { viajeId, origen, estadosExcluidos });
+    },
+    async marcarOfertaRechazada({ viajeId, ofertaId, choferId }) {
+      await client.query("UPDATE ofertas_viaje SET estado = 'rechazada', respondida_at = now() WHERE id = $1", [ofertaId]);
+      await client.query(
+        "INSERT INTO eventos_viaje (viaje_id, tipo, datos) VALUES ($1, 'oferta_rechazada', $2::jsonb)",
+        [viajeId, JSON.stringify({ ofertaId, choferId })],
+      );
+    },
+    async marcarOfertasVencidas(viajeId, ofertasVencidas) {
+      await client.query(
+        "UPDATE ofertas_viaje SET estado = 'vencida', respondida_at = now() WHERE id = ANY($1::uuid[])",
+        [ofertasVencidas.map((fila) => fila.id)],
+      );
+      for (const fila of ofertasVencidas) {
+        await client.query(
+          "INSERT INTO eventos_viaje (viaje_id, tipo, datos) VALUES ($1, 'oferta_vencida', $2::jsonb)",
+          [viajeId, JSON.stringify({ ofertaId: fila.id, choferId: fila.choferId })],
+        );
+      }
+    },
+    async marcarViajeSinChoferesDisponibles(viajeId, datosEvento) {
+      await client.query(
+        "UPDATE viajes SET estado = 'sin_choferes_disponibles', version = version + 1 WHERE id = $1",
+        [viajeId],
+      );
+      await client.query(
+        "INSERT INTO eventos_viaje (viaje_id, tipo, datos) VALUES ($1, 'viaje_sin_choferes_disponibles', $2::jsonb)",
+        [viajeId, JSON.stringify(datosEvento)],
+      );
+    },
+    async bloquearSiguienteViajeConOfertaVencida() {
+      const { rows } = await client.query(
+        `SELECT v.id, v.estado, v.origen
+         FROM viajes v
+         WHERE EXISTS (
+           SELECT 1 FROM ofertas_viaje o
+           WHERE o.viaje_id = v.id
+             AND o.estado = 'pendiente'
+             AND o.vence_at <= now()
+         )
+         ORDER BY v.solicitado_at, v.id
+         LIMIT 1
+         FOR UPDATE OF v SKIP LOCKED`,
+      );
+      return rows[0] ?? null;
     },
   };
 }

@@ -47,8 +47,7 @@ src/
 ```
 
 - El dominio no importa Express, `pg` ni librerías de infraestructura.
-- El cobro (finalizar y reintentar) es un caso de uso sobre puertos, en dos pasos (ADR 008): la unidad de trabajo `unidadDeTrabajoCobro` cubre la base `viajes` (Postgres: un `client` y un `BEGIN`/`COMMIT`; memoria: candados + cambios aplicados al confirmar) y `billetera.cobrar` cobra en su propia base con el viaje bloqueado. Adaptadores en memoria en `src/infra/memoria/`, tests en `tests/aplicacion/`.
-- Ofertas, aceptación y cambios de estado todavía van directo de la ruta al repositorio sin caso de uso ni puerto intermedio. Eso **no cumple** el bloque 2 (ver "Lo que falta").
+- El cobro (finalizar y reintentar) y el ciclo de vida completo de viajes y ofertas (ofrecer, aceptar, rechazar, vencer, cancelar y avanzar estado) viven como casos de uso en `src/aplicacion/viajes/` detrás de puertos (`unidadDeTrabajoCobro`, `unidadDeTrabajoViajes`), con adaptadores Postgres (`src/infra/db/`) y en memoria (`src/infra/memoria/` + `candados.js`), cubiertos en `tests/aplicacion/`.
 - Tres bases en el mismo contenedor, una por módulo y con su propio rol (ADR 008): `viajes`, `billetera` y `lectura` (proyecciones, ADR 009). Se comunican por outbox (`outbox_viajes`, `outbox_billetera`) y un despachador dentro del backend (`despachadorOutbox.js`).
 
 ## Convenciones
@@ -59,7 +58,7 @@ src/
 - **Dinero:** siempre centavos enteros (`INTEGER`), nunca floats.
 - **Billetera:** no existe saldo guardado en el modelo de escritura. El saldo es la suma de `movimientos_billetera` (`carga` suma, `consumo` resta). Los movimientos son inmutables (trigger); las correcciones se registran como movimientos nuevos.
 - **Transacciones:** `pool.connect()` → `BEGIN` → `SELECT ... FOR UPDATE` → `COMMIT` / `ROLLBACK` en `catch` → `release()` en `finally`. Orden de bloqueo usado: viaje → ofertas del viaje (`ORDER BY id`) → perfil de chofer, y viaje → billetera (la billetera en su propia base, con el viaje bloqueado; ADR 008). Mantenerlo para no generar interbloqueos.
-- **Eventos:** cada cambio de estado de un viaje inserta una fila en `eventos_viaje` en la misma transacción. Es la base del SSE y será el outbox del proyector CQRS.
+- **Eventos:** cada cambio de estado de un viaje inserta una fila en `eventos_viaje` en la misma transacción (auditoría y base del SSE). Además, un trigger (migración `006`) deja la foto de la fila en `outbox_viajes` (`ViajeCambiado`) en cada `INSERT`/`UPDATE` de `viajes`: no hace falta emitirlo a mano, pero cada `UPDATE` tiene que seguir subiendo `version` (si no, lo sube el trigger).
 - **PostGIS:** puntos como `geography(Point, 4326)`; ojo, `ST_MakePoint(longitud, latitud)`.
 - **Migraciones:** nuevos archivos en `src/infra/db/migraciones/` con prefijo numérico; se ejecutan en orden alfabético. No editar migraciones ya aplicadas.
 - **Librerías:** el enunciado exige poder explicar qué garantiza cada librería y qué pasaría sin ella. No sumar dependencias que nadie del grupo pueda defender.
@@ -90,7 +89,7 @@ Hilo conductor: **"La billetera es un servicio dueño de sus datos (12); como ya
 - **Nivel 2 (como en la exposición): bases separadas sincronizadas por eventos.**
   - Escritura: `viajes` (con `eventos_viaje`) y `billetera` (con su propio outbox de movimientos).
   - Lectura: base `lectura` con proyecciones desnormalizadas:
-    - `historial_viajes`: viaje + nombre del pasajero + nombre del chofer + tarifa + estado de cobro. Es el equivalente a "pedidos con el nombre del cliente" de la exposición: combina datos de dos bases que ya no admiten JOIN. Alimenta requisitos obligatorios del enunciado: historial del pasajero, historial del chofer y panel del operador.
+    - `historial_viajes` (**hecho, rama 10**: lo alimenta el trigger de la migración `006` con `ViajeCambiado`, ordenado por `version`; todavía sin nombres, porque `usuarios` no tiene `nombre`): viaje + nombre del pasajero + nombre del chofer + tarifa + estado de cobro. Es el equivalente a "pedidos con el nombre del cliente" de la exposición: combina datos de dos bases que ya no admiten JOIN. Alimenta requisitos obligatorios del enunciado: historial del pasajero, historial del chofer y panel del operador.
     - `saldos`: saldo y últimos movimientos para mostrar en `GET /billetera/me`.
   - Proyector: proceso dentro del backend que lee los outbox, aplica cada evento a `lectura` y registra lo procesado.
 - **Regla para la defensa:** la proyección de saldos es sólo para mostrar. **El cobro decide siempre sobre el modelo de escritura** (suma de movimientos con `FOR UPDATE`). La consistencia eventual en la pantalla se acepta; en el dinero, no.
@@ -113,14 +112,14 @@ Hilo conductor: **"La billetera es un servicio dueño de sus datos (12); como ya
 
 ## Estado actual
 
-Al 26/11/2026 (`main` en `8e48189`, con el #21 y el #22). El contrato completo está en `docs/openapi.yaml` (0.5.0).
+Al 26/11/2026 (`main` en `579a1cc`, más la rama 10). El contrato completo está en `docs/openapi.yaml` (0.7.0).
 
 | Área | Endpoints | Estado |
 |---|---|---|
-| Salud | `GET /health`, `GET /ready` (verifica las tres bases) | Hecho (`/ready` no verifica migraciones) |
+| Salud | `GET /health`, `GET /ready` (verifica las tres bases y `schema_migrations`) | Hecho |
 | Autenticación | `POST /auth/register` (pasajero/chofer), `POST /auth/login`, `GET /auth/me` | Hecho (sin refresh ni revocación) |
-| Billetera | `POST /billetera/webhooks/cargas` (HMAC + dedupe), `GET /billetera/me` (lee la proyección de `lectura`) | Hecho, en su propia base (ADR 008 y 009) |
-| Viajes | `POST /viajes`, `GET /viajes/:viajeId` (sólo el pasajero dueño), `POST /viajes/:viajeId/reintentar-cobro` | Hecho |
+| Billetera | `POST /billetera/webhooks/cargas` (HMAC + dedupe), `GET /billetera/me` (lee la proyección de `lectura`), `GET /billetera/me/movimientos` (lee la base `billetera`) | Hecho, en su propia base (ADR 008 y 009) |
+| Viajes | `POST /viajes`, `GET /viajes` (historial desde la proyección `historial_viajes`), `GET /viajes/:viajeId` (sólo el pasajero dueño), `POST /viajes/:viajeId/reintentar-cobro`, `POST /viajes/:viajeId/cancelar` | Hecho |
 | Ofertas | `POST /viajes/:viajeId/ofertas` (chofer más cercano a ≤5 km), `POST /ofertas/:ofertaId/aceptar`, `POST /ofertas/:ofertaId/rechazar` | Hecho, con vencimiento automático en el servidor (#22) |
 | Chofer | `PUT /choferes/me/disponibilidad`, `PUT /choferes/me/ubicacion`, `GET /choferes/me/ofertas`, `GET /choferes/me/viaje-actual`, `POST /choferes/viajes/:viajeId/estado`, `POST /choferes/viajes/:viajeId/finalizar` | Hecho |
 | Admin | `PATCH /admin/choferes/:choferId/habilitacion` | Hecho |
@@ -140,13 +139,13 @@ Prioridad: lo que pide el **control 3** de Puljiz (carrera con test concurrente 
 - [ ] Probar la secuencia de clon limpio en otra máquina.
 
 ### Bloque 2 — Arquitectura hexagonal
-- [~] Puertos para viajes, choferes/ofertas y billetera, cada uno con **adaptador real y adaptador en memoria** (`src/infra/memoria/`). Hecho: billetera, la parte de cobro de viajes y la unidad de trabajo del cobro (rama 6), e idempotencia. Falta: ofertas, aceptación y estados (Lucas).
-- [~] Sacar la lógica de cobro, aceptación y cambios de estado de los repositorios y pasarla a casos de uso que dependan de puertos. Hecho: el cobro (`finalizarViajeYCobrar`, `reintentarCobro`). Falta: aceptación y cambios de estado.
+- [x] Puertos para viajes, choferes/ofertas y billetera, cada uno con **adaptador real y adaptador en memoria** (`src/infra/memoria/`). Hecho: billetera, cobro, idempotencia, y ciclo de vida de viajes y ofertas (`unidadDeTrabajoViajes`, `candados.js`).
+- [x] Sacar la lógica de cobro, aceptación y cambios de estado de los repositorios y pasarla a casos de uso que dependan de puertos (`finalizarViajeYCobrar`, `reintentarCobro`, `avanzarEstadoViaje`, `cancelarViaje`, `aceptarOferta`, `ofrecerAlChoferCercano`, `rechazarOferta`, `procesarOfertasVencidas`).
 
 ### Bloque 3 — Configuración y ciclo de vida
-- [ ] `/ready` tiene que verificar también que las migraciones estén aplicadas.
-- [ ] Si el apagado supera `SHUTDOWN_TIMEOUT_MS`, loguear antes de `process.exit(1)` (`servidor.js`).
-- [ ] Demo: SIGTERM durante un pedido lento y el pedido termina antes de salir.
+- [x] `/ready` tiene que verificar también que las migraciones estén aplicadas (`schema_migrations` en las 3 bases → `503 SERVICIO_NO_DISPONIBLE`).
+- [x] Si el apagado supera `SHUTDOWN_TIMEOUT_MS`, loguear antes de `process.exit(1)` (`apagadoOrdenado.js` / `servidor.js`).
+- [x] Demo/test: `SIGTERM` durante un pedido lento y el pedido termina antes de salir (`tests/infra/apagadoOrdenado.test.js`).
 
 ### Bloque 4 — Errores y observabilidad
 - [x] Loguear los 4xx esperados con nivel menor que `error` en `errores.js` (`warn`, PR #10).
@@ -160,7 +159,7 @@ Prioridad: lo que pide el **control 3** de Puljiz (carrera con test concurrente 
 ### Bloque 6 y problema central (6.3) — Concurrencia e idempotencia
 - [x] Idempotencia HTTP (tema 3) con test (ADR 010, `tests/integracion/idempotenciaHttp.test.js`).
 - [x] Test: 50 aceptaciones simultáneas sobre el mismo viaje, exactamente una gana (`tests/concurrencia/aceptacionOfertas.test.js`).
-- [ ] Cancelaciones (pasajero, chofer, operador con motivo) y test de cancelación simultánea a la aceptación, con los dos resultados posibles documentados.
+- [x] Cancelaciones (pasajero, chofer, operador con motivo) y test de cancelación simultánea a la aceptación, con los dos resultados posibles documentados (#24–#26).
 - [x] Test: un chofer con viaje activo no puede aceptar otro.
 - [x] Vencimiento de ofertas en el servidor, siguiente candidato y `sin_choferes_disponibles` al agotar la lista (PR #22).
 - [x] Ofertas duplicadas y choferes con oferta pendiente con `FOR UPDATE SKIP LOCKED` + revalidación después del bloqueo (PR #21, que arregla el test intermitente).
@@ -180,10 +179,10 @@ Prioridad: lo que pide el **control 3** de Puljiz (carrera con test concurrente 
 - [ ] Asignación automática al crear el viaje (hoy el pasajero llama a mano a `/ofertas`).
 - [ ] Tiempo real por SSE con `Last-Event-ID` (estado del viaje + posición del chofer). `EventSource` no permite el header `Authorization`: ticket corto de un solo uso, nunca el JWT en la URL.
 - [ ] Test: la ubicación del chofer no se expone a quien no es su pasajero actual (ni la del pasajero a quien no es su chofer).
-- [ ] Historiales (pasajero y chofer) y panel del operador: salen de las proyecciones del tema 13.
+- [~] Historiales (pasajero y chofer) y panel del operador: salen de las proyecciones del tema 13. Hecho: el del pasajero (`GET /viajes`, rama 10) y los movimientos de la billetera. Falta el del chofer y que el panel del operador lea la proyección.
 - [ ] Administración de tarifas, zonas y parámetros.
 - [ ] Campo `nombre` en `usuarios` (migración nueva) y pedirlo en `POST /auth/register`. Hoy sólo hay email, y la proyección `historial_viajes` (tema 13) y las pantallas muestran nombre de pasajero y chofer.
-- [ ] Usuario operador en el seed (el rol existe en el `CHECK` pero no hay ningún usuario) y endpoints del operador: `GET /operador/viajes?estado=activos`, cancelar con motivo, reintentar cobro de un `pago_pendiente`.
+- [x] Usuario operador en el seed (`operador@demo.local`) y endpoints del operador: `GET /operador/viajes?estado=activos`, cancelar con motivo, reintentar cobro de un `pago_pendiente` (#24–#26).
 - [ ] La oferta le llega al chofer por SSE con origen, destino, polilínea de la ruta, distancia/tiempo hasta el retiro y tarifa estimada (la web la previsualiza en el mapa).
 - [ ] Decidir si el radio de búsqueda (hoy fijo en 5 km) pasa a parámetros administrables o queda como constante.
 - [ ] Política de retención/agregación de `historial_ubicaciones_chofer` (con 500 choferes son ~21 M filas/día).
@@ -209,7 +208,7 @@ Prioridad: lo que pide el **control 3** de Puljiz (carrera con test concurrente 
 Además de lo de Puljiz. Códigos RF/RNF del Word. El alcance exacto de cada entrega lo fija el Acta de Alcance: esto es el máximo posible, no todo es obligatorio para TP1.
 
 ### TP1 · Contrato ejecutable
-- [~] **OpenAPI** versionado (hecho: `docs/openapi.yaml` 0.5.0, + Swagger UI en el compose con `--profile docs`; falta validar las respuestas en los tests) (`docs/openapi.yaml`) con parámetros, esquemas, validaciones, ejemplos, respuestas de éxito y error (`{ error: { codigo, requestId } }`) y esquema de seguridad Bearer; visualización local (p. ej. Swagger UI en `GET /docs`, deshabilitada en producción). Los esquemas Zod y el contrato no pueden divergir.
+- [~] **OpenAPI** versionado (hecho: `docs/openapi.yaml` 0.7.0, + Swagger UI en el compose con `--profile docs`; falta validar las respuestas en los tests) (`docs/openapi.yaml`) con parámetros, esquemas, validaciones, ejemplos, respuestas de éxito y error (`{ error: { codigo, requestId } }`) y esquema de seguridad Bearer; visualización local (p. ej. Swagger UI en `GET /docs`, deshabilitada en producción). Los esquemas Zod y el contrato no pueden divergir.
 - [ ] Tests de integración que validen las respuestas contra el OpenAPI.
 - [ ] Mocks/stubs de las dependencias de otros módulos hechos desde **sus** OpenAPI, con casos de éxito, error y demora. Encajan como adaptadores en memoria de los puertos (también cumplen el bloque 2 de Puljiz).
 - [ ] **Dockerfile** del backend (multi-stage, usuario no root, `HEALTHCHECK` contra `/health`) y servicio `api` en `docker-compose.yml`. La secuencia de clon limpio de Puljiz tiene que seguir funcionando igual.
@@ -236,7 +235,7 @@ Además de lo de Puljiz. Códigos RF/RNF del Word. El alcance exacto de cada ent
 Casi todos ya están en "Lo que falta". El diseño de la web está en `viajes-web/CLAUDE.md`.
 
 - `http://localhost:5173` en `CORS_ORIGINS`; `POST /viajes/estimacion`; `mapearViaje` devolviendo `origen`/`destino` (`ST_Y`/`ST_X`) y vehículo, patente y minutos hasta el retiro; asignación automática; `GET /choferes/me/ofertas` + rechazar; SSE con ticket; evento `ubicacion_chofer` sólo por SSE (no en `eventos_viaje`); `GET /viajes`, `GET /choferes/me/viaje-actual`, `GET /billetera/me/movimientos`, `GET /operador/viajes?estado=activos`, `GET /admin/choferes`; carga demo; token de 15 min sin refresh (alargar `JWT_ACCESS_TOKEN_TTL` para la demo o implementar refresh).
-- **Mapas:** clave de servidor `GOOGLE_MAPS_SERVER_KEY` restringida a Routes, validada en `config/env.js`, nunca al cliente ni commiteada. **La tarifa se calcula siempre en el servidor**: el cliente manda sólo coordenadas; Routes API detrás de un puerto `calculadorRutas` con caída a Haversine (sirve también como servicio externo con timeout, RNF-13). La posición del chofer viene del navegador y puede falsificarse: validar rango, frecuencia y saltos imposibles (material para el ataque cruzado).
+- **Mapas:** la web usa OpenStreetMap (Leaflet, Photon y OSRM) sin claves (ADR 011, Decisión 4): Google pide tarjeta. **La tarifa se calcula siempre en el servidor**: el cliente manda sólo coordenadas y la ruta de OSRM es sólo visual. Si algún día la tarifa usa la distancia por calles, va OSRM (servidor propio o el público) detrás de un puerto `calculadorRutas` con caída a Haversine y timeout (RNF-13). La posición del chofer viene del navegador y puede falsificarse: validar rango, frecuencia y saltos imposibles (material para el ataque cruzado).
 
 ## Documentación de referencia
 

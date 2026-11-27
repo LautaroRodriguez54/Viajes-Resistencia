@@ -115,6 +115,8 @@ jobs:
           node-version: 22
 
       - name: Preparar servicios de prueba
+        env:
+          VITE_MAPA: simulado
         run: |
           cd viajes-backend
           cp .env.example .env

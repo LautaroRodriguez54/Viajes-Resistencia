@@ -9,6 +9,7 @@ import { crearUnidadDeTrabajoCobroPostgres } from '../../src/infra/db/unidadDeTr
 import { crearFinalizarViajeYCobrar } from '../../src/aplicacion/viajes/finalizarViajeYCobrar.js';
 import { crearReintentarCobro } from '../../src/aplicacion/viajes/reintentarCobro.js';
 import { crearRepositorioBilleterasPostgres } from '../../src/infra/db/repositorioBilleterasPostgres.js';
+import { crearCasosDeUsoViajesPostgres } from '../ayudas/casosDeUsoViajesPostgres.js';
 import { urlsDePrueba } from '../ayudas/basesDePrueba.js';
 
 // La billetera vive en billetera_test (ADR 008): este pool lo abre conBaseDePrueba y lo usan los
@@ -218,12 +219,12 @@ test('ofrecerAlChoferCercano selecciona un chofer disponible y registra la ofert
     const { pasajeroId } = await crearPasajero(pool);
     const choferId = await crearChofer(pool);
     const viajeId = await crearViaje(pool, pasajeroId);
-    const repositorio = crearRepositorioViajesPostgres(pool);
+    const { ofrecerAlChoferCercano } = crearCasosDeUsoViajesPostgres(pool);
 
-    const oferta = await repositorio.ofrecerAlChoferCercano(
+    const oferta = await ofrecerAlChoferCercano({
       viajeId,
       pasajeroId,
-    );
+    });
 
     assert.ok(oferta.ofertaId);
     assert.equal(oferta.choferId, choferId);
@@ -249,10 +250,10 @@ test('ofrecerAlChoferCercano no modifica el viaje si no hay choferes disponibles
 
     const { pasajeroId } = await crearPasajero(pool);
     const viajeId = await crearViaje(pool, pasajeroId);
-    const repositorio = crearRepositorioViajesPostgres(pool);
+    const { ofrecerAlChoferCercano } = crearCasosDeUsoViajesPostgres(pool);
 
     await assert.rejects(
-      repositorio.ofrecerAlChoferCercano(viajeId, pasajeroId),
+      ofrecerAlChoferCercano({ viajeId, pasajeroId }),
     );
 
     const viaje = await pool.query(
@@ -276,9 +277,9 @@ test('aceptarOferta asigna el viaje, ocupa al chofer y registra el evento', asyn
     const choferId = await crearChofer(pool);
     const viajeId = await crearViaje(pool, pasajeroId);
     const ofertaId = await crearOferta(pool, viajeId, choferId);
-    const repositorio = crearRepositorioViajesPostgres(pool);
+    const { aceptarOferta } = crearCasosDeUsoViajesPostgres(pool);
 
-    const resultado = await repositorio.aceptarOferta(ofertaId, choferId);
+    const resultado = await aceptarOferta({ ofertaId, choferId });
 
     assert.deepEqual(resultado, {
       viajeId,
@@ -320,10 +321,10 @@ test('aceptarOferta rechaza una oferta perteneciente a otro chofer', async (t) =
     const otroChoferId = await crearChofer(pool);
     const viajeId = await crearViaje(pool, pasajeroId);
     const ofertaId = await crearOferta(pool, viajeId, choferId);
-    const repositorio = crearRepositorioViajesPostgres(pool);
+    const { aceptarOferta } = crearCasosDeUsoViajesPostgres(pool);
 
     await assert.rejects(
-      repositorio.aceptarOferta(ofertaId, otroChoferId),
+      aceptarOferta({ ofertaId, choferId: otroChoferId }),
     );
 
     const oferta = await pool.query(
@@ -344,26 +345,26 @@ test('avanzarEstado permite transiciones válidas y rechaza transiciones inváli
       estado: 'asignado',
     });
 
-    const repositorio = crearRepositorioViajesPostgres(pool);
+    const { avanzarEstado } = crearCasosDeUsoViajesPostgres(pool);
 
-    const primera = await repositorio.avanzarEstado(
+    const primera = await avanzarEstado({
       viajeId,
       choferId,
-      'chofer_en_camino',
-    );
+      nuevoEstado: 'chofer_en_camino',
+    });
 
     assert.equal(primera.estado, 'chofer_en_camino');
 
-    const segunda = await repositorio.avanzarEstado(
+    const segunda = await avanzarEstado({
       viajeId,
       choferId,
-      'en_curso',
-    );
+      nuevoEstado: 'en_curso',
+    });
 
     assert.equal(segunda.estado, 'en_curso');
 
     await assert.rejects(
-      repositorio.avanzarEstado(viajeId, choferId, 'asignado'),
+      avanzarEstado({ viajeId, choferId, nuevoEstado: 'asignado' }),
     );
 
     const viaje = await pool.query(
@@ -746,5 +747,25 @@ test('buscarViajeActualDelChofer devuelve el viaje activo y null al finalizar', 
 
     await crearCobroPostgres(pool).finalizarYCobrar(viajeId, choferId);
     assert.equal(await repositorio.buscarViajeActualDelChofer(choferId), null);
+  });
+});
+
+test('buscarPorIdDelPasajero informa tieneOfertaVigente según ofertas pendientes no vencidas', async (t) => {
+  await conBaseDePrueba(t, async (pool) => {
+    const { pasajeroId } = await crearPasajero(pool);
+    const choferId = await crearChofer(pool);
+    const viajeId = await crearViaje(pool, pasajeroId);
+    const repositorio = crearRepositorioViajesPostgres(pool);
+
+    assert.equal((await repositorio.buscarPorIdDelPasajero(viajeId, pasajeroId)).tieneOfertaVigente, false);
+
+    const ofertaId = await crearOferta(pool, viajeId, choferId);
+    assert.equal((await repositorio.buscarPorIdDelPasajero(viajeId, pasajeroId)).tieneOfertaVigente, true);
+
+    await pool.query("UPDATE ofertas_viaje SET vence_at = now() - interval '1 second' WHERE id = $1", [ofertaId]);
+    assert.equal((await repositorio.buscarPorIdDelPasajero(viajeId, pasajeroId)).tieneOfertaVigente, false);
+
+    await pool.query("UPDATE ofertas_viaje SET estado = 'rechazada', vence_at = now() + interval '1 minute' WHERE id = $1", [ofertaId]);
+    assert.equal((await repositorio.buscarPorIdDelPasajero(viajeId, pasajeroId)).tieneOfertaVigente, false);
   });
 });

@@ -38,6 +38,8 @@ test('pasajero y chofer completan viaje con pago pendiente', async ({ browser, r
     await c.getByTestId('chofer-disponible').click();
     await expect(c.getByTestId('chofer-disponible')).toHaveAttribute('aria-checked', 'true');
     await expect(p.getByTestId('pedir-enviar')).toBeVisible();
+    await p.getByTestId('pedir-desde').selectOption('plaza');
+    await p.getByTestId('pedir-hasta').selectOption('terminal');
     await p.getByTestId('pedir-enviar').click();
     await expect(c.getByTestId('oferta-aceptar')).toBeVisible({ timeout: 20000 });
     await c.getByTestId('oferta-aceptar').click();

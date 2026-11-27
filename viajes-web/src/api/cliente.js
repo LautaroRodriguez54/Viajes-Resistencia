@@ -31,6 +31,7 @@ const mensajes = {
   PEDIDO_EN_CURSO: 'Ya estamos procesando este pedido. Esperá un momento.',
   CLAVE_IDEMPOTENCIA_REUTILIZADA: 'Ese pedido ya se usó con otros datos. Volvé a intentarlo.',
   LIMITE_DE_PETICIONES_EXCEDIDO: 'Demasiados intentos seguidos. Esperá un minuto.',
+  SERVICIO_NO_DISPONIBLE: 'El servicio no está listo todavía. Reintentá en un momento.',
   SIN_CONEXION: 'No pudimos conectar con el servidor. Revisá la conexión y reintentá.',
   ERROR_INTERNO: 'Algo falló en el servidor. Reintentá en un momento.',
 };
@@ -97,6 +98,9 @@ export const api = {
   ingresar: (email, password) => pedir('POST', '/auth/login', { cuerpo: { email, password } }),
   registrar: (datos) => pedir('POST', '/auth/register', { cuerpo: datos }),
   saldo: () => pedir('GET', '/billetera/me'),
+  // Movimientos desde la base `billetera` (sin atraso) e historial desde la proyección (tema 13).
+  movimientos: (limite = 20) => pedir('GET', `/billetera/me/movimientos?limite=${limite}`).then((r) => r.movimientos),
+  historial: (limite = 20) => pedir('GET', `/viajes?limite=${limite}`).then((r) => r.viajes),
   // POST /viajes y GET /viajes/:id responden { viaje } (ver openapi.yaml): se desenvuelve acá.
   solicitarViaje: (origen, destino, clave) => pedir('POST', '/viajes', { cuerpo: { origen, destino }, clave }).then((r) => r.viaje),
   buscarChofer: (viajeId, clave) => pedir('POST', `/viajes/${viajeId}/ofertas`, { clave }),
@@ -112,4 +116,10 @@ export const api = {
   rechazarOferta: (ofertaId, clave) => pedir('POST', `/ofertas/${ofertaId}/rechazar`, { clave }),
   avanzarEstado: (viajeId, estado) => pedir('POST', `/choferes/viajes/${viajeId}/estado`, { cuerpo: { estado } }),
   finalizar: (viajeId, clave) => pedir('POST', `/choferes/viajes/${viajeId}/finalizar`, { clave }),
+  // Cancelación del pasajero (#25): sin motivo obligatorio. Responde { viajeId, estado, canceladoAt, motivo }.
+  cancelarViaje: (viajeId, clave) => pedir('POST', `/viajes/${viajeId}/cancelar`, { cuerpo: {}, clave }),
+  // Operador (#26): viajes activos, cancelar con motivo obligatorio (3 a 200 caracteres) y reintentar un cobro pendiente.
+  viajesActivos: () => pedir('GET', '/operador/viajes?estado=activos').then((r) => r.viajes),
+  cancelarComoOperador: (viajeId, motivo, clave) => pedir('POST', `/operador/viajes/${viajeId}/cancelar`, { cuerpo: { motivo }, clave }),
+  reintentarCobroOperador: (viajeId, clave) => pedir('POST', `/operador/viajes/${viajeId}/reintentar-cobro`, { clave }),
 };
